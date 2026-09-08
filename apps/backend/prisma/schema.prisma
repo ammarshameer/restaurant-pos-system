@@ -1,0 +1,313 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// RESTAURANT & AUDIT
+// ============================================
+
+model Restaurant {
+  id              String          @id @default(cuid())
+  name            String
+  address         String
+  phone           String
+  email           String
+  timezone        String          @default("Asia/Karachi")
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  floorPlans      FloorPlan[]
+  employees       Employee[]
+  orders          Order[]
+  menuItems       MenuItem[]
+  categories      Category[]
+  inventory       InventoryItem[]
+}
+
+model FloorPlan {
+  id            String     @id @default(cuid())
+  name          String
+  restaurantId  String
+  layout        String     @default("{}") // Stores layout json string
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  tables        Table[]
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+}
+
+model Table {
+  id            String      @id @default(cuid())
+  number        String
+  floorPlanId   String
+  capacity      Int         @default(4)
+  minCapacity   Int         @default(1)
+  x             Float       @default(0)
+  y             Float       @default(0)
+  width         Float       @default(100)
+  height        Float       @default(100)
+  shape         String      @default("SQUARE")
+  section       String?
+  status        String      @default("AVAILABLE")
+  currentOrder  String?     @unique
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  floorPlan     FloorPlan   @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+  orders        Order[]
+}
+
+// ============================================
+// EMPLOYEE MANAGEMENT
+// ============================================
+
+model Employee {
+  id              String              @id @default(cuid())
+  firstName       String
+  lastName        String
+  email           String              @unique
+  phone           String?
+  role            String              @default("SERVER")
+  pin             String              @default("1234")
+  passwordHash    String
+  hourlyRate      Float?
+  restaurantId    String
+  isActive        Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  
+  restaurant      Restaurant          @relation(fields: [restaurantId], references: [id])
+  orders          Order[]             @relation("ServerOrders")
+  timeEntries     TimeEntry[]
+  modifications   OrderModification[]
+  refreshTokens   RefreshToken[]
+}
+
+model RefreshToken {
+  id          String   @id @default(cuid())
+  token       String   @unique
+  employeeId  String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+}
+
+model TimeEntry {
+  id              String    @id @default(cuid())
+  employeeId      String
+  clockIn         DateTime
+  clockOut        DateTime?
+  hoursWorked     Float?
+  createdAt       DateTime  @default(now())
+  
+  employee        Employee  @relation(fields: [employeeId], references: [id])
+}
+
+// ============================================
+// MENU MANAGEMENT
+// ============================================
+
+model Category {
+  id              String      @id @default(cuid())
+  name            String
+  displayOrder    Int         @default(0)
+  restaurantId    String
+  createdAt       DateTime    @default(now())
+  
+  restaurant      Restaurant  @relation(fields: [restaurantId], references: [id])
+  menuItems       MenuItem[]
+}
+
+model MenuItem {
+  id              String          @id @default(cuid())
+  name            String
+  description     String?
+  categoryId      String
+  price           Float
+  cost            Float?
+  imageUrl        String?
+  isAvailable     Boolean         @default(true)
+  is86d           Boolean         @default(false)
+  preparationTime Int?            @default(10)
+  restaurantId    String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  category        Category        @relation(fields: [categoryId], references: [id])
+  restaurant      Restaurant      @relation(fields: [restaurantId], references: [id])
+  modifiers       ModifierGroup[]
+  orderItems      OrderItem[]
+  inventoryItems  InventoryItem[]
+}
+
+model ModifierGroup {
+  id              String      @id @default(cuid())
+  name            String
+  minSelections   Int         @default(0)
+  maxSelections   Int?
+  isRequired      Boolean     @default(false)
+  menuItemId      String
+  
+  menuItem        MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  modifiers       Modifier[]
+}
+
+model Modifier {
+  id                 String              @id @default(cuid())
+  name               String
+  price              Float               @default(0)
+  modifierGroupId    String
+  
+  modifierGroup      ModifierGroup       @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+  orderItemModifiers OrderItemModifier[]
+}
+
+// ============================================
+// ORDER MANAGEMENT
+// ============================================
+
+model Order {
+  id              String        @id @default(cuid())
+  orderNumber     Int           @unique
+  orderType       String        @default("DINE_IN") // DINE_IN, TAKE_AWAY, DELIVERY
+  orderTypeLabel  String        @default("Dine In")
+  customerName    String?
+  customerPhone   String?
+  deliveryAddress String?
+  dineInTag       String?
+  tableId         String?
+  restaurantId    String
+  serverId        String
+  customerCount   Int           @default(1)
+  status          String        @default("confirmed") // confirmed, preparing, ready, served, paid, cancelled
+  paymentStatus   String        @default("UNPAID") // PAID, UNPAID
+  paymentMethod   String?       @default("CASH")
+  subtotal        Float         @default(0)
+  serviceCharge   Float         @default(0)
+  serviceChargeRate Float       @default(5)
+  tax             Float         @default(0)
+  total           Float         @default(0)
+  totalPaid       Float?        @default(0)
+  change          Float?        @default(0)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  completedAt     DateTime?
+  
+  table           Table?        @relation(fields: [tableId], references: [id])
+  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id])
+  server          Employee      @relation("ServerOrders", fields: [serverId], references: [id])
+  items           OrderItem[]
+  payments        Payment[]
+  modifications   OrderModification[]
+}
+
+model OrderItem {
+  id                  String            @id @default(cuid())
+  orderId             String
+  menuItemId          String?
+  name                String?
+  quantity            Int               @default(1)
+  unitPrice           Float             @default(0)
+  price               Float             @default(0)
+  total               Float             @default(0)
+  seatNumber          Int?
+  status              String            @default("PENDING")
+  course              String            @default("ENTREE")
+  specialInstructions String?
+  notes               String?
+  inventoryDeducted   Boolean           @default(false)
+  sentToKitchenAt     DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime          @default(now())
+  
+  order               Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem            MenuItem?         @relation(fields: [menuItemId], references: [id])
+  modifiers           OrderItemModifier[]
+}
+
+model OrderItemModifier {
+  id              String    @id @default(cuid())
+  orderItemId     String
+  modifierId      String
+  quantity        Int       @default(1)
+  price           Float     @default(0)
+  
+  orderItem       OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  modifier        Modifier  @relation(fields: [modifierId], references: [id])
+}
+
+// ============================================
+// PAYMENT MANAGEMENT
+// ============================================
+
+model Payment {
+  id              String        @id @default(cuid())
+  orderId         String
+  amount          Float
+  tipAmount       Float         @default(0)
+  method          String        @default("CASH")
+  status          String        @default("COMPLETED")
+  transactionId   String?
+  splitNumber     Int?
+  processedAt     DateTime?     @default(now())
+  createdAt       DateTime      @default(now())
+  
+  order           Order         @relation(fields: [orderId], references: [id])
+}
+
+// ============================================
+// INVENTORY MANAGEMENT
+// ============================================
+
+model InventoryItem {
+  id              String                 @id @default(cuid())
+  name            String
+  sku             String?
+  category        String?
+  quantity        Float                  @default(0)
+  unit            String                 @default("each")
+  reorderPoint    Float                  @default(5)
+  costPerUnit     Float                  @default(0)
+  restaurantId    String
+  menuItemId      String?
+  lastRestocked   DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  
+  restaurant      Restaurant             @relation(fields: [restaurantId], references: [id])
+  menuItem        MenuItem?              @relation(fields: [menuItemId], references: [id])
+  transactions    InventoryTransaction[]
+}
+
+model InventoryTransaction {
+  id              String        @id @default(cuid())
+  inventoryItemId String
+  quantity        Float
+  type            String        // RESTOCK, USAGE, WASTE, ADJUSTMENT
+  reason          String?
+  createdAt       DateTime      @default(now())
+
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+}
+
+model OrderModification {
+  id              String      @id @default(cuid())
+  orderId         String
+  employeeId      String
+  action          String
+  reason          String?
+  oldValue        String?
+  newValue        String?
+  createdAt       DateTime    @default(now())
+  
+  order           Order       @relation(fields: [orderId], references: [id])
+  employee        Employee    @relation(fields: [employeeId], references: [id])
+}

@@ -1,0 +1,88 @@
+name: Deploy Restaurant POS to Server
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Clear npm cache
+      run: npm cache clean --force
+        
+    - name: Install dependencies
+      run: |
+        npm install
+        cd apps/backend && npm install
+        cd ../frontend && npm install
+        
+    - name: Build frontend
+      run: |
+        cd apps/frontend
+        npm run build
+        
+    - name: Build backend
+      run: |
+        cd apps/backend
+        npm run build
+        
+    - name: Deploy to Server
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        password: ${{ secrets.SERVER_PASSWORD }}
+        script: |
+          # Navigate to app directory
+          cd /var/www/restaurant-pos
+          
+          # Pull latest code
+          git pull origin main || git clone https://github.com/dutchiono/restaurant-pos-system.git .
+          
+          # Clear npm cache
+          npm cache clean --force
+          
+          # Remove node_modules for clean install
+          rm -rf node_modules
+          rm -rf apps/backend/node_modules
+          rm -rf apps/frontend/node_modules
+          
+          # Install dependencies
+          npm install
+          cd apps/backend && npm install && cd ../..
+          cd apps/frontend && npm install && cd ../..
+          
+          # Build frontend
+          cd apps/frontend
+          rm -rf dist .vite
+          npm run build
+          cd ../..
+          
+          # Build backend
+          cd apps/backend
+          rm -rf dist
+          npm run build
+          cd ../..
+          
+          # Run database migrations
+          cd apps/backend
+          npx prisma generate
+          npx prisma migrate deploy
+          cd ../..
+          
+          # Restart service
+          sudo systemctl restart restaurant-pos
+          
+          # Check status
+          sudo systemctl status restaurant-pos --no-pager
