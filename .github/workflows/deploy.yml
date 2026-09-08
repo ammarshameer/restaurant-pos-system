@@ -10,55 +10,64 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Deploy to Server
-      uses: appleboy/ssh-action@v1.0.0
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        password: ${{ secrets.SERVER_PASSWORD }}
-        script: |
-          set -e
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            set -e
 
-          APP_DIR="/var/www/eats"
-          REPO_URL="https://github.com/ionoi-inc/restaurant-pos-system.git"
+            APP_DIR="/var/www/eats"
+            REPO_URL="https://github.com/ammarshameer/restaurant-pos-system.git"
 
-          echo "Starting deployment..."
+            echo "Starting deployment..."
 
-          if [ -d "$APP_DIR/.git" ]; then
-            echo "Updating remote to org repo..."
-            cd $APP_DIR
-            git remote set-url origin $REPO_URL
-            git fetch origin main
-            git reset --hard origin/main
-          else
-            echo "Initial clone..."
-            git clone $REPO_URL $APP_DIR
-            cd $APP_DIR
-          fi
+            if [ -d "$APP_DIR/.git" ]; then
+              echo "Updating repository remote..."
+              cd "$APP_DIR"
+              git remote set-url origin "$REPO_URL"
+              git fetch origin main
+              git reset --hard origin/main
+            else
+              echo "Initial clone..."
+              git clone "$REPO_URL" "$APP_DIR"
+              cd "$APP_DIR"
+            fi
 
-          echo "Installing dependencies..."
-          cd $APP_DIR
-          npm install
-          cd apps/backend && npm install && cd ../..
-          cd apps/frontend && npm install && cd ../..
+            echo "Installing dependencies..."
 
-          echo "Building frontend..."
-          cd apps/frontend && npm run build && cd ../..
+            cd "$APP_DIR/apps/backend"
+            npm ci
 
-          echo "Building backend..."
-          cd apps/backend && npx prisma generate && npm run build && cd ../..
+            cd "$APP_DIR/apps/frontend"
+            npm ci
 
-          echo "Preserving .env — creating only if missing..."
-          if [ ! -f apps/backend/.env ]; then
-            echo "PORT=3146" > apps/backend/.env
-            echo "NODE_ENV=production" >> apps/backend/.env
-          fi
+            cd "$APP_DIR"
 
-          echo "Restarting service..."
-          sudo systemctl restart restaurant-pos
+            echo "Building frontend..."
+            cd "$APP_DIR/apps/frontend"
+            npm run build
 
-          echo "Deployment complete!"
-          sudo systemctl status restaurant-pos --no-pager
+            echo "Building backend..."
+            cd "$APP_DIR/apps/backend"
+            npx prisma generate
+            npm run build
+
+            cd "$APP_DIR"
+
+            echo "Preserving .env — creating only if missing..."
+            if [ ! -f apps/backend/.env ]; then
+              echo "PORT=3146" > apps/backend/.env
+              echo "NODE_ENV=production" >> apps/backend/.env
+            fi
+
+            echo "Restarting service..."
+            sudo systemctl restart restaurant-pos
+
+            echo "Deployment complete!"
+            sudo systemctl status restaurant-pos --no-pager
