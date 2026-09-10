@@ -28,6 +28,20 @@ export const App: React.FC = () => {
 
   const [liveAlert, setLiveAlert] = useState<string | null>(null);
 
+  // Light and Dark Theme state
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('pos_theme') as 'dark' | 'light') || 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('pos_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
   // Restore stored auth session & hydrate live database records on mount
   useEffect(() => {
     const storedToken = localStorage.getItem('auth_token');
@@ -211,6 +225,16 @@ export const App: React.FC = () => {
           <div className="page-title">{getPageTitle()}</div>
 
           <div className="topbar-actions">
+            {/* Light / Dark Mode Toggle */}
+            <button
+              className="theme-toggle-btn"
+              onClick={toggleTheme}
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+            >
+              <span className="theme-icon-anim">{theme === 'dark' ? '☀️' : '🌙'}</span>
+              <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+            </button>
+
             {liveAlert && (
               <div
                 style={{

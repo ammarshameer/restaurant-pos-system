@@ -16,7 +16,9 @@ interface OpenOrder {
   itemCount: number;
   subtotal: number;
   serviceCharge: number;
+  deliveryCharge: number;
   tax: number;
+  taxRate: number;
   total: number;
   createdAt: string;
   items: Array<{ name: string; quantity: number; unitPrice: number; total: number }>;
@@ -30,6 +32,7 @@ interface CompletedPayment {
   customerRef: string;
   amount: number;
   serviceCharge: number;
+  deliveryCharge: number;
   tipAmount: number;
   method: string;
   tendered: number;
@@ -38,6 +41,7 @@ interface CompletedPayment {
   items: Array<{ name: string; quantity: number; unitPrice: number; total: number }>;
   subtotal: number;
   tax: number;
+  taxRate: number;
 }
 
 export const PaymentsPage: React.FC = () => {
@@ -106,7 +110,9 @@ export const PaymentsPage: React.FC = () => {
       itemCount: (o.items || []).reduce((sum, i) => sum + (i.quantity || 1), 0),
       subtotal: Number(o.subtotal || 0),
       serviceCharge: Number(o.serviceCharge || 0),
+      deliveryCharge: Number(o.deliveryCharge || 0),
       tax: Number(o.tax || 0),
+      taxRate: Number(o.taxRate || 0),
       total: Number(o.total || 0),
       createdAt: o.createdAt || new Date().toISOString(),
       items: (o.items || []).map((i) => ({
@@ -147,6 +153,7 @@ export const PaymentsPage: React.FC = () => {
       customerRef: `${typeStr} (${ref})`,
       amount: Number(o.total || 0),
       serviceCharge: Number(o.serviceCharge || 0),
+      deliveryCharge: Number(o.deliveryCharge || 0),
       tipAmount: 0,
       method: o.paymentMethod || 'CASH',
       tendered: Number(o.totalPaid || o.total || 0),
@@ -160,6 +167,7 @@ export const PaymentsPage: React.FC = () => {
       })),
       subtotal: Number(o.subtotal || 0),
       tax: Number(o.tax || 0),
+      taxRate: Number(o.taxRate || 0),
     };
   };
 
@@ -233,8 +241,9 @@ export const PaymentsPage: React.FC = () => {
       items: selectedOrder.items,
       subtotal: selectedOrder.subtotal,
       serviceCharge: selectedOrder.serviceCharge,
-      serviceChargeRate: selectedOrder.serviceCharge > 0 ? 5 : 0,
+      deliveryCharge: selectedOrder.deliveryCharge,
       tax: selectedOrder.tax,
+      taxRate: selectedOrder.taxRate,
       total: grandTotal,
       totalPaid: cashTendered > grandTotal ? cashTendered : grandTotal,
       change: change,
@@ -261,8 +270,9 @@ export const PaymentsPage: React.FC = () => {
       items: pay.items,
       subtotal: pay.subtotal,
       serviceCharge: pay.serviceCharge,
-      serviceChargeRate: pay.serviceCharge > 0 ? 5 : 0,
+      deliveryCharge: pay.deliveryCharge,
       tax: pay.tax,
+      taxRate: pay.taxRate,
       total: pay.amount + pay.tipAmount,
       totalPaid: pay.tendered,
       change: pay.change,

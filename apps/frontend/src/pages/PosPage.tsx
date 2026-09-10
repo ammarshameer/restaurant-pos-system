@@ -52,8 +52,12 @@ export const PosPage: React.FC = () => {
   const [orderNotes, setOrderNotes] = useState('');
   const [notification, setNotification] = useState<string | null>(null);
 
-  // Service Charges State (in percent: 0, 5, 10, 15)
-  const [serviceChargeRate, setServiceChargeRate] = useState<number>(5);
+  // Dynamic contextual charges:
+  // Dine In: Tax percentage (initially 0) + flat Service Charges (PKR)
+  const [taxRate, setTaxRate] = useState<number>(0);
+  const [serviceChargeAmount, setServiceChargeAmount] = useState<number>(0);
+  // Delivery: flat Delivery Charges (PKR)
+  const [deliveryChargeAmount, setDeliveryChargeAmount] = useState<number>(150);
 
   // Receipt Modal State
   const [receiptOpen, setReceiptOpen] = useState(false);
@@ -159,12 +163,20 @@ export const PosPage: React.FC = () => {
     );
   };
 
-  // Financial calculations: Tax is DISABLED (0%), Service charges are added
+  // Financial calculations: Contextual based on Order Type
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const tax = 0;
-  // Apply service charge (usually 0% for Take Away/Delivery or custom)
-  const serviceCharge = +(subtotal * (serviceChargeRate / 100)).toFixed(2);
-  const total = +(subtotal + serviceCharge).toFixed(2);
+  const isDineIn = orderType === 'DINE_IN';
+  const isDelivery = orderType === 'DELIVERY';
+
+  // Dine In: Tax percentage (editable, initially 0) & flat Service Charges (PKR)
+  const tax = isDineIn ? +(subtotal * (Math.max(0, taxRate) / 100)).toFixed(2) : 0;
+  const serviceCharge = isDineIn ? Math.max(0, serviceChargeAmount) : 0;
+
+  // Delivery: Delivery Charges (PKR); no tax and no service charges
+  const deliveryCharge = isDelivery ? Math.max(0, deliveryChargeAmount) : 0;
+
+  // Total
+  const total = +(subtotal + tax + serviceCharge + deliveryCharge).toFixed(2);
 
   const handleSubmitOrder = (autoPrintBoth = true) => {
     if (cart.length === 0) return;
@@ -198,8 +210,10 @@ export const PosPage: React.FC = () => {
       paymentMethod: `DIRECT / ${getOrderTypeLabel(orderType).toUpperCase()}`,
       subtotal,
       serviceCharge,
-      serviceChargeRate,
-      tax: 0,
+      serviceChargeRate: 0,
+      deliveryCharge,
+      tax,
+      taxRate: isDineIn ? taxRate : 0,
       total,
       notes: orderNotes,
       createdAt: new Date().toISOString(),
@@ -247,9 +261,10 @@ export const PosPage: React.FC = () => {
         notes: c.notes,
       })),
       subtotal,
-      serviceCharge,
-      serviceChargeRate,
-      tax: 0,
+      serviceCharge: isDineIn ? serviceCharge : 0,
+      deliveryCharge: isDelivery ? deliveryCharge : 0,
+      tax: isDineIn ? tax : 0,
+      taxRate: isDineIn ? taxRate : 0,
       total,
       totalPaid: total,
       change: 0,
@@ -305,8 +320,10 @@ export const PosPage: React.FC = () => {
       change,
       subtotal,
       serviceCharge,
-      serviceChargeRate,
-      tax: 0,
+      serviceChargeRate: 0,
+      deliveryCharge,
+      tax,
+      taxRate: isDineIn ? taxRate : 0,
       total,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -346,9 +363,10 @@ export const PosPage: React.FC = () => {
         notes: c.notes,
       })),
       subtotal,
-      serviceCharge,
-      serviceChargeRate,
-      tax: 0,
+      serviceCharge: isDineIn ? serviceCharge : 0,
+      deliveryCharge: isDelivery ? deliveryCharge : 0,
+      tax: isDineIn ? tax : 0,
+      taxRate: isDineIn ? taxRate : 0,
       total,
       totalPaid: tendered,
       change,
@@ -425,11 +443,6 @@ export const PosPage: React.FC = () => {
                     type="button"
                     onClick={() => {
                       setOrderType(opt.type);
-                      if (opt.type === 'TAKE_AWAY' || opt.type === 'DELIVERY') {
-                        setServiceChargeRate(0); // Takeaway/Delivery often 0% service charge by default
-                      } else {
-                        setServiceChargeRate(5);
-                      }
                     }}
                     style={{
                       flex: 1,
@@ -790,42 +803,178 @@ export const PosPage: React.FC = () => {
           />
         </div>
 
-        {/* Service Charges Control */}
-        <div
-          style={{
-            padding: '12px 20px',
-            borderTop: '1px solid var(--border-color)',
-            background: 'rgba(255,255,255,0.02)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Service Charges:
-            </span>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: '#38bdf8' }}>
-              {serviceChargeRate}% ({formatPKR(serviceCharge)})
-            </span>
+        {/* DINE IN CONTROLS: Tax Percentage (initially 0) + Service Charges (flat PKR number input) */}
+        {orderType === 'DINE_IN' && (
+          <div className="charge-control-card">
+            {/* Tax (%) Input Field */}
+            <div>
+              <div className="charge-control-row" style={{ marginBottom: '6px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  🏛️ Tax Rate (%):
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: '#38bdf8' }}>
+                  {taxRate}% {tax > 0 ? `(${formatPKR(tax)})` : ''}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    className="form-input"
+                    style={{ padding: '6px 28px 6px 10px', fontSize: '13px', fontWeight: 700 }}
+                    placeholder="0"
+                    value={taxRate === 0 ? '' : taxRate}
+                    onChange={(e) => setTaxRate(Math.max(0, parseFloat(e.target.value) || 0))}
+                  />
+                  <span
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      fontWeight: 700,
+                      fontSize: '12px',
+                      color: 'var(--text-muted)',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    %
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {[0, 5, 13, 16].map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className={`btn btn-sm ${taxRate === p ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ padding: '4px 7px', fontSize: '11px', fontWeight: 700 }}
+                      onClick={() => setTaxRate(p)}
+                    >
+                      {p}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Service Charges (Flat PKR) Input Field */}
+            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
+              <div className="charge-control-row" style={{ marginBottom: '6px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  🛎️ Service Charges (PKR):
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: '#a855f7' }}>
+                  {formatPKR(serviceCharge)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input
+                    type="number"
+                    min="0"
+                    step="10"
+                    className="form-input"
+                    style={{ padding: '6px 42px 6px 10px', fontSize: '13px', fontWeight: 700 }}
+                    placeholder="0"
+                    value={serviceChargeAmount === 0 ? '' : serviceChargeAmount}
+                    onChange={(e) => setServiceChargeAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                  />
+                  <span
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      fontWeight: 700,
+                      fontSize: '11px',
+                      color: 'var(--text-muted)',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    PKR
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {[0, 100, 200, 300].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      className={`btn btn-sm ${serviceChargeAmount === amt ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ padding: '4px 6px', fontSize: '11px', fontWeight: 700 }}
+                      onClick={() => setServiceChargeAmount(amt)}
+                    >
+                      {amt === 0 ? '0' : `${amt}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {[0, 5, 10, 15].map((rate) => (
-              <button
-                key={rate}
-                type="button"
-                className={`btn btn-sm ${serviceChargeRate === rate ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ flex: 1, padding: '4px 6px', fontSize: '11px' }}
-                onClick={() => setServiceChargeRate(rate)}
-              >
-                {rate === 0 ? 'None' : `${rate}%`}
-              </button>
-            ))}
+        )}
+
+        {/* DELIVERY CONTROLS: Delivery Charges (Flat PKR number input) */}
+        {orderType === 'DELIVERY' && (
+          <div className="charge-control-card">
+            <div className="charge-control-row" style={{ marginBottom: '6px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                🛵 Delivery Charges (PKR):
+              </span>
+              <span style={{ fontSize: '12px', fontWeight: 800, color: '#38bdf8' }}>
+                {formatPKR(deliveryCharge)}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <input
+                  type="number"
+                  min="0"
+                  step="10"
+                  className="form-input"
+                  style={{ padding: '6px 42px 6px 10px', fontSize: '13px', fontWeight: 700 }}
+                  placeholder="0"
+                  value={deliveryChargeAmount === 0 ? '' : deliveryChargeAmount}
+                  onChange={(e) => setDeliveryChargeAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                />
+                <span
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    fontWeight: 700,
+                    fontSize: '11px',
+                    color: 'var(--text-muted)',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  PKR
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {[0, 100, 150, 200].map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    className={`btn btn-sm ${deliveryChargeAmount === amt ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ padding: '4px 6px', fontSize: '11px', fontWeight: 700 }}
+                    onClick={() => setDeliveryChargeAmount(amt)}
+                  >
+                    {amt === 0 ? 'Free' : `${amt}`}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Financial Summary */}
         <div
           style={{
             padding: '14px 20px',
-            background: 'rgba(0, 0, 0, 0.25)',
+            background: 'var(--bg-box-alt)',
             borderTop: '1px solid var(--border-color)',
             display: 'flex',
             flexDirection: 'column',
@@ -836,16 +985,33 @@ export const PosPage: React.FC = () => {
             <span>Subtotal</span>
             <span>{formatPKR(subtotal)}</span>
           </div>
-          {serviceChargeRate > 0 && (
+
+          {orderType === 'DINE_IN' && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                <span>Tax ({taxRate}%)</span>
+                <span style={{ color: tax > 0 ? '#38bdf8' : 'inherit', fontWeight: tax > 0 ? 700 : 400 }}>
+                  {formatPKR(tax)}
+                </span>
+              </div>
+              {serviceCharge > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  <span>Service Charges</span>
+                  <span style={{ color: '#a855f7', fontWeight: 700 }}>{formatPKR(serviceCharge)}</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {orderType === 'DELIVERY' && (
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
-              <span>Service Charges ({serviceChargeRate}%)</span>
-              <span>{formatPKR(serviceCharge)}</span>
+              <span>Delivery Charges</span>
+              <span style={{ color: deliveryCharge > 0 ? '#38bdf8' : 'inherit', fontWeight: deliveryCharge > 0 ? 700 : 400 }}>
+                {formatPKR(deliveryCharge)}
+              </span>
             </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b' }}>
-            <span>Tax (Disabled)</span>
-            <span>PKR 0.00</span>
-          </div>
+
           <div
             style={{
               display: 'flex',
@@ -858,7 +1024,7 @@ export const PosPage: React.FC = () => {
             }}
           >
             <span>Total</span>
-            <span style={{ color: '#34d399' }}>{formatPKR(total)}</span>
+            <span style={{ color: '#10b981' }}>{formatPKR(total)}</span>
           </div>
         </div>
 

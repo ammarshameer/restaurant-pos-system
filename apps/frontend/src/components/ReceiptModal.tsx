@@ -29,7 +29,9 @@ export interface ReceiptData {
   subtotal: number;
   serviceCharge?: number;
   serviceChargeRate?: number;
+  deliveryCharge?: number;
   tax?: number;
+  taxRate?: number;
   tipAmount?: number;
   total: number;
   totalPaid?: number;
@@ -215,6 +217,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                   <span style={{ fontWeight: 600 }}>{formatPKR(receiptData.subtotal)}</span>
                 </div>
 
+                {receiptData.tax !== undefined && receiptData.tax > 0 && (
+                  <div className="receipt-row" style={{ fontSize: '12px' }}>
+                    <span>Tax {receiptData.taxRate ? `(${receiptData.taxRate}%)` : ''}</span>
+                    <span style={{ fontWeight: 600 }}>{formatPKR(receiptData.tax)}</span>
+                  </div>
+                )}
+
                 {receiptData.serviceCharge !== undefined && receiptData.serviceCharge > 0 && (
                   <div className="receipt-row" style={{ fontSize: '12px' }}>
                     <span>
@@ -222,6 +231,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                       {receiptData.serviceChargeRate ? ` (${receiptData.serviceChargeRate}%)` : ''}
                     </span>
                     <span style={{ fontWeight: 600 }}>{formatPKR(receiptData.serviceCharge)}</span>
+                  </div>
+                )}
+
+                {receiptData.deliveryCharge !== undefined && receiptData.deliveryCharge > 0 && (
+                  <div className="receipt-row" style={{ fontSize: '12px' }}>
+                    <span>Delivery Charges</span>
+                    <span style={{ fontWeight: 600 }}>{formatPKR(receiptData.deliveryCharge)}</span>
                   </div>
                 )}
 
@@ -264,7 +280,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                   <div style={{ fontWeight: 700 }}>Thank you for ordering with us!</div>
                   <div>Please visit again soon.</div>
                   <div style={{ marginTop: '6px', fontSize: '9px', letterSpacing: '0.1em' }}>
-                    *** CUSTOMER TAX-EXEMPT RECEIPT ***
+                    *** OFFICIAL CUSTOMER RECEIPT ***
                   </div>
                 </div>
               </div>

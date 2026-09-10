@@ -57,6 +57,15 @@ router.patch('/:id', async (req, res, next) => {
   }
 });
 
+router.put('/:id', async (req, res, next) => {
+  try {
+    const order = await orderService.updateOrder(req.params.id, req.body);
+    res.json(order);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Delete / void order
 router.delete('/:id', async (req, res, next) => {
   try {

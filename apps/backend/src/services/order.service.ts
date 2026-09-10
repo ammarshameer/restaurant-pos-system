@@ -22,7 +22,9 @@ export class OrderService {
     subtotal?: number;
     serviceCharge?: number;
     serviceChargeRate?: number;
+    deliveryCharge?: number;
     tax?: number;
+    taxRate?: number;
     total?: number;
     totalPaid?: number;
     change?: number;
@@ -48,41 +50,74 @@ export class OrderService {
       orderNum = maxOrder ? maxOrder.orderNumber + 1 : 101;
     }
 
+    // Resolve restaurant ID
+    let restaurantId = data.restaurantId;
+    const rest = await prisma.restaurant.findFirst();
+    if (!restaurantId || restaurantId === 'rest-default-1') {
+      restaurantId = rest?.id || 'rest-default-1';
+    }
+
     // Resolve server ID
     let serverId = data.serverId;
-    if (!serverId) {
-      const defaultEmployee = await prisma.employee.findFirst({
-        where: { restaurantId: data.restaurantId },
-      });
-      serverId = defaultEmployee?.id || 'emp-manager-1';
+    const defaultEmployee = await prisma.employee.findFirst({
+      where: { restaurantId },
+    });
+    if (!serverId || !defaultEmployee) {
+      const anyEmployee = await prisma.employee.findFirst();
+      serverId = anyEmployee?.id || 'emp-manager-1';
+    } else {
+      serverId = defaultEmployee.id;
     }
 
     // Process order items
     let subtotal = 0;
-    const orderItemsData = data.items.map((item) => {
-      const unitPrice = item.unitPrice || item.price || 0;
-      const total = unitPrice * item.quantity;
-      subtotal += total;
+    const orderItemsData = await Promise.all(
+      data.items.map(async (item) => {
+        const unitPrice = item.unitPrice || item.price || 0;
+        const total = unitPrice * item.quantity;
+        subtotal += total;
 
-      return {
-        menuItemId: item.menuItemId || null,
-        name: item.name || 'Custom Item',
-        quantity: item.quantity,
-        unitPrice,
-        price: unitPrice,
-        total,
-        specialInstructions: item.notes || null,
-        notes: item.notes || null,
-        status: 'PENDING',
-        inventoryDeducted: false,
-      };
-    });
+        let validMenuItemId: string | null = null;
+        if (item.menuItemId) {
+          const exists = await prisma.menuItem.findUnique({ where: { id: item.menuItemId } });
+          if (exists) validMenuItemId = item.menuItemId;
+        }
+
+        return {
+          menuItemId: validMenuItemId,
+          name: item.name || 'Custom Item',
+          quantity: item.quantity,
+          unitPrice,
+          price: unitPrice,
+          total,
+          specialInstructions: item.notes || null,
+          notes: item.notes || null,
+          status: 'PENDING',
+          inventoryDeducted: false,
+        };
+      })
+    );
 
     const finalSubtotal = data.subtotal !== undefined ? data.subtotal : subtotal;
-    const serviceChargeRate = data.serviceChargeRate !== undefined ? data.serviceChargeRate : 5;
-    const serviceCharge = data.serviceCharge !== undefined ? data.serviceCharge : +(finalSubtotal * (serviceChargeRate / 100)).toFixed(2);
-    const tax = 0;
-    const total = data.total !== undefined ? data.total : +(finalSubtotal + serviceCharge).toFixed(2);
+    const isDelivery = (data.orderType || '').toUpperCase() === 'DELIVERY';
+    const isDineIn = (data.orderType || '').toUpperCase() === 'DINE_IN';
+
+    let serviceChargeRate = 0;
+    let serviceCharge = 0;
+    let deliveryCharge = 0;
+    let taxRate = 0;
+    let tax = 0;
+
+    if (isDineIn) {
+      taxRate = data.taxRate !== undefined ? data.taxRate : 0;
+      tax = data.tax !== undefined ? data.tax : +(finalSubtotal * (taxRate / 100)).toFixed(2);
+      serviceCharge = data.serviceCharge !== undefined ? data.serviceCharge : 0;
+      serviceChargeRate = data.serviceChargeRate || 0;
+    } else if (isDelivery) {
+      deliveryCharge = data.deliveryCharge !== undefined ? data.deliveryCharge : 0;
+    }
+
+    const total = data.total !== undefined ? data.total : +(finalSubtotal + tax + serviceCharge + deliveryCharge).toFixed(2);
 
     const order = await prisma.order.create({
       data: {
@@ -95,7 +130,7 @@ export class OrderService {
         deliveryAddress: data.deliveryAddress,
         dineInTag: data.dineInTag,
         tableId: data.tableId || null,
-        restaurantId: data.restaurantId,
+        restaurantId,
         serverId,
         customerCount: data.customerCount || 1,
         status: data.status || (data.paymentStatus === 'PAID' ? 'paid' : 'confirmed'),
@@ -104,7 +139,9 @@ export class OrderService {
         subtotal: finalSubtotal,
         serviceCharge,
         serviceChargeRate,
+        deliveryCharge,
         tax,
+        taxRate,
         total,
         totalPaid: data.totalPaid || (data.paymentStatus === 'PAID' ? total : 0),
         change: data.change || 0,
@@ -129,9 +166,9 @@ export class OrderService {
       },
     });
 
-    // Emit WebSocket events
-    io?.to(`restaurant:${data.restaurantId}`).emit('order:new', order);
-    io?.to(`restaurant:${data.restaurantId}:kitchen`).emit('kitchen:order:new', order);
+    // Notify kitchen and waitstaff via WebSocket
+    io?.to(`restaurant:${restaurantId}`).emit('order:new', order);
+    io?.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:new', order);
 
     return order;
   }
@@ -379,7 +416,10 @@ export class OrderService {
     return {
       subtotal: order.subtotal,
       serviceCharge: order.serviceCharge,
+      serviceChargeRate: order.serviceChargeRate,
+      deliveryCharge: order.deliveryCharge,
       tax: order.tax,
+      taxRate: order.taxRate,
       total: order.total,
     };
   }

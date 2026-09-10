@@ -33,7 +33,9 @@ export const SaleInvoicesPage: React.FC = () => {
   const [editNotes, setEditNotes] = useState('');
   const [editPaymentStatus, setEditPaymentStatus] = useState<'PAID' | 'UNPAID'>('PAID');
   const [editPaymentMethod, setEditPaymentMethod] = useState('CASH');
-  const [editServiceChargeRate, setEditServiceChargeRate] = useState<number>(5);
+  const [editTaxRate, setEditTaxRate] = useState<number>(0);
+  const [editServiceChargeAmount, setEditServiceChargeAmount] = useState<number>(0);
+  const [editDeliveryChargeAmount, setEditDeliveryChargeAmount] = useState<number>(0);
   const [editItems, setEditItems] = useState<OrderItem[]>([]);
   const [selectedMenuItemToAdd, setSelectedMenuItemToAdd] = useState<string>('');
 
@@ -90,6 +92,9 @@ export const SaleInvoicesPage: React.FC = () => {
   });
 
   const handleOpenReceipt = (order: Order) => {
+    const isDineIn = order.orderType === 'DINE_IN';
+    const isDelivery = order.orderType === 'DELIVERY';
+
     const receipt: ReceiptData = {
       orderNumber: order.orderNumber,
       orderId: order.id,
@@ -113,9 +118,10 @@ export const SaleInvoicesPage: React.FC = () => {
         notes: i.notes,
       })),
       subtotal: order.subtotal,
-      serviceCharge: order.serviceCharge,
-      serviceChargeRate: order.serviceChargeRate,
-      tax: 0,
+      serviceCharge: isDineIn ? order.serviceCharge : 0,
+      deliveryCharge: isDelivery ? order.deliveryCharge : 0,
+      tax: isDineIn ? order.tax : 0,
+      taxRate: isDineIn ? order.taxRate : 0,
       total: order.total,
       totalPaid: order.totalPaid || order.total,
       change: order.change || 0,
@@ -136,7 +142,9 @@ export const SaleInvoicesPage: React.FC = () => {
     setEditNotes(order.notes || '');
     setEditPaymentStatus(order.paymentStatus || 'PAID');
     setEditPaymentMethod(order.paymentMethod || 'CASH');
-    setEditServiceChargeRate(order.serviceChargeRate !== undefined ? order.serviceChargeRate : 5);
+    setEditTaxRate(order.taxRate !== undefined ? order.taxRate : 0);
+    setEditServiceChargeAmount(order.serviceCharge !== undefined ? order.serviceCharge : 0);
+    setEditDeliveryChargeAmount(order.deliveryCharge !== undefined ? order.deliveryCharge : (order.orderType === 'DELIVERY' ? 150 : 0));
     setEditItems(order.items ? JSON.parse(JSON.stringify(order.items)) : []);
     setSelectedMenuItemToAdd(menuItems[0]?.id || '');
     setEditModalOpen(true);
@@ -199,8 +207,13 @@ export const SaleInvoicesPage: React.FC = () => {
     (sum, item) => sum + (item.unitPrice || item.price) * item.quantity,
     0
   );
-  const editServiceCharge = +(editSubtotal * (editServiceChargeRate / 100)).toFixed(2);
-  const editTotal = +(editSubtotal + editServiceCharge).toFixed(2);
+  const isEditDineIn = editOrderType === 'DINE_IN';
+  const isEditDelivery = editOrderType === 'DELIVERY';
+
+  const editTax = isEditDineIn ? +(editSubtotal * (Math.max(0, editTaxRate) / 100)).toFixed(2) : 0;
+  const editServiceCharge = isEditDineIn ? Math.max(0, editServiceChargeAmount) : 0;
+  const editDeliveryCharge = isEditDelivery ? Math.max(0, editDeliveryChargeAmount) : 0;
+  const editTotal = +(editSubtotal + editTax + editServiceCharge + editDeliveryCharge).toFixed(2);
 
   const handleSaveInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,9 +242,11 @@ export const SaleInvoicesPage: React.FC = () => {
       paymentMethod: editPaymentMethod,
       items: editItems,
       subtotal: editSubtotal,
-      serviceCharge: editServiceCharge,
-      serviceChargeRate: editServiceChargeRate,
-      tax: 0,
+      serviceCharge: isEditDineIn ? editServiceCharge : 0,
+      serviceChargeRate: 0,
+      deliveryCharge: isEditDelivery ? editDeliveryCharge : 0,
+      tax: isEditDineIn ? editTax : 0,
+      taxRate: isEditDineIn ? editTaxRate : 0,
       total: editTotal,
       totalPaid: editPaymentStatus === 'PAID' ? editTotal : 0,
       status: editPaymentStatus === 'PAID' ? 'paid' : editingOrder.status,
@@ -418,7 +433,7 @@ export const SaleInvoicesPage: React.FC = () => {
               <th>Customer / Tag</th>
               <th>Ordered Items</th>
               <th>Subtotal</th>
-              <th>Service</th>
+              <th>Extra Charges</th>
               <th>Total Amount (PKR)</th>
               <th>Payment</th>
               <th style={{ textAlign: 'right' }}>Actions</th>
@@ -470,8 +485,28 @@ export const SaleInvoicesPage: React.FC = () => {
                       </div>
                     </td>
                     <td style={{ color: 'var(--text-secondary)' }}>{formatPKR(order.subtotal)}</td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
-                      {order.serviceCharge > 0 ? formatPKR(order.serviceCharge) : '-'}
+                    <td style={{ fontSize: '12px' }}>
+                      {order.orderType === 'DINE_IN' && (
+                        <div>
+                          {order.tax > 0 ? (
+                            <div style={{ color: '#38bdf8', fontWeight: 600 }}>
+                              Tax: {formatPKR(order.tax)} {order.taxRate ? `(${order.taxRate}%)` : ''}
+                            </div>
+                          ) : null}
+                          {order.serviceCharge > 0 ? (
+                            <div style={{ color: '#a855f7', fontWeight: 600 }}>
+                              SC: {formatPKR(order.serviceCharge)}
+                            </div>
+                          ) : null}
+                          {!order.tax && !order.serviceCharge && <span style={{ color: 'var(--text-muted)' }}>-</span>}
+                        </div>
+                      )}
+                      {order.orderType === 'DELIVERY' && (
+                        <div style={{ color: order.deliveryCharge ? '#38bdf8' : 'var(--text-muted)', fontWeight: order.deliveryCharge ? 600 : 400 }}>
+                          {order.deliveryCharge ? `Del: ${formatPKR(order.deliveryCharge)}` : '-'}
+                        </div>
+                      )}
+                      {order.orderType === 'TAKE_AWAY' && <span style={{ color: 'var(--text-muted)' }}>-</span>}
                     </td>
                     <td>
                       <span style={{ fontWeight: 900, color: '#34d399', fontSize: '15px' }}>
@@ -731,47 +766,180 @@ export const SaleInvoicesPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 3. Payment Status & Service Charge */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div className="form-group">
-                    <label className="form-label">Payment Status</label>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${editPaymentStatus === 'PAID' ? 'btn-success' : 'btn-secondary'}`}
-                        style={{ flex: 1 }}
-                        onClick={() => setEditPaymentStatus('PAID')}
-                      >
-                        ✓ PAID
-                      </button>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${editPaymentStatus === 'UNPAID' ? 'btn-warning' : 'btn-secondary'}`}
-                        style={{ flex: 1 }}
-                        onClick={() => setEditPaymentStatus('UNPAID')}
-                      >
-                        ⏳ UNPAID
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Service Charge</label>
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      {[0, 5, 10, 15].map((rate) => (
-                        <button
-                          key={rate}
-                          type="button"
-                          className={`btn btn-sm ${editServiceChargeRate === rate ? 'btn-primary' : 'btn-secondary'}`}
-                          style={{ flex: 1, padding: '4px 6px', fontSize: '11px' }}
-                          onClick={() => setEditServiceChargeRate(rate)}
-                        >
-                          {rate === 0 ? 'None' : `${rate}%`}
-                        </button>
-                      ))}
-                    </div>
+                {/* 3. Payment Status */}
+                <div className="form-group">
+                  <label className="form-label">Payment Status</label>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${editPaymentStatus === 'PAID' ? 'btn-success' : 'btn-secondary'}`}
+                      style={{ flex: 1 }}
+                      onClick={() => setEditPaymentStatus('PAID')}
+                    >
+                      ✓ PAID
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${editPaymentStatus === 'UNPAID' ? 'btn-warning' : 'btn-secondary'}`}
+                      style={{ flex: 1 }}
+                      onClick={() => setEditPaymentStatus('UNPAID')}
+                    >
+                      ⏳ UNPAID
+                    </button>
                   </div>
                 </div>
+
+                {/* DINE IN EDIT CHARGES: Tax (%) + Service Charges (PKR) */}
+                {isEditDineIn && (
+                  <div
+                    style={{
+                      background: 'var(--bg-box-alt)',
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-color)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px',
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <label className="form-label" style={{ marginBottom: 0 }}>
+                          🏛️ Tax Rate (%):
+                        </label>
+                        <span style={{ fontSize: '12px', fontWeight: 800, color: '#38bdf8' }}>
+                          {editTaxRate}% = {formatPKR(editTax)}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <div style={{ position: 'relative', flex: 1 }}>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.5"
+                            className="form-input"
+                            style={{ padding: '6px 28px 6px 10px', fontSize: '13px', fontWeight: 700 }}
+                            value={editTaxRate === 0 ? '' : editTaxRate}
+                            placeholder="0"
+                            onChange={(e) => setEditTaxRate(Math.max(0, parseFloat(e.target.value) || 0))}
+                          />
+                          <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontWeight: 700, fontSize: '12px', color: 'var(--text-muted)' }}>
+                            %
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          {[0, 5, 13, 16].map((p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              className={`btn btn-sm ${editTaxRate === p ? 'btn-primary' : 'btn-secondary'}`}
+                              style={{ padding: '4px 7px', fontSize: '11px', fontWeight: 700 }}
+                              onClick={() => setEditTaxRate(p)}
+                            >
+                              {p}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <label className="form-label" style={{ marginBottom: 0 }}>
+                          🛎️ Service Charges (PKR):
+                        </label>
+                        <span style={{ fontSize: '12px', fontWeight: 800, color: '#a855f7' }}>
+                          {formatPKR(editServiceCharge)}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <div style={{ position: 'relative', flex: 1 }}>
+                          <input
+                            type="number"
+                            min="0"
+                            step="10"
+                            className="form-input"
+                            style={{ padding: '6px 42px 6px 10px', fontSize: '13px', fontWeight: 700 }}
+                            value={editServiceChargeAmount === 0 ? '' : editServiceChargeAmount}
+                            placeholder="0"
+                            onChange={(e) => setEditServiceChargeAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                          />
+                          <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontWeight: 700, fontSize: '11px', color: 'var(--text-muted)' }}>
+                            PKR
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          {[0, 100, 200, 300].map((amt) => (
+                            <button
+                              key={amt}
+                              type="button"
+                              className={`btn btn-sm ${editServiceChargeAmount === amt ? 'btn-primary' : 'btn-secondary'}`}
+                              style={{ padding: '4px 6px', fontSize: '11px', fontWeight: 700 }}
+                              onClick={() => setEditServiceChargeAmount(amt)}
+                            >
+                              {amt === 0 ? '0' : `${amt}`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* DELIVERY EDIT CHARGES: Delivery Charges (PKR) */}
+                {isEditDelivery && (
+                  <div
+                    style={{
+                      background: 'var(--bg-box-alt)',
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-color)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <label className="form-label" style={{ marginBottom: 0 }}>
+                        🛵 Delivery Charges (PKR):
+                      </label>
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: '#38bdf8' }}>
+                        {formatPKR(editDeliveryCharge)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <div style={{ position: 'relative', flex: 1 }}>
+                        <input
+                          type="number"
+                          min="0"
+                          step="10"
+                          className="form-input"
+                          style={{ padding: '6px 42px 6px 10px', fontSize: '13px', fontWeight: 700 }}
+                          value={editDeliveryChargeAmount === 0 ? '' : editDeliveryChargeAmount}
+                          placeholder="0"
+                          onChange={(e) => setEditDeliveryChargeAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                        />
+                        <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontWeight: 700, fontSize: '11px', color: 'var(--text-muted)' }}>
+                          PKR
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        {[0, 100, 150, 200].map((amt) => (
+                          <button
+                            key={amt}
+                            type="button"
+                            className={`btn btn-sm ${editDeliveryChargeAmount === amt ? 'btn-primary' : 'btn-secondary'}`}
+                            style={{ padding: '4px 6px', fontSize: '11px', fontWeight: 700 }}
+                            onClick={() => setEditDeliveryChargeAmount(amt)}
+                          >
+                            {amt === 0 ? 'Free' : `${amt}`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="form-group">
                   <label className="form-label">Kitchen & Special Notes</label>
@@ -787,7 +955,7 @@ export const SaleInvoicesPage: React.FC = () => {
                 {/* Financial Summary */}
                 <div
                   style={{
-                    background: 'rgba(0, 0, 0, 0.4)',
+                    background: 'var(--bg-box-alt)',
                     padding: '14px 16px',
                     borderRadius: 'var(--radius-md)',
                     border: '1px solid var(--border-color)',
@@ -800,19 +968,40 @@ export const SaleInvoicesPage: React.FC = () => {
                     <span>Subtotal</span>
                     <span>{formatPKR(editSubtotal)}</span>
                   </div>
-                  {editServiceChargeRate > 0 && (
+
+                  {isEditDineIn && (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        <span>Tax ({editTaxRate}%)</span>
+                        <span style={{ color: editTax > 0 ? '#38bdf8' : 'inherit', fontWeight: editTax > 0 ? 700 : 400 }}>
+                          {formatPKR(editTax)}
+                        </span>
+                      </div>
+                      {editServiceCharge > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                          <span>Service Charges</span>
+                          <span style={{ color: '#a855f7', fontWeight: 700 }}>{formatPKR(editServiceCharge)}</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {isEditDelivery && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      <span>Service Charges ({editServiceChargeRate}%)</span>
-                      <span>{formatPKR(editServiceCharge)}</span>
+                      <span>Delivery Charges</span>
+                      <span style={{ color: editDeliveryCharge > 0 ? '#38bdf8' : 'inherit', fontWeight: editDeliveryCharge > 0 ? 700 : 400 }}>
+                        {formatPKR(editDeliveryCharge)}
+                      </span>
                     </div>
                   )}
+
                   <div
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
                       fontSize: '18px',
                       fontWeight: 900,
-                      color: '#34d399',
+                      color: '#10b981',
                       paddingTop: '6px',
                       borderTop: '1px dashed var(--border-color)',
                     }}

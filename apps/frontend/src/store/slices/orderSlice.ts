@@ -23,8 +23,10 @@ export interface Order {
   items: OrderItem[];
   subtotal: number;
   serviceCharge: number;
-  serviceChargeRate: number;
+  serviceChargeRate?: number;
+  deliveryCharge?: number;
   tax: number;
+  taxRate?: number;
   total: number;
   totalPaid?: number;
   change?: number;
