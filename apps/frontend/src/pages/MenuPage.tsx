@@ -392,21 +392,31 @@ export const MenuPage: React.FC = () => {
 
       {/* Add / Edit Menu Item Modal */}
       {modalOpen && (
-        <div className="modal-overlay" onClick={() => setModalOpen(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '580px' }}>
+        <div className="modal-backdrop" onClick={() => setModalOpen(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
             <div className="modal-header">
-              <h3 className="modal-title">{editingItem ? 'Edit Menu Item' : 'New Menu Item'}</h3>
-              <button className="btn btn-secondary btn-sm" onClick={() => setModalOpen(false)}>
+              <div className="modal-header-text">
+                <h3 className="modal-title">🍽️ {editingItem ? 'Edit Menu Item' : 'New Menu Item'}</h3>
+                <p className="modal-subtitle">Configure pricing, dish photo, category, and recipe ingredients</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setModalOpen(false)}
+                title="Close dialog"
+              >
                 ✕
               </button>
             </div>
+
             <form onSubmit={handleSaveItem}>
               <div className="modal-body">
                 {/* Image Upload / Dropzone Section */}
                 <div className="form-group">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <label className="form-label" style={{ marginBottom: 0, fontWeight: 700 }}>
-                      📸 Dish Photo / Image (Loads on POS)
+                    <label className="input-label" style={{ marginBottom: 0, fontWeight: 700 }}>
+                      <span>📸 Dish Photo / Image</span>
+                      <span className="label-hint">Loads on POS</span>
                     </label>
                     <button
                       type="button"
@@ -463,7 +473,7 @@ export const MenuPage: React.FC = () => {
                     <div>
                       <input
                         type="url"
-                        className="form-input"
+                        className="input-field"
                         placeholder="https://example.com/photos/burger.jpg"
                         value={formData.imageUrl}
                         onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
@@ -513,10 +523,13 @@ export const MenuPage: React.FC = () => {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Item / Dish Name *</label>
+                  <label className="input-label">
+                    <span>Item / Dish Name</span>
+                    <span className="label-hint">Required</span>
+                  </label>
                   <input
                     type="text"
-                    className="form-input"
+                    className="input-field"
                     required
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -527,7 +540,7 @@ export const MenuPage: React.FC = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                   <div className="form-group">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <label className="form-label" style={{ marginBottom: 0 }}>Category *</label>
+                      <label className="input-label" style={{ marginBottom: 0 }}>Category</label>
                       <button
                         type="button"
                         onClick={() => setIsNewCategory(!isNewCategory)}
@@ -547,7 +560,7 @@ export const MenuPage: React.FC = () => {
                     {isNewCategory ? (
                       <input
                         type="text"
-                        className="form-input"
+                        className="input-field"
                         required
                         placeholder="e.g. Sandwiches, Platters..."
                         value={customCategory}
@@ -555,7 +568,7 @@ export const MenuPage: React.FC = () => {
                       />
                     ) : (
                       <select
-                        className="form-select"
+                        className="input-field"
                         value={formData.category}
                         onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                       >
@@ -571,10 +584,13 @@ export const MenuPage: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Prep Time (minutes)</label>
+                    <label className="input-label">
+                      <span>Prep Time (minutes)</span>
+                      <span className="label-hint">Kitchen KDS</span>
+                    </label>
                     <input
                       type="number"
-                      className="form-input"
+                      className="input-field"
                       required
                       min="1"
                       value={formData.preparationTime}
@@ -587,11 +603,14 @@ export const MenuPage: React.FC = () => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                   <div className="form-group">
-                    <label className="form-label">Selling Price (PKR) *</label>
+                    <label className="input-label">
+                      <span>Selling Price (PKR)</span>
+                      <span className="label-hint">Required</span>
+                    </label>
                     <input
                       type="number"
                       step="1"
-                      className="form-input"
+                      className="input-field"
                       required
                       value={formData.price}
                       onChange={(e) =>
@@ -601,11 +620,14 @@ export const MenuPage: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Estimated Food Cost (PKR)</label>
+                    <label className="input-label">
+                      <span>Estimated Food Cost (PKR)</span>
+                      <span className="label-hint">Margin calculation</span>
+                    </label>
                     <input
                       type="number"
                       step="1"
-                      className="form-input"
+                      className="input-field"
                       required
                       value={formData.cost}
                       onChange={(e) =>
@@ -616,22 +638,26 @@ export const MenuPage: React.FC = () => {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Description & Ingredients</label>
+                  <label className="input-label">
+                    <span>Description & Recipe Ingredients</span>
+                    <span className="label-hint">Mentioning stock items auto-deducts them on sale</span>
+                  </label>
                   <textarea
-                    className="form-textarea"
+                    className="input-field"
                     rows={3}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Ingredients, spice level, taste profile, allergens..."
+                    placeholder="e.g. Crispy chicken zinger made with fresh thai piece, sesame bun, mayonnaise, and lettuce..."
                   />
                 </div>
               </div>
+
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setModalOpen(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={imageUploading}>
-                  {editingItem ? 'Save Changes' : 'Add Item to Menu & DB'}
+                  {editingItem ? '✓ Save Changes' : '✓ Add Item to Menu'}
                 </button>
               </div>
             </form>

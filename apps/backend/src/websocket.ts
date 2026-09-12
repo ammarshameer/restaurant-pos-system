@@ -7,7 +7,14 @@ interface SocketUser {
   role: string;
 }
 
+let ioInstance: Server | null = null;
+
+export const getIO = (): Server | null => {
+  return ioInstance;
+};
+
 export const setupWebSocket = (io: Server) => {
+  ioInstance = io;
   // Authentication middleware for WebSocket
   io.use((socket: Socket, next) => {
     const token = socket.handshake.auth.token;

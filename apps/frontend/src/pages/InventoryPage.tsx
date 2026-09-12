@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { inventoryApi, InventoryItem as PosInventoryItem, InventoryTransaction as PosTransaction } from '../api/inventory.api';
 import { formatPKR } from '../utils/format';
+import { socketClient } from '../lib/socket';
 
 export const InventoryPage: React.FC = () => {
   const [inventory, setInventory] = useState<PosInventoryItem[]>([]);
@@ -45,6 +46,36 @@ export const InventoryPage: React.FC = () => {
 
   useEffect(() => {
     loadInventory();
+
+    const token = localStorage.getItem('auth_token') || 'pos-token';
+    const socket = socketClient.connect(token);
+    if (socket) {
+      const handleInventoryUpdate = (data: any) => {
+        console.log('⚡ Real-time inventory sync received:', data);
+        if (data?.id) {
+          setInventory((prev) =>
+            prev.map((item) =>
+              item.id === data.id
+                ? { ...item, quantity: Number(data.quantity) }
+                : item
+            )
+          );
+        } else {
+          loadInventory();
+        }
+      };
+
+      socket.on('inventory:updated', handleInventoryUpdate);
+      socket.on('order:new', () => {
+        // Refresh inventory whenever an order is completed/sold
+        loadInventory();
+      });
+
+      return () => {
+        socket.off('inventory:updated', handleInventoryUpdate);
+        socket.off('order:new');
+      };
+    }
   }, []);
 
   const lowStockItems = inventory.filter((item) => item.quantity <= item.reorderPoint);
@@ -356,60 +387,83 @@ export const InventoryPage: React.FC = () => {
 
       {/* Adjust Stock Modal */}
       {adjustModalOpen && selectedItem && (
-        <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: '440px' }}>
-            <h3 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '4px' }}>⚡ Adjust Stock Level</h3>
-            <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '16px' }}>
-              Updating <strong>{selectedItem.name}</strong> (Current: {selectedItem.quantity} {selectedItem.unit})
-            </p>
+        <div className="modal-backdrop" onClick={() => setAdjustModalOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-header-text">
+                <h3 className="modal-title">⚡ Adjust Stock Level</h3>
+                <p className="modal-subtitle">
+                  Updating <strong>{selectedItem.name}</strong> • Current: {selectedItem.quantity} {selectedItem.unit}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setAdjustModalOpen(false)}
+                title="Close dialog"
+              >
+                ✕
+              </button>
+            </div>
 
             <form onSubmit={handleApplyAdjustment}>
-              <div style={{ marginBottom: '12px' }}>
-                <label className="input-label">Adjustment Type</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  {(['RESTOCK', 'USAGE', 'WASTE', 'ADJUSTMENT'] as const).map((t) => (
-                    <button
-                      type="button"
-                      key={t}
-                      className={`btn btn-sm ${adjustType === t ? 'btn-primary' : 'btn-secondary'}`}
-                      onClick={() => setAdjustType(t)}
-                    >
-                      {t === 'RESTOCK' ? '📦 Restock (+)' : t === 'USAGE' ? '🍽️ Usage (-)' : t === 'WASTE' ? '🗑️ Spoilage (-)' : '⚖️ Correction'}
-                    </button>
-                  ))}
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="input-label">
+                    <span>Adjustment Type</span>
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    {(['RESTOCK', 'USAGE', 'WASTE', 'ADJUSTMENT'] as const).map((t) => (
+                      <button
+                        type="button"
+                        key={t}
+                        className={`btn btn-sm ${adjustType === t ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setAdjustType(t)}
+                        style={{ justifyContent: 'center' }}
+                      >
+                        {t === 'RESTOCK' ? '📦 Restock (+)' : t === 'USAGE' ? '🍽️ Usage (-)' : t === 'WASTE' ? '🗑️ Spoilage (-)' : '⚖️ Correction'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="input-label">
+                    <span>Adjustment Quantity</span>
+                    <span className="label-hint">Unit: {selectedItem.unit}</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="any"
+                    required
+                    className="input-field"
+                    value={adjustAmount}
+                    onChange={(e) => setAdjustAmount(Number(e.target.value))}
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="input-label">
+                    <span>Reason / Reference Note</span>
+                    <span className="label-hint">Optional</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Vendor PO #409, kitchen usage, damaged box"
+                    className="input-field"
+                    value={adjustReason}
+                    onChange={(e) => setAdjustReason(e.target.value)}
+                  />
                 </div>
               </div>
 
-              <div style={{ marginBottom: '12px' }}>
-                <label className="input-label">Quantity ({selectedItem.unit})</label>
-                <input
-                  type="number"
-                  min="0.1"
-                  step="any"
-                  required
-                  className="input-field"
-                  value={adjustAmount}
-                  onChange={(e) => setAdjustAmount(Number(e.target.value))}
-                />
-              </div>
-
-              <div style={{ marginBottom: '20px' }}>
-                <label className="input-label">Reason / Reference Note</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Vendor PO #409, kitchen usage, damaged bag"
-                  className="input-field"
-                  value={adjustReason}
-                  onChange={(e) => setAdjustReason(e.target.value)}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setAdjustModalOpen(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  Apply Stock Update
+                  ⚡ Apply Stock Update
                 </button>
               </div>
             </form>
@@ -419,107 +473,147 @@ export const InventoryPage: React.FC = () => {
 
       {/* Add New Item Modal */}
       {addModalOpen && (
-        <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: '500px' }}>
-            <h3 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px' }}>+ Add Inventory Item</h3>
+        <div className="modal-backdrop" onClick={() => setAddModalOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-header-text">
+                <h3 className="modal-title">📦 Add Inventory Item</h3>
+                <p className="modal-subtitle">Register a new raw ingredient or retail merchandise item</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setAddModalOpen(false)}
+                title="Close dialog"
+              >
+                ✕
+              </button>
+            </div>
+
             <form onSubmit={handleAddNewItem}>
-              <div style={{ marginBottom: '12px' }}>
-                <label className="input-label">Item Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Premium Angus Beef Patties"
-                  className="input-field"
-                  value={newItem.name}
-                  onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                <div>
-                  <label className="input-label">SKU / Barcode</label>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="input-label">
+                    <span>Item Name</span>
+                    <span className="label-hint">Required</span>
+                  </label>
                   <input
                     type="text"
-                    placeholder="e.g. BEEF-001"
+                    required
+                    placeholder="e.g. Premium Angus Beef Patties"
                     className="input-field"
-                    value={newItem.sku}
-                    onChange={(e) => setNewItem({ ...newItem, sku: e.target.value })}
+                    value={newItem.name}
+                    onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
                   />
                 </div>
-                <div>
-                  <label className="input-label">Category</label>
-                  <select
-                    className="input-field"
-                    value={newItem.category}
-                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                  >
-                    <option value="Meat">Meat</option>
-                    <option value="Dairy">Dairy</option>
-                    <option value="Bakery">Bakery</option>
-                    <option value="Frozen">Frozen</option>
-                    <option value="Grocery">Grocery</option>
-                    <option value="Beverage">Beverage</option>
-                  </select>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>SKU / Barcode</span>
+                      <span className="label-hint">Auto or custom</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. BEEF-001"
+                      className="input-field"
+                      value={newItem.sku}
+                      onChange={(e) => setNewItem({ ...newItem, sku: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>Category</span>
+                      <span className="label-hint">Department</span>
+                    </label>
+                    <select
+                      className="input-field"
+                      value={newItem.category}
+                      onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                    >
+                      <option value="Meat">Meat</option>
+                      <option value="Dairy">Dairy</option>
+                      <option value="Bakery">Bakery</option>
+                      <option value="Frozen">Frozen</option>
+                      <option value="Grocery">Grocery</option>
+                      <option value="Beverage">Beverage</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>Initial Quantity</span>
+                      <span className="label-hint">In stock now</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      required
+                      className="input-field"
+                      value={newItem.quantity}
+                      onChange={(e) => setNewItem({ ...newItem, quantity: Number(e.target.value) })}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>Unit of Measure</span>
+                      <span className="label-hint">lbs, kg, pcs</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. lbs, kg, pcs, cans"
+                      className="input-field"
+                      value={newItem.unit}
+                      onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: 0 }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="input-label">
+                      <span>Reorder Point</span>
+                      <span className="label-hint">Low stock alert</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      className="input-field"
+                      value={newItem.reorderPoint}
+                      onChange={(e) => setNewItem({ ...newItem, reorderPoint: Number(e.target.value) })}
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="input-label">
+                      <span>Cost per Unit (PKR)</span>
+                      <span className="label-hint">Valuation</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      required
+                      className="input-field"
+                      value={newItem.costPerUnit}
+                      onChange={(e) => setNewItem({ ...newItem, costPerUnit: Number(e.target.value) })}
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                <div>
-                  <label className="input-label">Initial Quantity</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    required
-                    className="input-field"
-                    value={newItem.quantity}
-                    onChange={(e) => setNewItem({ ...newItem, quantity: Number(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <label className="input-label">Unit of Measure</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. lbs, kg, pcs, cans, liters"
-                    className="input-field"
-                    value={newItem.unit}
-                    onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
-                <div>
-                  <label className="input-label">Reorder Threshold</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    className="input-field"
-                    value={newItem.reorderPoint}
-                    onChange={(e) => setNewItem({ ...newItem, reorderPoint: Number(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <label className="input-label">Cost per Unit (PKR)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    required
-                    className="input-field"
-                    value={newItem.costPerUnit}
-                    onChange={(e) => setNewItem({ ...newItem, costPerUnit: Number(e.target.value) })}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setAddModalOpen(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  Save Item to Catalog
+                  ✓ Save Item to Catalog
                 </button>
               </div>
             </form>
@@ -529,59 +623,74 @@ export const InventoryPage: React.FC = () => {
 
       {/* Transaction History Modal */}
       {historyModalOpen && selectedItem && (
-        <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: '600px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div>
-                <h3 style={{ fontSize: '20px', fontWeight: 800 }}>📜 Stock Movement Audit</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{selectedItem.name} ({selectedItem.sku})</p>
+        <div className="modal-backdrop" onClick={() => setHistoryModalOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: '640px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-header-text">
+                <h3 className="modal-title">📜 Stock Movement Audit</h3>
+                <p className="modal-subtitle">
+                  {selectedItem.name} • SKU: {selectedItem.sku} • In Stock: {selectedItem.quantity} {selectedItem.unit}
+                </p>
               </div>
-              <button className="btn btn-sm btn-secondary" onClick={() => setHistoryModalOpen(false)}>
-                ✕ Close
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setHistoryModalOpen(false)}
+                title="Close dialog"
+              >
+                ✕
               </button>
             </div>
 
-            <div className="data-table-wrapper" style={{ maxHeight: '350px', overflowY: 'auto' }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Date & Time</th>
-                    <th>Type</th>
-                    <th>Qty</th>
-                    <th>Reason / Order</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.length === 0 ? (
+            <div className="modal-body" style={{ padding: 0 }}>
+              <div className="data-table-wrapper" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                <table className="data-table">
+                  <thead>
                     <tr>
-                      <td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
-                        No transaction history logged for this item yet.
-                      </td>
+                      <th>Date & Time</th>
+                      <th>Type</th>
+                      <th>Qty Change</th>
+                      <th>Reason / Order</th>
                     </tr>
-                  ) : (
-                    transactions.map((tx) => (
-                      <tr key={tx.id}>
-                        <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                          {new Date(tx.createdAt).toLocaleString()}
+                  </thead>
+                  <tbody>
+                    {transactions.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                          No stock movement history logged for this item yet.
                         </td>
-                        <td>
-                          <span
-                            className={`badge ${
-                              tx.type === 'RESTOCK' ? 'badge-served' : tx.type === 'WASTE' ? 'badge-cancelled' : 'badge-open'
-                            }`}
-                          >
-                            {tx.type}
-                          </span>
-                        </td>
-                        <td style={{ fontWeight: 800 }}>
-                          {tx.type === 'USAGE' || tx.type === 'WASTE' ? `-${tx.quantity}` : `+${tx.quantity}`}
-                        </td>
-                        <td style={{ fontSize: '12px' }}>{tx.reason}</td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      transactions.map((tx) => (
+                        <tr key={tx.id}>
+                          <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            {new Date(tx.createdAt).toLocaleString()}
+                          </td>
+                          <td>
+                            <span
+                              className={`badge ${
+                                tx.type === 'RESTOCK' ? 'badge-served' : tx.type === 'WASTE' ? 'badge-cancelled' : 'badge-open'
+                              }`}
+                            >
+                              {tx.type}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 800, color: tx.type === 'RESTOCK' ? '#34d399' : '#f87171' }}>
+                            {tx.type === 'USAGE' || tx.type === 'WASTE' ? `-${tx.quantity}` : `+${tx.quantity}`} {selectedItem.unit}
+                          </td>
+                          <td style={{ fontSize: '12px' }}>{tx.reason}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setHistoryModalOpen(false)}>
+                Close Audit Log
+              </button>
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { io } from '../index';
+import { getIO } from '../websocket';
 
 const prisma = new PrismaClient();
 
@@ -134,28 +134,108 @@ export class InventoryService {
     return updatedItem;
   }
 
-  async deductForMenuItem(menuItemId: string, itemQuantity: number, orderReason: string) {
-    // Find all inventory items linked to this menu item
-    const inventoryItems = await prisma.inventoryItem.findMany({
-      where: { menuItemId },
+  async deductForMenuItem(
+    menuItemId: string | null,
+    itemName: string,
+    itemQuantity: number,
+    orderReason: string,
+    restaurantId: string
+  ) {
+    // 1. Fetch menu item details if available (to inspect description & explicit relations)
+    let menuItem: any = null;
+    if (menuItemId) {
+      menuItem = await prisma.menuItem.findUnique({
+        where: { id: menuItemId },
+        include: { inventoryItems: true },
+      });
+    }
+
+    // 2. Fetch all inventory items in this restaurant
+    const allInventoryItems = await prisma.inventoryItem.findMany({
+      where: { restaurantId },
     });
 
-    for (const invItem of inventoryItems) {
-      const deductionAmount = itemQuantity;
-      const newQty = Math.max(0, Number(invItem.quantity) - deductionAmount);
+    if (!allInventoryItems || allInventoryItems.length === 0) {
+      return;
+    }
 
-      const updated = await prisma.inventoryItem.update({
-        where: { id: invItem.id },
-        data: { quantity: newQty },
-      });
+    const itemsToDeduct: Array<{ item: (typeof allInventoryItems)[0]; qtyPerUnit: number }> = [];
 
-      await prisma.inventoryTransaction.create({
-        data: {
-          inventoryItemId: invItem.id,
-          quantity: deductionAmount,
-          type: 'USAGE',
-          reason: orderReason,
-        },
+    // Helper to check if already in deduction list
+    const isAlreadyAdded = (id: string) => itemsToDeduct.some((x) => x.item.id === id);
+
+    // A. Explicitly linked inventory items via menuItemId
+    if (menuItem?.inventoryItems && Array.isArray(menuItem.inventoryItems)) {
+      for (const inv of menuItem.inventoryItems) {
+        if (!isAlreadyAdded(inv.id)) {
+          itemsToDeduct.push({ item: inv, qtyPerUnit: 1 });
+        }
+      }
+    }
+
+    // B. Smart description and name matching
+    const normalize = (str: string) =>
+      str
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const descNormalized = normalize(menuItem?.description || '');
+    const menuNameNormalized = normalize(menuItem?.name || itemName || '');
+
+    for (const inv of allInventoryItems) {
+      if (isAlreadyAdded(inv.id)) continue;
+
+      const invNameNormalized = normalize(inv.name);
+      if (invNameNormalized.length < 2) continue;
+
+      // Check for substring match in description or title
+      // e.g. "thai piece" in "crispy zinger with fresh thai piece"
+      const inDescription = descNormalized.length > 0 && descNormalized.includes(invNameNormalized);
+      const inTitle =
+        menuNameNormalized.length > 0 &&
+        (menuNameNormalized === invNameNormalized || menuNameNormalized.includes(invNameNormalized));
+
+      if (inDescription || inTitle) {
+        itemsToDeduct.push({ item: inv, qtyPerUnit: 1 });
+      }
+    }
+
+    // C. Perform deductions in database & notify via WebSockets
+    for (const target of itemsToDeduct) {
+      const totalDeduction = target.qtyPerUnit * itemQuantity;
+      const newQty = Math.max(0, Number(target.item.quantity) - totalDeduction);
+
+      const [updated] = await prisma.$transaction([
+        prisma.inventoryItem.update({
+          where: { id: target.item.id },
+          data: {
+            quantity: newQty,
+          },
+        }),
+        prisma.inventoryTransaction.create({
+          data: {
+            inventoryItemId: target.item.id,
+            quantity: totalDeduction,
+            type: 'USAGE',
+            reason: orderReason,
+          },
+        }),
+      ]);
+
+      console.log(
+        `✓ [Inventory] Deducted ${totalDeduction} ${target.item.unit} for "${target.item.name}" (Stock: ${target.item.quantity} -> ${newQty}) [${orderReason}]`
+      );
+
+      // Emit real-time inventory update
+      const io = getIO();
+      io?.to(`restaurant:${restaurantId}`).emit('inventory:updated', {
+        id: updated.id,
+        quantity: Number(updated.quantity),
+        name: updated.name,
+        unit: updated.unit,
+        reorderPoint: Number(updated.reorderPoint),
       });
 
       if (Number(updated.quantity) <= Number(updated.reorderPoint)) {
@@ -190,6 +270,7 @@ export class InventoryService {
   }
 
   emitLowStockAlert(item: any) {
+    const io = getIO();
     io?.to(`restaurant:${item.restaurantId}`).emit('inventory:alert', {
       itemId: item.id,
       name: item.name,

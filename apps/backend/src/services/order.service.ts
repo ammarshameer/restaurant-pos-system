@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { io } from '../index';
+import { getIO } from '../websocket';
 import { InventoryService } from './inventory.service';
 
 const prisma = new PrismaClient();
@@ -167,8 +167,25 @@ export class OrderService {
     });
 
     // Notify kitchen and waitstaff via WebSocket
+    const io = getIO();
     io?.to(`restaurant:${restaurantId}`).emit('order:new', order);
     io?.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:new', order);
+
+    // Auto-deduct inventory stock for all ordered items / recipe ingredients
+    for (const item of data.items) {
+      const orderReason = `Order #${orderNum}: ${item.quantity}x ${item.name || 'Menu Item'}`;
+      try {
+        await inventoryService.deductForMenuItem(
+          item.menuItemId || null,
+          item.name || '',
+          item.quantity,
+          orderReason,
+          restaurantId
+        );
+      } catch (invErr) {
+        console.error(`Failed to deduct inventory for item ${item.name}:`, invErr);
+      }
+    }
 
     return order;
   }
@@ -288,6 +305,7 @@ export class OrderService {
       },
     });
 
+    const io = getIO();
     io?.to(`restaurant:${updatedOrder.restaurantId}`).emit('order:updated', updatedOrder);
     io?.to(`restaurant:${updatedOrder.restaurantId}:kitchen`).emit('kitchen:order:updated', updatedOrder);
 
@@ -327,6 +345,7 @@ export class OrderService {
       },
     });
 
+    const io = getIO();
     io?.to(`restaurant:${item.order.restaurantId}`).emit('order:item:status:changed', {
       itemId,
       status,
@@ -367,6 +386,7 @@ export class OrderService {
       },
     });
 
+    const io = getIO();
     io?.to(`restaurant:${order.restaurantId}`).emit('order:updated', updatedOrder);
 
     return updatedOrder;
@@ -388,6 +408,24 @@ export class OrderService {
     await prisma.orderItem.createMany({
       data: orderItemsData,
     });
+
+    const targetOrder = await prisma.order.findUnique({ where: { id: orderId } });
+    if (targetOrder) {
+      for (const item of items) {
+        const orderReason = `Order #${targetOrder.orderNumber} (Add-on): ${item.quantity || 1}x ${item.name || 'Menu Item'}`;
+        try {
+          await inventoryService.deductForMenuItem(
+            item.menuItemId || null,
+            item.name || '',
+            item.quantity || 1,
+            orderReason,
+            targetOrder.restaurantId
+          );
+        } catch (invErr) {
+          console.error(`Failed to deduct inventory for add-on ${item.name}:`, invErr);
+        }
+      }
+    }
 
     return this.getOrderById(orderId);
   }

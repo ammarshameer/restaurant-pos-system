@@ -333,31 +333,49 @@ export const EmployeesPage: React.FC = () => {
 
       {/* Fast PIN Punch Terminal Modal */}
       {clockModalOpen && (
-        <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
-            <h3 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '8px' }}>⏱️ Fast PIN Punch Terminal</h3>
-            <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '20px' }}>
-              Enter staff 4-digit PIN code to instantly punch In/Out
-            </p>
+        <div className="modal-backdrop" onClick={() => setClockModalOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: '420px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-header-text" style={{ textAlign: 'left' }}>
+                <h3 className="modal-title">⏱️ PIN Punch Terminal</h3>
+                <p className="modal-subtitle">Instant shift Clock-In / Clock-Out</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setClockModalOpen(false)}
+                title="Close dialog"
+              >
+                ✕
+              </button>
+            </div>
 
             <form onSubmit={handlePinTimeClock}>
-              <input
-                type="password"
-                maxLength={4}
-                autoFocus
-                placeholder="4-digit PIN (e.g. 1234)"
-                className="input-field"
-                value={clockPin}
-                onChange={(e) => setClockPin(e.target.value)}
-                style={{ fontSize: '24px', textAlign: 'center', letterSpacing: '8px', marginBottom: '20px' }}
-              />
+              <div className="modal-body" style={{ textAlign: 'center' }}>
+                <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '18px' }}>
+                  Enter employee 4-digit security PIN to punch time
+                </p>
 
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <input
+                    type="password"
+                    maxLength={4}
+                    autoFocus
+                    placeholder="••••"
+                    className="input-field"
+                    value={clockPin}
+                    onChange={(e) => setClockPin(e.target.value)}
+                    style={{ fontSize: '28px', textAlign: 'center', letterSpacing: '12px', padding: '14px', fontWeight: 800 }}
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer" style={{ justifyContent: 'center' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setClockModalOpen(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={clockPin.length < 4}>
-                  Punch Time Clock
+                  ⏱️ Punch Time Clock
                 </button>
               </div>
             </form>
@@ -367,102 +385,144 @@ export const EmployeesPage: React.FC = () => {
 
       {/* Add Staff Member Modal */}
       {addModalOpen && (
-        <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: '500px' }}>
-            <h3 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px' }}>+ Add New Staff Member</h3>
+        <div className="modal-backdrop" onClick={() => setAddModalOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-header-text">
+                <h3 className="modal-title">👥 Add Staff Member</h3>
+                <p className="modal-subtitle">Create a new restaurant team member and POS account</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setAddModalOpen(false)}
+                title="Close dialog"
+              >
+                ✕
+              </button>
+            </div>
+
             <form onSubmit={handleCreateEmployee}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                <div>
-                  <label className="input-label">First Name</label>
+              <div className="modal-body">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>First Name</span>
+                      <span className="label-hint">Required</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Alex"
+                      className="input-field"
+                      value={newEmployee.firstName}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, firstName: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>Last Name</span>
+                      <span className="label-hint">Required</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Morgan"
+                      className="input-field"
+                      value={newEmployee.lastName}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, lastName: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="input-label">
+                    <span>Email Address</span>
+                    <span className="label-hint">Login username</span>
+                  </label>
                   <input
-                    type="text"
+                    type="email"
                     required
+                    placeholder="e.g. alex@restaurant.com"
                     className="input-field"
-                    value={newEmployee.firstName}
-                    onChange={(e) => setNewEmployee({ ...newEmployee, firstName: e.target.value })}
+                    value={newEmployee.email}
+                    onChange={(e) => setNewEmployee({ ...newEmployee, email: e.target.value })}
                   />
                 </div>
-                <div>
-                  <label className="input-label">Last Name</label>
-                  <input
-                    type="text"
-                    required
-                    className="input-field"
-                    value={newEmployee.lastName}
-                    onChange={(e) => setNewEmployee({ ...newEmployee, lastName: e.target.value })}
-                  />
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>Assigned Role</span>
+                      <span className="label-hint">Permissions</span>
+                    </label>
+                    <select
+                      className="input-field"
+                      value={newEmployee.role}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, role: e.target.value as any })}
+                    >
+                      <option value="SERVER">Server</option>
+                      <option value="MANAGER">Manager</option>
+                      <option value="ADMIN">Admin</option>
+                      <option value="KITCHEN">Kitchen / Chef</option>
+                      <option value="CASHIER">Cashier</option>
+                      <option value="BARTENDER">Bartender</option>
+                      <option value="HOST">Host</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>Hourly Pay Rate (PKR)</span>
+                      <span className="label-hint">Payroll</span>
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      className="input-field"
+                      value={newEmployee.hourlyRate}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, hourlyRate: Number(e.target.value) })}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: 0 }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="input-label">
+                      <span>Terminal 4-Digit PIN</span>
+                      <span className="label-hint">Passcode</span>
+                    </label>
+                    <input
+                      type="password"
+                      maxLength={4}
+                      required
+                      placeholder="e.g. 1234"
+                      className="input-field"
+                      value={newEmployee.pin}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, pin: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="input-label">
+                      <span>Contact Phone</span>
+                      <span className="label-hint">Optional</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="+92 300 1234567"
+                      className="input-field"
+                      value={newEmployee.phone}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, phone: e.target.value })}
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div style={{ marginBottom: '12px' }}>
-                <label className="input-label">Email Address</label>
-                <input
-                  type="email"
-                  required
-                  className="input-field"
-                  value={newEmployee.email}
-                  onChange={(e) => setNewEmployee({ ...newEmployee, email: e.target.value })}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                <div>
-                  <label className="input-label">Role</label>
-                  <select
-                    className="input-field"
-                    value={newEmployee.role}
-                    onChange={(e) => setNewEmployee({ ...newEmployee, role: e.target.value as any })}
-                  >
-                    <option value="SERVER">Server</option>
-                    <option value="MANAGER">Manager</option>
-                    <option value="ADMIN">Admin</option>
-                    <option value="KITCHEN">Kitchen / Chef</option>
-                    <option value="CASHIER">Cashier</option>
-                    <option value="BARTENDER">Bartender</option>
-                    <option value="HOST">Host</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="input-label">Hourly Rate (PKR)</label>
-                  <input
-                    type="number"
-                    required
-                    className="input-field"
-                    value={newEmployee.hourlyRate}
-                    onChange={(e) => setNewEmployee({ ...newEmployee, hourlyRate: Number(e.target.value) })}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
-                <div>
-                  <label className="input-label">POS 4-Digit PIN</label>
-                  <input
-                    type="password"
-                    maxLength={4}
-                    required
-                    className="input-field"
-                    value={newEmployee.pin}
-                    onChange={(e) => setNewEmployee({ ...newEmployee, pin: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="input-label">Phone Number (Optional)</label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={newEmployee.phone}
-                    onChange={(e) => setNewEmployee({ ...newEmployee, phone: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setAddModalOpen(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  Save Staff Member
+                  ✓ Save Staff Member
                 </button>
               </div>
             </form>

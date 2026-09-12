@@ -383,56 +383,81 @@ export const TablesPage: React.FC = () => {
 
       {/* Add Table Modal */}
       {addModalOpen && (
-        <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: '420px' }}>
-            <h3 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '16px' }}>+ Add New Floor Table</h3>
-            <form onSubmit={handleAddTable}>
-              <div style={{ marginBottom: '12px' }}>
-                <label className="input-label">Table Number / Label</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. 7, 8, Patio 2, B4"
-                  className="input-field"
-                  value={newTable.number}
-                  onChange={(e) => setNewTable({ ...newTable, number: e.target.value })}
-                />
+        <div className="modal-backdrop" onClick={() => setAddModalOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-header-text">
+                <h3 className="modal-title">🍽️ Add Floor Table</h3>
+                <p className="modal-subtitle">Configure seating capacity and table geometry</p>
               </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setAddModalOpen(false)}
+                title="Close dialog"
+              >
+                ✕
+              </button>
+            </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
-                <div>
-                  <label className="input-label">Seating Capacity</label>
+            <form onSubmit={handleAddTable}>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="input-label">
+                    <span>Table Number / Label</span>
+                    <span className="label-hint">Required</span>
+                  </label>
                   <input
-                    type="number"
-                    min="1"
-                    max="30"
+                    type="text"
                     required
+                    placeholder="e.g. 7, 8, Patio 2, B4"
                     className="input-field"
-                    value={newTable.capacity}
-                    onChange={(e) => setNewTable({ ...newTable, capacity: Number(e.target.value) })}
+                    value={newTable.number}
+                    onChange={(e) => setNewTable({ ...newTable, number: e.target.value })}
                   />
                 </div>
-                <div>
-                  <label className="input-label">Table Shape</label>
-                  <select
-                    className="input-field"
-                    value={newTable.shape}
-                    onChange={(e) => setNewTable({ ...newTable, shape: e.target.value as any })}
-                  >
-                    <option value="SQUARE">Square</option>
-                    <option value="RECTANGLE">Rectangle</option>
-                    <option value="CIRCLE">Round / Circle</option>
-                    <option value="BOOTH">Booth</option>
-                  </select>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: 0 }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="input-label">
+                      <span>Seating Capacity</span>
+                      <span className="label-hint">Guests</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="30"
+                      required
+                      className="input-field"
+                      value={newTable.capacity}
+                      onChange={(e) => setNewTable({ ...newTable, capacity: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="input-label">
+                      <span>Table Shape</span>
+                      <span className="label-hint">Layout</span>
+                    </label>
+                    <select
+                      className="input-field"
+                      value={newTable.shape}
+                      onChange={(e) => setNewTable({ ...newTable, shape: e.target.value as any })}
+                    >
+                      <option value="SQUARE">Square</option>
+                      <option value="RECTANGLE">Rectangle</option>
+                      <option value="CIRCLE">Round / Circle</option>
+                      <option value="BOOTH">Booth</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setAddModalOpen(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  Save Table to Floor
+                  ✓ Save Table to Floor
                 </button>
               </div>
             </form>
