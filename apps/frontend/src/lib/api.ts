@@ -30,8 +30,12 @@ class ApiClient {
       (response) => response,
       (error: AxiosError) => {
         if (error.response?.status === 401) {
+          const hadToken = Boolean(localStorage.getItem('auth_token'));
           localStorage.removeItem('auth_token');
-          window.location.href = '/login';
+          localStorage.removeItem('auth_user');
+          if (hadToken && window.location.pathname !== '/login') {
+            window.location.replace('/login');
+          }
         }
         return Promise.reject(error);
       }

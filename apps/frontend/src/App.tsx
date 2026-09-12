@@ -42,7 +42,7 @@ export const App: React.FC = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  // Restore stored auth session & hydrate live database records on mount
+  // Restore stored auth session on mount
   useEffect(() => {
     const storedToken = localStorage.getItem('auth_token');
     const storedUser = localStorage.getItem('auth_user');
@@ -55,8 +55,13 @@ export const App: React.FC = () => {
         localStorage.removeItem('auth_user');
       }
     }
+  }, [dispatch, isAuthenticated]);
 
-    // Hydrate Menu Items & Orders from Database
+  // Hydrate Menu Items & Orders ONLY when authenticated
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token');
+    if (!isAuthenticated || !token) return;
+
     const hydrateData = async () => {
       try {
         const [dbMenu, dbOrders] = await Promise.all([
@@ -70,32 +75,42 @@ export const App: React.FC = () => {
           dispatch(setOrders(dbOrders));
         }
       } catch (e) {
-        console.warn('Initial data hydration error:', e);
+        console.warn('Data hydration error:', e);
       }
     };
     hydrateData();
   }, [dispatch, isAuthenticated]);
 
-  // Connect socket and listen for low stock alerts
+  // Connect socket and listen for low stock alerts only when authenticated
   useEffect(() => {
+    if (!isAuthenticated) {
+      socketClient.disconnect();
+      return;
+    }
+
     const token = localStorage.getItem('auth_token');
     if (token) {
       socketClient.connect(token);
       const socket = socketClient.getSocket();
       if (socket) {
-        socket.on('inventory:alert', (data: any) => {
+        const handleAlert = (data: any) => {
           setLiveAlert(data.message || `⚠️ Low stock: ${data.name}`);
           setTimeout(() => setLiveAlert(null), 8000);
-        });
+        };
+        socket.on('inventory:alert', handleAlert);
+        return () => {
+          socket.off('inventory:alert', handleAlert);
+        };
       }
     }
   }, [isAuthenticated]);
 
   const handleLogout = () => {
+    socketClient.disconnect();
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
     dispatch(logout());
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   const hasToken = Boolean(localStorage.getItem('auth_token'));
