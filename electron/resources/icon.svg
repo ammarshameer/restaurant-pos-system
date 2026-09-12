@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- App Background Plate -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" stroke="#334155" stroke-width="8"/>
+  
+  <!-- Outer Glow Circle -->
+  <circle cx="256" cy="256" r="180" fill="none" stroke="url(#accentGrad)" stroke-width="12" opacity="0.4"/>
+  <circle cx="256" cy="256" r="150" fill="#1e293b" stroke="#475569" stroke-width="4"/>
+  
+  <!-- Fork and Knife & Cloche POS Graphic -->
+  <!-- Cloche Dome -->
+  <path d="M176 270 C176 195 336 195 336 270 Z" fill="url(#goldGrad)"/>
+  <rect x="156" y="270" width="200" height="14" rx="7" fill="url(#goldGrad)"/>
+  <circle cx="256" cy="190" r="14" fill="url(#goldGrad)"/>
+  
+  <!-- POS Receipt Slot Base -->
+  <rect x="190" y="300" width="132" height="60" rx="10" fill="url(#accentGrad)"/>
+  <rect x="210" y="315" width="92" height="8" rx="4" fill="#ffffff" opacity="0.9"/>
+  <rect x="220" y="335" width="72" height="6" rx="3" fill="#93c5fd" opacity="0.8"/>
+  <circle cx="256" cy="385" r="5" fill="#60a5fa"/>
+</svg>

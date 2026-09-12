@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Full-stack Restaurant POS and Management System",
+  "main": "electron/main.js",
   "scripts": {
     "dev:backend": "cd apps/backend && npm run dev",
     "dev:frontend": "cd apps/frontend && npm run dev",
@@ -11,9 +12,26 @@
     "build": "npm run build:backend && npm run build:frontend",
     "start:backend": "cd apps/backend && npm start",
     "start:frontend": "cd apps/frontend && npm run preview",
-    "install:all": "npm install && cd apps/backend && npm install && cd ../frontend && npm install"
+    "install:all": "npm install && cd apps/backend && npm install && cd ../frontend && npm install",
+    "electron:start": "electron .",
+    "electron:dev": "npm run build && electron .",
+    "electron:pack": "npm run build && electron-builder --dir --config electron-builder.json",
+    "dist:win": "npm run build && electron-builder --win --config electron-builder.json"
   },
-  "keywords": ["pos", "restaurant", "management", "react", "nodejs", "typescript"],
+  "keywords": [
+    "pos",
+    "restaurant",
+    "management",
+    "react",
+    "nodejs",
+    "typescript",
+    "electron",
+    "desktop"
+  ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  }
 }

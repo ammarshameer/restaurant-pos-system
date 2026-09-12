@@ -9,6 +9,8 @@ coverage/
 # Production
 dist/
 build/
+release/
+dist-electron/
 
 # Environment variables
 .env

@@ -98,8 +98,10 @@ export const App: React.FC = () => {
     navigate('/login');
   };
 
-  // If on login page, don't show the dashboard shell
-  if (location.pathname === '/login') {
+  const hasToken = Boolean(localStorage.getItem('auth_token'));
+
+  // If on login page or unauthenticated on launch, render the login screen directly
+  if (location.pathname === '/login' || (!isAuthenticated && !hasToken)) {
     return (
       <Routes>
         <Route path="/login" element={<LoginPage />} />

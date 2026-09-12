@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.restaurantpos.desktop",
+  "productName": "Restaurant POS",
+  "copyright": "Copyright © 2026 Restaurant POS",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "electron/**/*",
+    "apps/backend/dist/**/*",
+    "apps/backend/node_modules/**/*",
+    "apps/backend/prisma/schema.prisma",
+    "apps/backend/package.json",
+    "apps/frontend/dist/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "apps/backend/prisma/dev.db",
+      "to": "prisma/dev.db"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Restaurant POS",
+    "runAfterFinish": true
+  }
+}
