@@ -24,6 +24,22 @@ export const menuApi = {
                 is86d: Boolean(item.is86d),
                 description: item.description || '',
                 imageUrl: item.imageUrl,
+                ingredients: Array.isArray(item.ingredients)
+                  ? item.ingredients.map((ing: any) => ({
+                      id: ing.id,
+                      inventoryItemId: ing.inventoryItemId,
+                      quantityUsed: Number(ing.quantityUsed),
+                      inventoryItem: ing.inventoryItem
+                        ? {
+                            id: ing.inventoryItem.id,
+                            name: ing.inventoryItem.name,
+                            unit: ing.inventoryItem.unit,
+                            quantity: Number(ing.inventoryItem.quantity || 0),
+                            costPerUnit: Number(ing.inventoryItem.costPerUnit || 0),
+                          }
+                        : undefined,
+                    }))
+                  : [],
               });
             }
           }
@@ -56,6 +72,7 @@ export const menuApi = {
       }
 
       return await api.post('/menu/items', {
+        id: item.id,
         name: item.name,
         description: item.description,
         price: Number(item.price),
@@ -67,6 +84,10 @@ export const menuApi = {
         imageUrl: item.imageUrl || undefined,
         isAvailable: item.isAvailable !== false,
         is86d: Boolean(item.is86d),
+        ingredients: item.ingredients?.map((ing) => ({
+          inventoryItemId: ing.inventoryItemId,
+          quantityUsed: Number(ing.quantityUsed),
+        })),
       });
     } catch (e) {
       console.warn('Failed to save menu item to backend DB:', e);
@@ -77,7 +98,14 @@ export const menuApi = {
   // Update menu item in DB
   updateMenuItem: async (id: string, data: Partial<MenuItem>): Promise<any> => {
     try {
-      return await api.patch(`/menu/items/${id}`, data);
+      const payload: any = { ...data };
+      if (data.ingredients !== undefined) {
+        payload.ingredients = data.ingredients.map((ing) => ({
+          inventoryItemId: ing.inventoryItemId,
+          quantityUsed: Number(ing.quantityUsed),
+        }));
+      }
+      return await api.patch(`/menu/items/${id}`, payload);
     } catch (e) {
       console.warn('Failed to update menu item in backend DB:', e);
       return null;

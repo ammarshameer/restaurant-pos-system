@@ -315,6 +315,41 @@ async function main() {
 
   console.log('✓ Inventory items & transactions seeded');
 
+  // 6.5. Create MenuItemIngredient Recipe Relations
+  const recipeRelations = [
+    { menuItemId: 'm1', inventoryItemId: 'inv-1', quantityUsed: 2 }, // Classic Smash: 2x Beef Patties
+    { menuItemId: 'm1', inventoryItemId: 'inv-2', quantityUsed: 1 }, // Classic Smash: 1x Brioche Bun
+    { menuItemId: 'm1', inventoryItemId: 'inv-3', quantityUsed: 2 }, // Classic Smash: 2x Cheddar Slices
+    { menuItemId: 'm2', inventoryItemId: 'inv-1', quantityUsed: 1 }, // Truffle Bacon: 1x Beef Patty
+    { menuItemId: 'm2', inventoryItemId: 'inv-2', quantityUsed: 1 }, // Truffle Bacon: 1x Brioche Bun
+    { menuItemId: 'm2', inventoryItemId: 'inv-3', quantityUsed: 1 }, // Truffle Bacon: 1x Cheddar Slice
+    { menuItemId: 'm3', inventoryItemId: 'inv-4', quantityUsed: 1 }, // Buffalo Wings: 1 lbs Wings
+    { menuItemId: 'm4', inventoryItemId: 'inv-5', quantityUsed: 0.5 }, // Loaded Fries: 0.5 lbs Fries
+    { menuItemId: 'm4', inventoryItemId: 'inv-3', quantityUsed: 2 }, // Loaded Fries: 2x Cheddar Slices
+    { menuItemId: 'm5', inventoryItemId: 'inv-6', quantityUsed: 1 }, // Margherita Pizza: 1 can Tomato Sauce
+    { menuItemId: 'm7', inventoryItemId: 'inv-7', quantityUsed: 0.05 }, // Caramel Latte: 0.05 lbs Espresso Beans
+    { menuItemId: 'm8', inventoryItemId: 'inv-8', quantityUsed: 0.2 }, // Root Beer Float: 0.2 L Root Beer Syrup
+  ];
+
+  for (const rel of recipeRelations) {
+    await prisma.menuItemIngredient.upsert({
+      where: {
+        menuItemId_inventoryItemId: {
+          menuItemId: rel.menuItemId,
+          inventoryItemId: rel.inventoryItemId,
+        },
+      },
+      update: { quantityUsed: rel.quantityUsed },
+      create: {
+        menuItemId: rel.menuItemId,
+        inventoryItemId: rel.inventoryItemId,
+        quantityUsed: rel.quantityUsed,
+      },
+    });
+  }
+
+  console.log('✓ MenuItemIngredient recipe relations seeded');
+
   // 7. Seed Orders with different dates (Today, Yesterday, Last Week, This Month)
   const now = new Date();
   const todayMorning = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 11, 30, 0);

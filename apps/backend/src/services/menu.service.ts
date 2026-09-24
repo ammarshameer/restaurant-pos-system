@@ -14,6 +14,11 @@ export class MenuService {
                 modifiers: true,
               },
             },
+            ingredients: {
+              include: {
+                inventoryItem: true,
+              },
+            },
           },
           orderBy: { name: 'asc' },
         },
@@ -32,12 +37,18 @@ export class MenuService {
             modifiers: true,
           },
         },
+        ingredients: {
+          include: {
+            inventoryItem: true,
+          },
+        },
         inventoryItems: true,
       },
     });
   }
 
   async createMenuItem(data: {
+    id?: string;
     name: string;
     description?: string;
     price: number;
@@ -49,6 +60,7 @@ export class MenuService {
     preparationTime?: number;
     isAvailable?: boolean;
     is86d?: boolean;
+    ingredients?: Array<{ inventoryItemId: string; quantityUsed: number }>;
   }) {
     let resolvedCategoryId = data.categoryId;
 
@@ -112,8 +124,13 @@ export class MenuService {
       resolvedCategoryId = firstCat.id;
     }
 
+    const validIngredients = (data.ingredients || []).filter(
+      (ing) => ing && ing.inventoryItemId && Number(ing.quantityUsed) > 0
+    );
+
     return prisma.menuItem.create({
       data: {
+        ...(data.id ? { id: data.id } : {}),
         name: data.name,
         description: data.description,
         price: data.price,
@@ -124,20 +141,64 @@ export class MenuService {
         preparationTime: data.preparationTime,
         isAvailable: data.isAvailable !== undefined ? data.isAvailable : true,
         is86d: data.is86d !== undefined ? data.is86d : false,
+        ingredients:
+          validIngredients.length > 0
+            ? {
+                create: validIngredients.map((ing) => ({
+                  inventoryItemId: ing.inventoryItemId,
+                  quantityUsed: Number(ing.quantityUsed),
+                })),
+              }
+            : undefined,
       },
       include: {
         category: true,
+        ingredients: {
+          include: {
+            inventoryItem: true,
+          },
+        },
       },
     });
   }
 
   async updateMenuItem(id: string, data: any) {
-    return prisma.menuItem.update({
-      where: { id },
-      data,
-      include: {
-        category: true,
-      },
+    const { ingredients, categoryName, ...restData } = data;
+
+    return prisma.$transaction(async (tx) => {
+      if (ingredients !== undefined && Array.isArray(ingredients)) {
+        // Remove existing relations
+        await tx.menuItemIngredient.deleteMany({
+          where: { menuItemId: id },
+        });
+
+        const validIngredients = ingredients.filter(
+          (ing: any) => ing && ing.inventoryItemId && Number(ing.quantityUsed) > 0
+        );
+
+        if (validIngredients.length > 0) {
+          await tx.menuItemIngredient.createMany({
+            data: validIngredients.map((ing: any) => ({
+              menuItemId: id,
+              inventoryItemId: ing.inventoryItemId,
+              quantityUsed: Number(ing.quantityUsed),
+            })),
+          });
+        }
+      }
+
+      return tx.menuItem.update({
+        where: { id },
+        data: restData,
+        include: {
+          category: true,
+          ingredients: {
+            include: {
+              inventoryItem: true,
+            },
+          },
+        },
+      });
     });
   }
 

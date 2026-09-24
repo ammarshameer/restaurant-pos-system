@@ -3,6 +3,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../store/store';
 import {
   MenuItem,
+  MenuItemIngredientItem,
   setMenuItems,
   addMenuItem,
   updateMenuItem,
@@ -10,14 +11,21 @@ import {
   toggle86Item,
 } from '../store/slices/menuSlice';
 import { menuApi } from '../api/menu.api';
+import { inventoryApi, InventoryItem } from '../api/inventory.api';
 import { formatPKR } from '../utils/format';
 import { compressImageFile, getCategoryVisual } from '../utils/image';
+
+interface IngredientFormItem {
+  inventoryItemId: string;
+  quantityUsed: number | string;
+}
 
 export const MenuPage: React.FC = () => {
   const dispatch = useDispatch();
   const items = useSelector((state: RootState) => state.menu.items);
   const categories = useSelector((state: RootState) => state.menu.categories);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -35,6 +43,12 @@ export const MenuPage: React.FC = () => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [useUrlInput, setUseUrlInput] = useState(false);
 
+  // Inventory items for recipe linking
+  const [inventoryList, setInventoryList] = useState<InventoryItem[]>([]);
+  const [ingredientSearch, setIngredientSearch] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [ingredientError, setIngredientError] = useState<string | null>(null);
+
   const [formData, setFormData] = useState<{
     name: string;
     category: string;
@@ -43,6 +57,7 @@ export const MenuPage: React.FC = () => {
     preparationTime: number;
     description: string;
     imageUrl: string;
+    ingredients: IngredientFormItem[];
   }>({
     name: '',
     category: 'Burgers',
@@ -51,18 +66,36 @@ export const MenuPage: React.FC = () => {
     preparationTime: 10,
     description: '',
     imageUrl: '',
+    ingredients: [],
   });
 
-  // Sync menu from Database on component mount
+  // Sync menu & inventory from Database on component mount
   useEffect(() => {
-    const fetchDbMenu = async () => {
-      const dbItems = await menuApi.getMenu();
+    const fetchDbData = async () => {
+      const [dbItems, invItems] = await Promise.all([
+        menuApi.getMenu(),
+        inventoryApi.getInventory(),
+      ]);
       if (dbItems && dbItems.length > 0) {
         dispatch(setMenuItems(dbItems));
       }
+      if (invItems) {
+        setInventoryList(invItems);
+      }
     };
-    fetchDbMenu();
+    fetchDbData();
   }, [dispatch]);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -104,11 +137,72 @@ export const MenuPage: React.FC = () => {
     }
   };
 
+  const handleAddIngredient = (inv: InventoryItem) => {
+    setIngredientError(null);
+    setFormData((prev) => ({
+      ...prev,
+      ingredients: [
+        ...prev.ingredients,
+        { inventoryItemId: inv.id, quantityUsed: 1 },
+      ],
+    }));
+    setIngredientSearch('');
+    setIsDropdownOpen(false);
+  };
+
+  const handleRemoveIngredient = (index: number) => {
+    setIngredientError(null);
+    setFormData((prev) => ({
+      ...prev,
+      ingredients: prev.ingredients.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleQuantityChange = (index: number, val: string) => {
+    setIngredientError(null);
+    setFormData((prev) => {
+      const next = [...prev.ingredients];
+      next[index] = { ...next[index], quantityUsed: val };
+      return { ...prev, ingredients: next };
+    });
+  };
+
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIngredientError(null);
+
+    // Validate recipe ingredients (positive numbers required)
+    for (const ing of formData.ingredients) {
+      const qty = Number(ing.quantityUsed);
+      if (isNaN(qty) || qty <= 0) {
+        const inv = inventoryList.find((i) => i.id === ing.inventoryItemId);
+        setIngredientError(
+          `Please enter a valid positive quantity (> 0) for "${inv?.name || 'selected ingredient'}".`
+        );
+        return;
+      }
+    }
+
     const finalCategory = isNewCategory && customCategory.trim()
       ? customCategory.trim()
       : formData.category;
+
+    const formattedIngredients: MenuItemIngredientItem[] = formData.ingredients.map((ing) => {
+      const inv = inventoryList.find((i) => i.id === ing.inventoryItemId);
+      return {
+        inventoryItemId: ing.inventoryItemId,
+        quantityUsed: Number(ing.quantityUsed),
+        inventoryItem: inv
+          ? {
+              id: inv.id,
+              name: inv.name,
+              unit: inv.unit,
+              costPerUnit: inv.costPerUnit,
+              quantity: inv.quantity,
+            }
+          : undefined,
+      };
+    });
 
     if (editingItem) {
       const updated: MenuItem = {
@@ -120,10 +214,11 @@ export const MenuPage: React.FC = () => {
         preparationTime: Number(formData.preparationTime),
         description: formData.description.trim(),
         imageUrl: formData.imageUrl.trim() || undefined,
+        ingredients: formattedIngredients,
       };
       dispatch(updateMenuItem(updated));
       await menuApi.updateMenuItem(updated.id, updated);
-      showToast(`✅ '${updated.name}' updated in database with image and synced with POS!`);
+      showToast(`✅ '${updated.name}' updated in database with ${formattedIngredients.length} linked ingredients!`);
     } else {
       const newItemId = `m-${Date.now()}`;
       const newItem: MenuItem = {
@@ -137,16 +232,19 @@ export const MenuPage: React.FC = () => {
         imageUrl: formData.imageUrl.trim() || undefined,
         isAvailable: true,
         is86d: false,
+        ingredients: formattedIngredients,
       };
       dispatch(addMenuItem(newItem));
       await menuApi.createMenuItem(newItem);
-      showToast(`🎉 '${newItem.name}' created in Database & ready with image in POS!`);
+      showToast(`🎉 '${newItem.name}' created in Database with ${formattedIngredients.length} linked ingredients!`);
     }
 
     setModalOpen(false);
     setEditingItem(null);
     setIsNewCategory(false);
     setCustomCategory('');
+    setIngredientSearch('');
+    setIsDropdownOpen(false);
   };
 
   const openAddModal = () => {
@@ -154,6 +252,9 @@ export const MenuPage: React.FC = () => {
     setIsNewCategory(false);
     setCustomCategory('');
     setImageError(null);
+    setIngredientError(null);
+    setIngredientSearch('');
+    setIsDropdownOpen(false);
     setUseUrlInput(false);
     setFormData({
       name: '',
@@ -163,6 +264,7 @@ export const MenuPage: React.FC = () => {
       preparationTime: 10,
       description: '',
       imageUrl: '',
+      ingredients: [],
     });
     setModalOpen(true);
   };
@@ -172,6 +274,9 @@ export const MenuPage: React.FC = () => {
     setIsNewCategory(false);
     setCustomCategory('');
     setImageError(null);
+    setIngredientError(null);
+    setIngredientSearch('');
+    setIsDropdownOpen(false);
     setUseUrlInput(Boolean(item.imageUrl && item.imageUrl.startsWith('http')));
     setFormData({
       name: item.name,
@@ -181,16 +286,26 @@ export const MenuPage: React.FC = () => {
       preparationTime: item.preparationTime || 10,
       description: item.description || '',
       imageUrl: item.imageUrl || '',
+      ingredients: (item.ingredients || []).map((ing) => ({
+        inventoryItemId: ing.inventoryItemId,
+        quantityUsed: ing.quantityUsed,
+      })),
     });
     setModalOpen(true);
   };
 
   const handleRefreshMenu = async () => {
-    const dbItems = await menuApi.getMenu();
+    const [dbItems, invItems] = await Promise.all([
+      menuApi.getMenu(),
+      inventoryApi.getInventory(),
+    ]);
     if (dbItems && dbItems.length > 0) {
       dispatch(setMenuItems(dbItems));
-      showToast('🔄 Menu catalog reloaded directly from database.');
     }
+    if (invItems) {
+      setInventoryList(invItems);
+    }
+    showToast('🔄 Menu & inventory catalog reloaded directly from database.');
   };
 
   const filteredItems = items.filter((item) => {
@@ -198,9 +313,28 @@ export const MenuPage: React.FC = () => {
     const matchesSearch =
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.category.toLowerCase().includes(searchQuery.toLowerCase());
+      item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (item.ingredients &&
+        item.ingredients.some((ing) =>
+          ing.inventoryItem?.name.toLowerCase().includes(searchQuery.toLowerCase())
+        ));
     return matchesCategory && matchesSearch;
   });
+
+  const filteredInventoryOptions = inventoryList.filter((inv) => {
+    const notAlreadySelected = !formData.ingredients.some((i) => i.inventoryItemId === inv.id);
+    const matches =
+      inv.name.toLowerCase().includes(ingredientSearch.toLowerCase()) ||
+      inv.sku.toLowerCase().includes(ingredientSearch.toLowerCase()) ||
+      (inv.category && inv.category.toLowerCase().includes(ingredientSearch.toLowerCase()));
+    return notAlreadySelected && matches;
+  });
+
+  // Calculate live total recipe food cost from selected inventory items
+  const calculatedRecipeCost = formData.ingredients.reduce((sum, ing) => {
+    const item = inventoryList.find((i) => i.id === ing.inventoryItemId);
+    return sum + (Number(ing.quantityUsed) || 0) * (item?.costPerUnit || 0);
+  }, 0);
 
   return (
     <div className="page-container">
@@ -289,6 +423,7 @@ export const MenuPage: React.FC = () => {
               <th style={{ width: '60px' }}>Photo</th>
               <th>Dish Name</th>
               <th>Category</th>
+              <th>Recipe Ingredients</th>
               <th>Price (PKR)</th>
               <th>Food Cost (PKR)</th>
               <th>Gross Margin</th>
@@ -300,7 +435,7 @@ export const MenuPage: React.FC = () => {
           <tbody>
             {filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
+                <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
                   <div style={{ fontSize: '36px', marginBottom: '8px' }}>🍽️</div>
                   <div style={{ fontWeight: 600 }}>No menu items found</div>
                   <div style={{ fontSize: '12px', marginTop: '4px' }}>
@@ -314,6 +449,7 @@ export const MenuPage: React.FC = () => {
                 const margin =
                   item.price > 0 ? (((item.price - cost) / item.price) * 100).toFixed(0) : '0';
                 const visual = getCategoryVisual(item.category);
+                const hasIngredients = item.ingredients && item.ingredients.length > 0;
 
                 return (
                   <tr key={item.id}>
@@ -345,10 +481,49 @@ export const MenuPage: React.FC = () => {
                     </td>
                     <td>
                       <div style={{ fontWeight: 700 }}>{item.name}</div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{item.description}</div>
+                      {item.description && (
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{item.description}</div>
+                      )}
                     </td>
                     <td>
                       <span className="badge badge-open">{item.category}</span>
+                    </td>
+                    <td>
+                      {hasIngredients ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '240px' }}>
+                          {item.ingredients!.map((ing, i) => {
+                            const invName =
+                              ing.inventoryItem?.name ||
+                              inventoryList.find((x) => x.id === ing.inventoryItemId)?.name ||
+                              'Ingredient';
+                            const unit =
+                              ing.inventoryItem?.unit ||
+                              inventoryList.find((x) => x.id === ing.inventoryItemId)?.unit ||
+                              '';
+                            return (
+                              <span
+                                key={i}
+                                style={{
+                                  fontSize: '11px',
+                                  background: 'rgba(56, 189, 248, 0.1)',
+                                  border: '1px solid rgba(56, 189, 248, 0.25)',
+                                  color: '#38bdf8',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  fontWeight: 600,
+                                }}
+                                title={`${ing.quantityUsed} ${unit} used per order`}
+                              >
+                                {invName} ({ing.quantityUsed} {unit})
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                          No recipe linked
+                        </span>
+                      )}
                     </td>
                     <td style={{ fontWeight: 700, color: '#38bdf8' }}>{formatPKR(item.price)}</td>
                     <td style={{ color: 'var(--text-secondary)' }}>{formatPKR(cost)}</td>
@@ -393,11 +568,15 @@ export const MenuPage: React.FC = () => {
       {/* Add / Edit Menu Item Modal */}
       {modalOpen && (
         <div className="modal-backdrop" onClick={() => setModalOpen(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+          <div
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '680px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+          >
             <div className="modal-header">
               <div className="modal-header-text">
                 <h3 className="modal-title">🍽️ {editingItem ? 'Edit Menu Item' : 'New Menu Item'}</h3>
-                <p className="modal-subtitle">Configure pricing, dish photo, category, and recipe ingredients</p>
+                <p className="modal-subtitle">Configure dish details, photo, category, and recipe ingredients</p>
               </div>
               <button
                 type="button"
@@ -409,8 +588,8 @@ export const MenuPage: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveItem}>
-              <div className="modal-body">
+            <form onSubmit={handleSaveItem} style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div className="modal-body" style={{ flex: 1 }}>
                 {/* Image Upload / Dropzone Section */}
                 <div className="form-group">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -620,10 +799,28 @@ export const MenuPage: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="input-label">
-                      <span>Estimated Food Cost (PKR)</span>
-                      <span className="label-hint">Margin calculation</span>
-                    </label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <label className="input-label" style={{ marginBottom: 0 }}>
+                        <span>Estimated Food Cost (PKR)</span>
+                      </label>
+                      {calculatedRecipeCost > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setFormData((prev) => ({ ...prev, cost: Math.round(calculatedRecipeCost) }))}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#34d399',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            fontWeight: 700,
+                          }}
+                          title="Click to copy calculated recipe cost into food cost field"
+                        >
+                          ⚡ Fill ({formatPKR(calculatedRecipeCost)})
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="number"
                       step="1"
@@ -637,17 +834,249 @@ export const MenuPage: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Recipe & Linked Inventory Ingredients Section */}
+                <div
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-md, 8px)',
+                    padding: '16px',
+                    marginBottom: '16px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <div>
+                      <label className="input-label" style={{ marginBottom: '2px', fontWeight: 700 }}>
+                        <span>🌿 Recipe Ingredients & Stock Deduction</span>
+                        <span className="label-hint">Exact inventory linked</span>
+                      </label>
+                      <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+                        Select inventory items from real stock. Zero ingredients is allowed for standalone drinks/items.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Searchable Autocomplete Dropdown */}
+                  <div ref={dropdownRef} style={{ position: 'relative', marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="🔍 Search & select inventory ingredient from stock..."
+                        value={ingredientSearch}
+                        onChange={(e) => {
+                          setIngredientSearch(e.target.value);
+                          setIsDropdownOpen(true);
+                        }}
+                        onFocus={() => setIsDropdownOpen(true)}
+                        style={{ flex: 1 }}
+                      />
+                      {ingredientSearch && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => {
+                            setIngredientSearch('');
+                            setIsDropdownOpen(false);
+                          }}
+                        >
+                          ✕ Clear
+                        </button>
+                      )}
+                    </div>
+
+                    {isDropdownOpen && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          right: 0,
+                          marginTop: '4px',
+                          background: 'var(--bg-modal, #1e293b)',
+                          border: '1px solid var(--border-color, #334155)',
+                          borderRadius: 'var(--radius-md, 8px)',
+                          boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+                          maxHeight: '220px',
+                          overflowY: 'auto',
+                          zIndex: 100,
+                        }}
+                      >
+                        {filteredInventoryOptions.length === 0 ? (
+                          <div style={{ padding: '12px 16px', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                            {inventoryList.length === 0
+                              ? '⚠️ No inventory items found in database. Add items in Inventory tab first.'
+                              : 'No matching unlinked inventory items found.'}
+                          </div>
+                        ) : (
+                          filteredInventoryOptions.map((inv) => (
+                            <div
+                              key={inv.id}
+                              onClick={() => handleAddIngredient(inv)}
+                              style={{
+                                padding: '10px 14px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                                cursor: 'pointer',
+                                transition: 'background 0.15s ease',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(56, 189, 248, 0.12)')}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                            >
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
+                                  {inv.name}
+                                </div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                  SKU: {inv.sku} • Category: {inv.category || 'General'}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    background: 'rgba(16, 185, 129, 0.15)',
+                                    color: '#34d399',
+                                    padding: '2px 8px',
+                                    borderRadius: '9999px',
+                                  }}
+                                >
+                                  Stock: {inv.quantity} {inv.unit}
+                                </span>
+                                {inv.costPerUnit > 0 && (
+                                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                    PKR {inv.costPerUnit}/{inv.unit}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {ingredientError && (
+                    <div style={{ fontSize: '12px', color: '#f87171', marginBottom: '10px', fontWeight: 600 }}>
+                      ⚠️ {ingredientError}
+                    </div>
+                  )}
+
+                  {/* Selected Ingredients List */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {formData.ingredients.length === 0 ? (
+                      <div
+                        style={{
+                          padding: '16px',
+                          textAlign: 'center',
+                          borderRadius: 'var(--radius-md, 8px)',
+                          background: 'rgba(255, 255, 255, 0.02)',
+                          border: '1px dashed var(--border-color)',
+                          color: 'var(--text-muted)',
+                          fontSize: '12px',
+                        }}
+                      >
+                        <div>ℹ️ No inventory ingredients linked to this dish.</div>
+                        <div style={{ fontSize: '11px', marginTop: '2px', opacity: 0.8 }}>
+                          (Zero ingredients is valid for standalone drinks or dishes with no recipe stock breakdown)
+                        </div>
+                      </div>
+                    ) : (
+                      formData.ingredients.map((ing, idx) => {
+                        const invItem = inventoryList.find((i) => i.id === ing.inventoryItemId);
+                        const unitLabel = invItem?.unit || 'units';
+                        const itemCost = (Number(ing.quantityUsed) || 0) * (invItem?.costPerUnit || 0);
+
+                        return (
+                          <div
+                            key={ing.inventoryItemId || idx}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              background: 'var(--bg-secondary, rgba(255, 255, 255, 0.04))',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '8px',
+                              padding: '10px 14px',
+                              gap: '12px',
+                            }}
+                          >
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                📦 {invItem?.name || 'Inventory Item'}
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                Available Stock: {invItem?.quantity ?? 0} {unitLabel}
+                                {itemCost > 0 && ` • Est. Cost: PKR ${Math.round(itemCost)}`}
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-primary, #0f172a)', border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden' }}>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  min="0.0001"
+                                  required
+                                  value={ing.quantityUsed}
+                                  onChange={(e) => handleQuantityChange(idx, e.target.value)}
+                                  style={{
+                                    width: '75px',
+                                    padding: '6px 8px',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'var(--text-primary)',
+                                    fontWeight: 700,
+                                    fontSize: '13px',
+                                    textAlign: 'right',
+                                    outline: 'none',
+                                  }}
+                                />
+                                <span
+                                  style={{
+                                    padding: '6px 10px',
+                                    background: 'rgba(255, 255, 255, 0.06)',
+                                    borderLeft: '1px solid var(--border-color)',
+                                    color: 'var(--text-secondary)',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  {unitLabel}
+                                </span>
+                              </div>
+
+                              <button
+                                type="button"
+                                className="btn btn-danger btn-sm"
+                                onClick={() => handleRemoveIngredient(idx)}
+                                title="Remove ingredient from recipe"
+                                style={{ padding: '6px 10px', fontSize: '12px' }}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
                 <div className="form-group">
                   <label className="input-label">
-                    <span>Description & Recipe Ingredients</span>
-                    <span className="label-hint">Mentioning stock items auto-deducts them on sale</span>
+                    <span>Dish Description / Notes</span>
+                    <span className="label-hint">Optional</span>
                   </label>
                   <textarea
                     className="input-field"
-                    rows={3}
+                    rows={2}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="e.g. Crispy chicken zinger made with fresh thai piece, sesame bun, mayonnaise, and lettuce..."
+                    placeholder="e.g. Signature crispy golden burger with special house dressing..."
                   />
                 </div>
               </div>

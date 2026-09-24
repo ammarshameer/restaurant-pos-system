@@ -141,82 +141,58 @@ export class InventoryService {
     orderReason: string,
     restaurantId: string
   ) {
-    // 1. Fetch menu item details if available (to inspect description & explicit relations)
-    let menuItem: any = null;
-    if (menuItemId) {
-      menuItem = await prisma.menuItem.findUnique({
-        where: { id: menuItemId },
-        include: { inventoryItems: true },
+    let resolvedMenuItemId = menuItemId;
+    if (!resolvedMenuItemId && itemName) {
+      const found = await prisma.menuItem.findFirst({
+        where: { name: itemName, restaurantId },
       });
+      if (found) {
+        resolvedMenuItemId = found.id;
+      }
     }
 
-    // 2. Fetch all inventory items in this restaurant
-    const allInventoryItems = await prisma.inventoryItem.findMany({
-      where: { restaurantId },
-    });
-
-    if (!allInventoryItems || allInventoryItems.length === 0) {
+    if (!resolvedMenuItemId) {
       return;
     }
 
-    const itemsToDeduct: Array<{ item: (typeof allInventoryItems)[0]; qtyPerUnit: number }> = [];
+    // 1. Fetch menu item details with explicit MenuItemIngredient relations
+    const menuItem = await prisma.menuItem.findUnique({
+      where: { id: resolvedMenuItemId },
+      include: {
+        ingredients: {
+          include: {
+            inventoryItem: true,
+          },
+        },
+      },
+    });
 
-    // Helper to check if already in deduction list
-    const isAlreadyAdded = (id: string) => itemsToDeduct.some((x) => x.item.id === id);
-
-    // A. Explicitly linked inventory items via menuItemId
-    if (menuItem?.inventoryItems && Array.isArray(menuItem.inventoryItems)) {
-      for (const inv of menuItem.inventoryItems) {
-        if (!isAlreadyAdded(inv.id)) {
-          itemsToDeduct.push({ item: inv, qtyPerUnit: 1 });
-        }
-      }
+    // 2. If item has zero linked ingredients, that is valid (e.g. bottled drink with no recipe breakdown)
+    if (!menuItem || !menuItem.ingredients || menuItem.ingredients.length === 0) {
+      return;
     }
 
-    // B. Smart description and name matching
-    const normalize = (str: string) =>
-      str
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    // 3. Deduct inventory for each linked ingredient
+    for (const recipeIng of menuItem.ingredients) {
+      const invItem = recipeIng.inventoryItem;
+      if (!invItem) continue;
 
-    const descNormalized = normalize(menuItem?.description || '');
-    const menuNameNormalized = normalize(menuItem?.name || itemName || '');
+      const qtyPerUnit = Number(recipeIng.quantityUsed);
+      if (qtyPerUnit <= 0) continue;
 
-    for (const inv of allInventoryItems) {
-      if (isAlreadyAdded(inv.id)) continue;
-
-      const invNameNormalized = normalize(inv.name);
-      if (invNameNormalized.length < 2) continue;
-
-      // Check for substring match in description or title
-      // e.g. "thai piece" in "crispy zinger with fresh thai piece"
-      const inDescription = descNormalized.length > 0 && descNormalized.includes(invNameNormalized);
-      const inTitle =
-        menuNameNormalized.length > 0 &&
-        (menuNameNormalized === invNameNormalized || menuNameNormalized.includes(invNameNormalized));
-
-      if (inDescription || inTitle) {
-        itemsToDeduct.push({ item: inv, qtyPerUnit: 1 });
-      }
-    }
-
-    // C. Perform deductions in database & notify via WebSockets
-    for (const target of itemsToDeduct) {
-      const totalDeduction = target.qtyPerUnit * itemQuantity;
-      const newQty = Math.max(0, Number(target.item.quantity) - totalDeduction);
+      const totalDeduction = qtyPerUnit * itemQuantity;
+      const newQty = Math.max(0, Number(invItem.quantity) - totalDeduction);
 
       const [updated] = await prisma.$transaction([
         prisma.inventoryItem.update({
-          where: { id: target.item.id },
+          where: { id: invItem.id },
           data: {
             quantity: newQty,
           },
         }),
         prisma.inventoryTransaction.create({
           data: {
-            inventoryItemId: target.item.id,
+            inventoryItemId: invItem.id,
             quantity: totalDeduction,
             type: 'USAGE',
             reason: orderReason,
@@ -225,7 +201,7 @@ export class InventoryService {
       ]);
 
       console.log(
-        `✓ [Inventory] Deducted ${totalDeduction} ${target.item.unit} for "${target.item.name}" (Stock: ${target.item.quantity} -> ${newQty}) [${orderReason}]`
+        `✓ [Inventory] Deducted ${totalDeduction} ${invItem.unit} for "${invItem.name}" (Stock: ${invItem.quantity} -> ${newQty}) [${orderReason}]`
       );
 
       // Emit real-time inventory update

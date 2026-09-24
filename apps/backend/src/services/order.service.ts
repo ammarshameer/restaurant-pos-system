@@ -82,6 +82,10 @@ export class OrderService {
           const exists = await prisma.menuItem.findUnique({ where: { id: item.menuItemId } });
           if (exists) validMenuItemId = item.menuItemId;
         }
+        if (!validMenuItemId && item.name) {
+          const exists = await prisma.menuItem.findFirst({ where: { name: item.name, restaurantId } });
+          if (exists) validMenuItemId = exists.id;
+        }
 
         return {
           menuItemId: validMenuItemId,

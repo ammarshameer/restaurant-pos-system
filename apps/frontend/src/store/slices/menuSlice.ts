@@ -1,5 +1,18 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
+export interface MenuItemIngredientItem {
+  id?: string;
+  inventoryItemId: string;
+  quantityUsed: number;
+  inventoryItem?: {
+    id: string;
+    name: string;
+    unit: string;
+    quantity?: number;
+    costPerUnit?: number;
+  };
+}
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -11,6 +24,7 @@ export interface MenuItem {
   is86d: boolean;
   description: string;
   imageUrl?: string;
+  ingredients?: MenuItemIngredientItem[];
 }
 
 const STORAGE_KEY = 'restaurant_pos_menu_items';
