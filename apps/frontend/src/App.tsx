@@ -297,20 +297,22 @@ export const App: React.FC = () => {
         </header>
 
         {/* Dynamic Route Pages */}
-        <Routes>
-          <Route path="/" element={<PosPage />} />
-          <Route path="/pos" element={<PosPage />} />
-          <Route path="/invoices" element={<SaleInvoicesPage />} />
-          <Route path="/sale-invoices" element={<SaleInvoicesPage />} />
-          <Route path="/kitchen" element={<KitchenPage />} />
-          <Route path="/tables" element={<Navigate to="/pos" replace />} />
-          <Route path="/menu" element={<MenuPage />} />
-          <Route path="/inventory" element={<InventoryPage />} />
-          <Route path="/employees" element={<EmployeesPage />} />
-          <Route path="/payments" element={<PaymentsPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="*" element={<Navigate to="/pos" replace />} />
-        </Routes>
+        <div className="route-container">
+          <Routes>
+            <Route path="/" element={<PosPage />} />
+            <Route path="/pos" element={<PosPage />} />
+            <Route path="/invoices" element={<SaleInvoicesPage />} />
+            <Route path="/sale-invoices" element={<SaleInvoicesPage />} />
+            <Route path="/kitchen" element={<KitchenPage />} />
+            <Route path="/tables" element={<Navigate to="/pos" replace />} />
+            <Route path="/menu" element={<MenuPage />} />
+            <Route path="/inventory" element={<InventoryPage />} />
+            <Route path="/employees" element={<EmployeesPage />} />
+            <Route path="/payments" element={<PaymentsPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="*" element={<Navigate to="/pos" replace />} />
+          </Routes>
+        </div>
       </main>
     </div>
   );

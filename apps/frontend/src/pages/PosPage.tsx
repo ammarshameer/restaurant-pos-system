@@ -689,15 +689,16 @@ export const PosPage: React.FC = () => {
       <div className="pos-cart-sidebar">
         <div
           style={{
-            padding: '16px 20px',
+            padding: '12px 16px',
             borderBottom: '1px solid var(--border-color)',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            flexShrink: 0,
           }}
         >
           <div>
-            <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Order Cart</h3>
+            <h3 style={{ fontSize: '15px', fontWeight: 800 }}>Order Cart</h3>
             <span
               style={{
                 fontSize: '12px',
@@ -706,26 +707,37 @@ export const PosPage: React.FC = () => {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '4px',
-                marginTop: '2px',
+                marginTop: '1px',
               }}
             >
               {getOrderTypeIcon(orderType)} {getOrderReferenceString()}
             </span>
           </div>
           {cart.length > 0 && (
-            <button className="btn btn-danger btn-sm" onClick={() => setCart([])}>
+            <button className="btn btn-danger btn-sm" onClick={() => setCart([])} style={{ padding: '2px 8px', fontSize: '11px' }}>
               Clear
             </button>
           )}
         </div>
 
-        {/* Cart Items List */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {/* Cart Items List - Independently Scrollable */}
+        <div
+          className="pos-cart-items-list"
+          style={{
+            flex: '1 1 0%',
+            minHeight: 0,
+            overflowY: 'auto',
+            padding: '12px 14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+          }}
+        >
           {cart.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
-              <div style={{ fontSize: '40px', marginBottom: '12px' }}>🛒</div>
-              <p style={{ fontWeight: 600 }}>Cart is empty</p>
-              <p style={{ fontSize: '12px', marginTop: '4px' }}>Click any menu dish to start order</p>
+            <div style={{ textAlign: 'center', padding: '30px 14px', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '36px', marginBottom: '8px' }}>🛒</div>
+              <p style={{ fontWeight: 600, fontSize: '13px' }}>Cart is empty</p>
+              <p style={{ fontSize: '11px', marginTop: '2px' }}>Click any menu dish to start order</p>
             </div>
           ) : (
             cart.map((item) => (
@@ -733,36 +745,36 @@ export const PosPage: React.FC = () => {
                 key={item.menuItemId}
                 style={{
                   background: 'var(--bg-secondary)',
-                  padding: '12px 14px',
+                  padding: '10px 12px',
                   borderRadius: 'var(--radius-md)',
                   border: '1px solid var(--border-color)',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <span style={{ fontWeight: 600, fontSize: '14px' }}>{item.name}</span>
-                  <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ fontWeight: 600, fontSize: '13px' }}>{item.name}</span>
+                  <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '13px' }}>
                     {formatPKR(item.price * item.quantity)}
                   </span>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                     {formatPKR(item.price)} ea
                   </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <button
                       className="btn btn-secondary btn-sm"
-                      style={{ padding: '2px 8px', height: '26px' }}
+                      style={{ padding: '2px 6px', height: '22px', fontSize: '12px' }}
                       onClick={() => updateQuantity(item.menuItemId, -1)}
                     >
                       -
                     </button>
-                    <span style={{ fontWeight: 700, fontSize: '14px', minWidth: '18px', textAlign: 'center' }}>
+                    <span style={{ fontWeight: 700, fontSize: '13px', minWidth: '18px', textAlign: 'center' }}>
                       {item.quantity}
                     </span>
                     <button
                       className="btn btn-secondary btn-sm"
-                      style={{ padding: '2px 8px', height: '26px' }}
+                      style={{ padding: '2px 6px', height: '22px', fontSize: '12px' }}
                       onClick={() => updateQuantity(item.menuItemId, 1)}
                     >
                       +
@@ -778,8 +790,8 @@ export const PosPage: React.FC = () => {
                   onChange={(e) => updateItemNotes(item.menuItemId, e.target.value)}
                   style={{
                     width: '100%',
-                    marginTop: '8px',
-                    padding: '4px 8px',
+                    marginTop: '6px',
+                    padding: '3px 6px',
                     fontSize: '11px',
                     background: 'rgba(0,0,0,0.2)',
                     border: '1px solid var(--border-color)',
@@ -792,261 +804,249 @@ export const PosPage: React.FC = () => {
           )}
         </div>
 
-        {/* Order Notes */}
-        <div style={{ padding: '10px 20px', borderTop: '1px solid var(--border-color)' }}>
-          <input
-            type="text"
-            className="form-input"
-            placeholder="Special kitchen instructions for order..."
-            value={orderNotes}
-            onChange={(e) => setOrderNotes(e.target.value)}
-          />
-        </div>
-
-        {/* DINE IN CONTROLS: Tax Percentage (initially 0) + Service Charges (flat PKR number input) */}
-        {orderType === 'DINE_IN' && (
-          <div className="charge-control-card">
-            {/* Tax (%) Input Field */}
-            <div>
-              <div className="charge-control-row" style={{ marginBottom: '6px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  🏛️ Tax Rate (%):
-                </span>
-                <span style={{ fontSize: '12px', fontWeight: 800, color: '#38bdf8' }}>
-                  {taxRate}% {tax > 0 ? `(${formatPKR(tax)})` : ''}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <div style={{ position: 'relative', flex: 1 }}>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.5"
-                    className="form-input"
-                    style={{ padding: '6px 28px 6px 10px', fontSize: '13px', fontWeight: 700 }}
-                    placeholder="0"
-                    value={taxRate === 0 ? '' : taxRate}
-                    onChange={(e) => setTaxRate(Math.max(0, parseFloat(e.target.value) || 0))}
-                  />
-                  <span
-                    style={{
-                      position: 'absolute',
-                      right: '10px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      fontWeight: 700,
-                      fontSize: '12px',
-                      color: 'var(--text-muted)',
-                      pointerEvents: 'none',
-                    }}
-                  >
-                    %
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  {[0, 5, 13, 16].map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      className={`btn btn-sm ${taxRate === p ? 'btn-primary' : 'btn-secondary'}`}
-                      style={{ padding: '4px 7px', fontSize: '11px', fontWeight: 700 }}
-                      onClick={() => setTaxRate(p)}
-                    >
-                      {p}%
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Service Charges (Flat PKR) Input Field */}
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
-              <div className="charge-control-row" style={{ marginBottom: '6px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  🛎️ Service Charges (PKR):
-                </span>
-                <span style={{ fontSize: '12px', fontWeight: 800, color: '#a855f7' }}>
-                  {formatPKR(serviceCharge)}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <div style={{ position: 'relative', flex: 1 }}>
-                  <input
-                    type="number"
-                    min="0"
-                    step="10"
-                    className="form-input"
-                    style={{ padding: '6px 42px 6px 10px', fontSize: '13px', fontWeight: 700 }}
-                    placeholder="0"
-                    value={serviceChargeAmount === 0 ? '' : serviceChargeAmount}
-                    onChange={(e) => setServiceChargeAmount(Math.max(0, parseFloat(e.target.value) || 0))}
-                  />
-                  <span
-                    style={{
-                      position: 'absolute',
-                      right: '8px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      fontWeight: 700,
-                      fontSize: '11px',
-                      color: 'var(--text-muted)',
-                      pointerEvents: 'none',
-                    }}
-                  >
-                    PKR
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  {[0, 100, 200, 300].map((amt) => (
-                    <button
-                      key={amt}
-                      type="button"
-                      className={`btn btn-sm ${serviceChargeAmount === amt ? 'btn-primary' : 'btn-secondary'}`}
-                      style={{ padding: '4px 6px', fontSize: '11px', fontWeight: 700 }}
-                      onClick={() => setServiceChargeAmount(amt)}
-                    >
-                      {amt === 0 ? '0' : `${amt}`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* DELIVERY CONTROLS: Delivery Charges (Flat PKR number input) */}
-        {orderType === 'DELIVERY' && (
-          <div className="charge-control-card">
-            <div className="charge-control-row" style={{ marginBottom: '6px' }}>
-              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                🛵 Delivery Charges (PKR):
-              </span>
-              <span style={{ fontSize: '12px', fontWeight: 800, color: '#38bdf8' }}>
-                {formatPKR(deliveryCharge)}
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <div style={{ position: 'relative', flex: 1 }}>
-                <input
-                  type="number"
-                  min="0"
-                  step="10"
-                  className="form-input"
-                  style={{ padding: '6px 42px 6px 10px', fontSize: '13px', fontWeight: 700 }}
-                  placeholder="0"
-                  value={deliveryChargeAmount === 0 ? '' : deliveryChargeAmount}
-                  onChange={(e) => setDeliveryChargeAmount(Math.max(0, parseFloat(e.target.value) || 0))}
-                />
-                <span
-                  style={{
-                    position: 'absolute',
-                    right: '8px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    fontWeight: 700,
-                    fontSize: '11px',
-                    color: 'var(--text-muted)',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  PKR
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                {[0, 100, 150, 200].map((amt) => (
-                  <button
-                    key={amt}
-                    type="button"
-                    className={`btn btn-sm ${deliveryChargeAmount === amt ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{ padding: '4px 6px', fontSize: '11px', fontWeight: 700 }}
-                    onClick={() => setDeliveryChargeAmount(amt)}
-                  >
-                    {amt === 0 ? 'Free' : `${amt}`}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Financial Summary */}
-        <div
-          style={{
-            padding: '14px 20px',
-            background: 'var(--bg-box-alt)',
-            borderTop: '1px solid var(--border-color)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '6px',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
-            <span>Subtotal</span>
-            <span>{formatPKR(subtotal)}</span>
+        {/* Pinned Bottom Container: Notes, Charges, Summary & Checkout Buttons */}
+        <div className="pos-cart-footer">
+          {/* Order Notes */}
+          <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border-color)' }}>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="Special kitchen instructions for order..."
+              value={orderNotes}
+              onChange={(e) => setOrderNotes(e.target.value)}
+              style={{ fontSize: '12px', padding: '6px 10px' }}
+            />
           </div>
 
+          {/* DINE IN CONTROLS: Tax Percentage (initially 0) + Service Charges (flat PKR number input) */}
           {orderType === 'DINE_IN' && (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                <span>Tax ({taxRate}%)</span>
-                <span style={{ color: tax > 0 ? '#38bdf8' : 'inherit', fontWeight: tax > 0 ? 700 : 400 }}>
-                  {formatPKR(tax)}
+            <div className="charge-control-card" style={{ padding: '8px 14px', gap: '6px' }}>
+              {/* Tax (%) Input Field */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                  🏛️ Tax:
                 </span>
-              </div>
-              {serviceCharge > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  <span>Service Charges</span>
-                  <span style={{ color: '#a855f7', fontWeight: 700 }}>{formatPKR(serviceCharge)}</span>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flex: 1, justifyContent: 'flex-end' }}>
+                  <div style={{ position: 'relative', width: '70px' }}>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.5"
+                      className="form-input"
+                      style={{ padding: '4px 20px 4px 6px', fontSize: '12px', fontWeight: 700, textAlign: 'right' }}
+                      placeholder="0"
+                      value={taxRate === 0 ? '' : taxRate}
+                      onChange={(e) => setTaxRate(Math.max(0, parseFloat(e.target.value) || 0))}
+                    />
+                    <span
+                      style={{
+                        position: 'absolute',
+                        right: '6px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        fontWeight: 700,
+                        fontSize: '11px',
+                        color: 'var(--text-muted)',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      %
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '3px' }}>
+                    {[0, 5, 13, 16].map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        className={`btn btn-sm ${taxRate === p ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '2px 5px', fontSize: '10px', fontWeight: 700 }}
+                        onClick={() => setTaxRate(p)}
+                      >
+                        {p}%
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              )}
-            </>
-          )}
+              </div>
 
-          {orderType === 'DELIVERY' && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
-              <span>Delivery Charges</span>
-              <span style={{ color: deliveryCharge > 0 ? '#38bdf8' : 'inherit', fontWeight: deliveryCharge > 0 ? 700 : 400 }}>
-                {formatPKR(deliveryCharge)}
-              </span>
+              {/* Service Charges (Flat PKR) Input Field */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                  🛎️ Service:
+                </span>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flex: 1, justifyContent: 'flex-end' }}>
+                  <div style={{ position: 'relative', width: '85px' }}>
+                    <input
+                      type="number"
+                      min="0"
+                      step="10"
+                      className="form-input"
+                      style={{ padding: '4px 30px 4px 6px', fontSize: '12px', fontWeight: 700, textAlign: 'right' }}
+                      placeholder="0"
+                      value={serviceChargeAmount === 0 ? '' : serviceChargeAmount}
+                      onChange={(e) => setServiceChargeAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                    />
+                    <span
+                      style={{
+                        position: 'absolute',
+                        right: '6px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        fontWeight: 700,
+                        fontSize: '10px',
+                        color: 'var(--text-muted)',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      PKR
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '3px' }}>
+                    {[0, 100, 200, 300].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        className={`btn btn-sm ${serviceChargeAmount === amt ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '2px 5px', fontSize: '10px', fontWeight: 700 }}
+                        onClick={() => setServiceChargeAmount(amt)}
+                      >
+                        {amt === 0 ? '0' : `${amt}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
+          {/* DELIVERY CONTROLS: Delivery Charges (Flat PKR number input) */}
+          {orderType === 'DELIVERY' && (
+            <div className="charge-control-card" style={{ padding: '8px 14px', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                  🛵 Delivery:
+                </span>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flex: 1, justifyContent: 'flex-end' }}>
+                  <div style={{ position: 'relative', width: '85px' }}>
+                    <input
+                      type="number"
+                      min="0"
+                      step="10"
+                      className="form-input"
+                      style={{ padding: '4px 30px 4px 6px', fontSize: '12px', fontWeight: 700, textAlign: 'right' }}
+                      placeholder="0"
+                      value={deliveryChargeAmount === 0 ? '' : deliveryChargeAmount}
+                      onChange={(e) => setDeliveryChargeAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                    />
+                    <span
+                      style={{
+                        position: 'absolute',
+                        right: '6px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        fontWeight: 700,
+                        fontSize: '10px',
+                        color: 'var(--text-muted)',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      PKR
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '3px' }}>
+                    {[0, 100, 150, 200].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        className={`btn btn-sm ${deliveryChargeAmount === amt ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '2px 5px', fontSize: '10px', fontWeight: 700 }}
+                        onClick={() => setDeliveryChargeAmount(amt)}
+                      >
+                        {amt === 0 ? 'Free' : `${amt}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Financial Summary */}
           <div
             style={{
+              padding: '8px 14px',
+              borderTop: '1px solid var(--border-color)',
               display: 'flex',
-              justifyContent: 'space-between',
-              fontSize: '18px',
-              fontWeight: 800,
-              color: 'var(--text-primary)',
-              paddingTop: '6px',
-              borderTop: '1px dashed var(--border-color)',
+              flexDirection: 'column',
+              gap: '3px',
             }}
           >
-            <span>Total</span>
-            <span style={{ color: '#10b981' }}>{formatPKR(total)}</span>
-          </div>
-        </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <span>Subtotal</span>
+              <span>{formatPKR(subtotal)}</span>
+            </div>
 
-        {/* Order Submission Actions */}
-        <div style={{ padding: '14px 20px', display: 'flex', gap: '10px' }}>
-          <button
-            className="btn btn-secondary"
-            style={{ flex: 1 }}
-            disabled={cart.length === 0}
-            onClick={() => handleSubmitOrder(true)}
-            title="Create order and print dual Customer & Kitchen slips"
-          >
-            🍳 Send & Print Slips
-          </button>
-          <button
-            className="btn btn-primary"
-            style={{ flex: 1.2 }}
-            disabled={cart.length === 0}
-            onClick={handleOpenCashModal}
-          >
-            💵 Pay Cash ({formatPKR(total)})
-          </button>
+            {orderType === 'DINE_IN' && (
+              <>
+                {taxRate > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    <span>Tax ({taxRate}%)</span>
+                    <span style={{ color: '#38bdf8', fontWeight: 700 }}>{formatPKR(tax)}</span>
+                  </div>
+                )}
+                {serviceCharge > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    <span>Service Charges</span>
+                    <span style={{ color: '#a855f7', fontWeight: 700 }}>{formatPKR(serviceCharge)}</span>
+                  </div>
+                )}
+              </>
+            )}
+
+            {orderType === 'DELIVERY' && deliveryCharge > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                <span>Delivery Charges</span>
+                <span style={{ color: '#38bdf8', fontWeight: 700 }}>{formatPKR(deliveryCharge)}</span>
+              </div>
+            )}
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '15px',
+                fontWeight: 800,
+                color: 'var(--text-primary)',
+                paddingTop: '4px',
+                borderTop: '1px dashed var(--border-color)',
+              }}
+            >
+              <span>Total</span>
+              <span style={{ color: '#10b981' }}>{formatPKR(total)}</span>
+            </div>
+          </div>
+
+          {/* Order Submission Actions */}
+          <div style={{ padding: '10px 14px', display: 'flex', gap: '8px' }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ flex: 1, padding: '8px 10px', fontSize: '12px', fontWeight: 700 }}
+              disabled={cart.length === 0}
+              onClick={() => handleSubmitOrder(true)}
+              title="Create order and print dual Customer & Kitchen slips"
+            >
+              🍳 Send & Print
+            </button>
+            <button
+              className="btn btn-primary btn-sm"
+              style={{ flex: 1.2, padding: '8px 10px', fontSize: '13px', fontWeight: 800 }}
+              disabled={cart.length === 0}
+              onClick={handleOpenCashModal}
+            >
+              💵 Pay Cash ({formatPKR(total)})
+            </button>
+          </div>
         </div>
       </div>
 
