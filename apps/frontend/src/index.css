@@ -381,8 +381,13 @@ body {
 
 /* Common UI Components */
 .page-container {
-  padding: 24px 28px;
-  flex: 1;
+  padding: 24px 28px 48px 28px;
+  flex: 1 1 0%;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .card {
