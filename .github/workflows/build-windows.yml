@@ -1,0 +1,55 @@
+name: Build Windows Desktop Installer
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build & Package Windows Installer (.exe)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies across all workspaces
+        run: |
+          npm install
+          cd apps/backend && npm install
+          cd ../frontend && npm install
+          cd ../..
+
+      - name: Generate Prisma client with Windows engine
+        run: |
+          cd apps/backend
+          npx prisma generate
+          cd ../..
+
+      - name: Build frontend and backend bundles
+        run: npm run build
+
+      - name: Package Windows Installer (NSIS .exe)
+        run: npm run dist:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows Installer Artifact (.exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Restaurant-POS-Windows-Setup
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 30

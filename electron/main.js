@@ -3,9 +3,13 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const { fork } = require('child_process');
+const { getBackupsDirectory, performDatabaseBackup, startDailyBackupTimer } = require('./backup');
 
 let mainWindow = null;
 let backendProcess = null;
+let persistentDbFilePath = null;
+let backupsDirectoryPath = null;
+let dailyBackupTimer = null;
 const BACKEND_PORT = process.env.PORT || 3000;
 const SERVER_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
@@ -66,6 +70,9 @@ function setupPersistentDatabase() {
   } else {
     console.log(`[Electron] Using existing persistent database: ${targetDbPath}`);
   }
+
+  persistentDbFilePath = targetDbPath;
+  backupsDirectoryPath = getBackupsDirectory(userDataPath);
 
   // Format database path for SQLite Prisma URL
   const normalizedPath = targetDbPath.replace(/\\/g, '/');
@@ -269,13 +276,26 @@ function stopBackendProcess() {
   }
 }
 
-// IPC handler for app version
+// IPC handlers for app info and backups
 ipcMain.handle('app:version', () => app.getVersion());
+ipcMain.handle('app:backup:trigger', () => {
+  if (persistentDbFilePath && backupsDirectoryPath) {
+    return performDatabaseBackup(persistentDbFilePath, backupsDirectoryPath, 'manual ipc trigger');
+  }
+  return false;
+});
 
 // Electron App Lifecycle
 app.whenReady().then(async () => {
   try {
     const databaseUrl = setupPersistentDatabase();
+
+    // Perform automated SQLite database backup on startup & schedule daily timer
+    if (persistentDbFilePath && backupsDirectoryPath) {
+      performDatabaseBackup(persistentDbFilePath, backupsDirectoryPath, 'startup');
+      dailyBackupTimer = startDailyBackupTimer(persistentDbFilePath, backupsDirectoryPath);
+    }
+
     startBackendProcess(databaseUrl);
 
     console.log('[Electron] Waiting for backend server to become ready...');
@@ -298,13 +318,35 @@ app.whenReady().then(async () => {
   });
 });
 
+let isShuttingDown = false;
+function handleCleanShutdown() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  if (dailyBackupTimer) {
+    clearInterval(dailyBackupTimer);
+    dailyBackupTimer = null;
+  }
+
+  // Trigger backup automatically on clean app shutdown
+  if (persistentDbFilePath && backupsDirectoryPath) {
+    try {
+      performDatabaseBackup(persistentDbFilePath, backupsDirectoryPath, 'clean shutdown');
+    } catch (backupErr) {
+      console.error('[Electron] Error during shutdown database backup:', backupErr);
+    }
+  }
+
+  stopBackendProcess();
+}
+
 // App shutdown lifecycle
 app.on('before-quit', () => {
-  stopBackendProcess();
+  handleCleanShutdown();
 });
 
 app.on('window-all-closed', () => {
-  stopBackendProcess();
+  handleCleanShutdown();
   if (process.platform !== 'darwin') {
     app.quit();
   }

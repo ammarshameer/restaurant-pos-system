@@ -32,7 +32,7 @@ async function testInventoryDeduction() {
 
   console.log(`✓ Created Inventory Item: "${thaiPiece.name}" with Initial Stock = ${thaiPiece.quantity}`);
 
-  // 2. Create or verify Menu Item "Zinger Burger" with description mentioning "thai piece"
+  // 2. Create or verify Menu Item "Zinger Burger" with explicit MenuItemIngredient relation
   let zinger = await prisma.menuItem.findFirst({
     where: { name: 'Zinger Burger' }
   });
@@ -52,16 +52,21 @@ async function testInventoryDeduction() {
         restaurantId,
       }
     });
-  } else {
-    zinger = await prisma.menuItem.update({
-      where: { id: zinger.id },
-      data: {
-        description: 'Crispy fried burger prepared with marinated thai piece, mayo, and lettuce',
-      }
-    });
   }
 
-  console.log(`✓ Menu Item: "${zinger.name}" (Description: "${zinger.description}")`);
+  // Ensure MenuItemIngredient link exists
+  await prisma.menuItemIngredient.deleteMany({
+    where: { menuItemId: zinger.id }
+  });
+  await prisma.menuItemIngredient.create({
+    data: {
+      menuItemId: zinger.id,
+      inventoryItemId: thaiPiece.id,
+      quantityUsed: 1,
+    }
+  });
+
+  console.log(`✓ Menu Item: "${zinger.name}" with linked ingredient "${thaiPiece.name}" (quantityUsed: 1)`);
 
   // 3. Place an order for 1x Zinger Burger
   console.log('🛒 Placing order for 1x Zinger Burger on POS...');
