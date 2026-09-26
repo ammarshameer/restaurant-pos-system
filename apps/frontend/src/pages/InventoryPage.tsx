@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi, InventoryItem as PosInventoryItem, InventoryTransaction as PosTransaction } from '../api/inventory.api';
+import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
 
 export const InventoryPage: React.FC = () => {
-  const [inventory, setInventory] = useState<PosInventoryItem[]>([]);
-  const [transactions, setTransactions] = useState<PosTransaction[]>([]);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
 
@@ -32,51 +33,96 @@ export const InventoryPage: React.FC = () => {
     costPerUnit: 250,
   });
 
-  const loadInventory = async () => {
-    setLoading(true);
-    try {
-      const items = await inventoryApi.getInventory();
-      setInventory(items);
-    } catch (err) {
-      console.warn('Failed to load inventory:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // 1. Infinite Query for Inventory Items: 50 records per page, auto-resets on filter/search change
+  const {
+    data: inventoryData,
+    fetchNextPage: fetchNextInventory,
+    hasNextPage: hasNextInventory,
+    isFetchingNextPage: isFetchingNextInventory,
+    isLoading: loadingInventory,
+  } = useInfiniteQuery({
+    queryKey: ['inventory', categoryFilter, searchQuery],
+    queryFn: ({ pageParam = 1 }) =>
+      inventoryApi.getInventoryPaginated({
+        page: pageParam,
+        limit: 50,
+        category: categoryFilter !== 'All' ? categoryFilter : undefined,
+        search: searchQuery.trim() || undefined,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+  });
 
+  const inventory = useMemo(() => {
+    return inventoryData?.pages.flatMap((p) => p.data) || [];
+  }, [inventoryData]);
+
+  const totalInventoryCount = inventoryData?.pages[0]?.totalCount ?? 0;
+
+  // 2. Infinite Query for Item Transaction History (50 per batch)
+  const {
+    data: txData,
+    fetchNextPage: fetchNextTransactions,
+    hasNextPage: hasNextTransactions,
+    isFetchingNextPage: isFetchingNextTransactions,
+  } = useInfiniteQuery({
+    queryKey: ['inventory-transactions', selectedItem?.id],
+    queryFn: ({ pageParam = 1 }) =>
+      inventoryApi.getTransactionsPaginated(selectedItem?.id, {
+        page: pageParam,
+        limit: 50,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    enabled: Boolean(historyModalOpen && selectedItem?.id),
+  });
+
+  const transactions = useMemo(() => {
+    return txData?.pages.flatMap((p) => p.data) || [];
+  }, [txData]);
+
+  const totalTxCount = txData?.pages[0]?.totalCount ?? 0;
+
+  // Real-time WebSocket sync: update stock quantities without full reloads
   useEffect(() => {
-    loadInventory();
-
     const token = localStorage.getItem('auth_token') || 'pos-token';
     const socket = socketClient.connect(token);
-    if (socket) {
-      const handleInventoryUpdate = (data: any) => {
-        console.log('⚡ Real-time inventory sync received:', data);
-        if (data?.id) {
-          setInventory((prev) =>
-            prev.map((item) =>
-              item.id === data.id
-                ? { ...item, quantity: Number(data.quantity) }
-                : item
-            )
-          );
-        } else {
-          loadInventory();
-        }
-      };
+    if (!socket) return;
 
-      socket.on('inventory:updated', handleInventoryUpdate);
-      socket.on('order:new', () => {
-        // Refresh inventory whenever an order is completed/sold
-        loadInventory();
-      });
+    const handleInventoryUpdate = (data: any) => {
+      console.log('⚡ Real-time inventory sync received:', data);
+      if (data?.id) {
+        queryClient.setQueriesData({ queryKey: ['inventory'] }, (oldData: any) => {
+          if (!oldData || !oldData.pages) return oldData;
+          return {
+            ...oldData,
+            pages: oldData.pages.map((page: any) => ({
+              ...page,
+              data: page.data.map((item: PosInventoryItem) =>
+                item.id === data.id
+                  ? { ...item, quantity: Number(data.quantity) }
+                  : item
+              ),
+            })),
+          };
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      }
+    };
 
-      return () => {
-        socket.off('inventory:updated', handleInventoryUpdate);
-        socket.off('order:new');
-      };
-    }
-  }, []);
+    const handleOrderNew = () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    };
+
+    socket.on('inventory:updated', handleInventoryUpdate);
+    socket.on('order:new', handleOrderNew);
+
+    return () => {
+      socket.off('inventory:updated', handleInventoryUpdate);
+      socket.off('order:new', handleOrderNew);
+    };
+  }, [queryClient]);
 
   const lowStockItems = inventory.filter((item) => item.quantity <= item.reorderPoint);
   const totalValuation = inventory.reduce((sum, item) => sum + item.quantity * item.costPerUnit, 0);
@@ -91,15 +137,9 @@ export const InventoryPage: React.FC = () => {
     setAdjustModalOpen(true);
   };
 
-  const openHistoryModal = async (item: PosInventoryItem) => {
+  const openHistoryModal = (item: PosInventoryItem) => {
     setSelectedItem(item);
     setHistoryModalOpen(true);
-    try {
-      const txs = await inventoryApi.getTransactions(item.id);
-      setTransactions(txs);
-    } catch (err) {
-      console.warn('Failed to load item transactions:', err);
-    }
   };
 
   const handleApplyAdjustment = async (e: React.FormEvent) => {
@@ -117,33 +157,12 @@ export const InventoryPage: React.FC = () => {
         delta,
         adjustReason || `Manual ${adjustType.toLowerCase()} entry`
       );
-      await loadInventory();
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory-transactions', selectedItem.id] });
     } catch (err) {
-      // Optimistic update
-      const newQty = Math.max(0, selectedItem.quantity + delta);
-      setInventory((prev) =>
-        prev.map((item) =>
-          item.id === selectedItem.id
-            ? {
-                ...item,
-                quantity: newQty,
-                lastRestocked: adjustType === 'RESTOCK' ? new Date().toISOString().split('T')[0] : item.lastRestocked,
-              }
-            : item
-        )
-      );
+      console.warn('Stock adjustment API error:', err);
     }
 
-    const newTx: PosTransaction = {
-      id: `tx-${Date.now()}`,
-      itemName: selectedItem.name,
-      quantity: adjustAmount,
-      type: adjustType,
-      reason: adjustReason || `Manual ${adjustType.toLowerCase()} entry`,
-      createdAt: new Date().toISOString(),
-    };
-
-    setTransactions((prev) => [newTx, ...prev]);
     setAdjustModalOpen(false);
   };
 
@@ -152,23 +171,13 @@ export const InventoryPage: React.FC = () => {
     if (!newItem.name) return;
 
     try {
-      const created = await inventoryApi.createInventoryItem({
+      await inventoryApi.createInventoryItem({
         ...newItem,
         sku: newItem.sku || `SKU-${Date.now().toString().slice(-4)}`,
       });
-      if (created) {
-        setInventory((prev) => [...prev, created]);
-      } else {
-        await loadInventory();
-      }
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
     } catch (err) {
       console.warn('Fallback adding inventory item:', err);
-      const created: PosInventoryItem = {
-        id: `inv-${Date.now()}`,
-        ...newItem,
-        lastRestocked: new Date().toISOString().split('T')[0],
-      };
-      setInventory((prev) => [...prev, created]);
     }
 
     setAddModalOpen(false);
@@ -187,19 +196,11 @@ export const InventoryPage: React.FC = () => {
     if (!confirm(`Are you sure you want to remove "${name}" from inventory?`)) return;
     try {
       await inventoryApi.deleteInventoryItem(id);
-      setInventory((prev) => prev.filter((i) => i.id !== id));
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
     } catch (err) {
-      setInventory((prev) => prev.filter((i) => i.id !== id));
+      console.warn('Delete inventory item error:', err);
     }
   };
-
-  const filteredInventory = inventory.filter((item) => {
-    const matchesCategory = categoryFilter === 'All' || item.category.toLowerCase() === categoryFilter.toLowerCase();
-    const matchesSearch =
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.sku.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
 
   return (
     <div className="page-container">
@@ -224,7 +225,7 @@ export const InventoryPage: React.FC = () => {
             📦
           </div>
           <div>
-            <div className="stat-val">{inventory.length}</div>
+            <div className="stat-val">{totalInventoryCount || inventory.length}</div>
             <div className="stat-label">Stocked SKUs</div>
           </div>
         </div>
@@ -293,14 +294,14 @@ export const InventoryPage: React.FC = () => {
       {/* Inventory Table */}
       <div className="card">
         <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '16px' }}>
-          📋 Stock Catalog ({filteredInventory.length} Items)
+          📋 Stock Catalog ({totalInventoryCount || inventory.length} Items)
         </h3>
 
-        {loading ? (
+        {loadingInventory && inventory.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
             Loading stock catalog from database...
           </div>
-        ) : filteredInventory.length === 0 ? (
+        ) : inventory.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
             No inventory items found.
           </div>
@@ -320,7 +321,7 @@ export const InventoryPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredInventory.map((item) => {
+                {inventory.map((item) => {
                   const isLow = item.quantity <= item.reorderPoint;
                   const itemValuation = item.quantity * item.costPerUnit;
 
@@ -355,22 +356,21 @@ export const InventoryPage: React.FC = () => {
                           <button
                             className="btn btn-sm btn-primary"
                             onClick={() => openAdjustModal(item)}
-                            title="Adjust stock quantity"
+                            title="Adjust inventory quantity"
                           >
                             ⚡ Adjust
                           </button>
                           <button
                             className="btn btn-sm btn-secondary"
                             onClick={() => openHistoryModal(item)}
-                            title="View transaction history"
+                            title="View transaction movement history"
                           >
                             📜 History
                           </button>
                           <button
-                            className="btn btn-sm btn-secondary"
+                            className="btn btn-sm btn-danger"
                             onClick={() => handleDeleteItem(item.id, item.name)}
-                            style={{ color: '#f87171' }}
-                            title="Delete item"
+                            title="Delete item from inventory"
                           >
                             🗑️
                           </button>
@@ -383,17 +383,26 @@ export const InventoryPage: React.FC = () => {
             </table>
           </div>
         )}
+
+        <InfiniteScrollSentinel
+          hasNextPage={hasNextInventory}
+          isFetchingNextPage={isFetchingNextInventory}
+          fetchNextPage={fetchNextInventory}
+          totalCount={totalInventoryCount}
+          currentCount={inventory.length}
+          emptyText="No inventory items found"
+        />
       </div>
 
       {/* Adjust Stock Modal */}
       {adjustModalOpen && selectedItem && (
         <div className="modal-backdrop" onClick={() => setAdjustModalOpen(false)}>
-          <div className="modal-card" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-header-text">
-                <h3 className="modal-title">⚡ Adjust Stock Level</h3>
+                <h3 className="modal-title">⚡ Adjust Inventory Stock</h3>
                 <p className="modal-subtitle">
-                  Updating <strong>{selectedItem.name}</strong> • Current: {selectedItem.quantity} {selectedItem.unit}
+                  {selectedItem.name} • Current Quantity: <strong>{selectedItem.quantity} {selectedItem.unit}</strong>
                 </p>
               </div>
               <button
@@ -411,17 +420,24 @@ export const InventoryPage: React.FC = () => {
                 <div className="form-group">
                   <label className="input-label">
                     <span>Adjustment Type</span>
+                    <span className="label-hint">Select action</span>
                   </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                    {(['RESTOCK', 'USAGE', 'WASTE', 'ADJUSTMENT'] as const).map((t) => (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                    {[
+                      { type: 'RESTOCK', label: 'Restock', icon: '📥' },
+                      { type: 'USAGE', label: 'Usage', icon: '🍳' },
+                      { type: 'WASTE', label: 'Waste', icon: '🗑️' },
+                      { type: 'ADJUSTMENT', label: 'Count', icon: '⚖️' },
+                    ].map((btn) => (
                       <button
+                        key={btn.type}
                         type="button"
-                        key={t}
-                        className={`btn btn-sm ${adjustType === t ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => setAdjustType(t)}
-                        style={{ justifyContent: 'center' }}
+                        className={`btn btn-sm ${adjustType === btn.type ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setAdjustType(btn.type as any)}
+                        style={{ flexDirection: 'column', padding: '10px 4px', fontSize: '12px' }}
                       >
-                        {t === 'RESTOCK' ? '📦 Restock (+)' : t === 'USAGE' ? '🍽️ Usage (-)' : t === 'WASTE' ? '🗑️ Spoilage (-)' : '⚖️ Correction'}
+                        <span style={{ fontSize: '18px' }}>{btn.icon}</span>
+                        {btn.label}
                       </button>
                     ))}
                   </div>
@@ -429,8 +445,8 @@ export const InventoryPage: React.FC = () => {
 
                 <div className="form-group">
                   <label className="input-label">
-                    <span>Adjustment Quantity</span>
-                    <span className="label-hint">Unit: {selectedItem.unit}</span>
+                    <span>Quantity Change ({selectedItem.unit})</span>
+                    <span className="label-hint">Amount</span>
                   </label>
                   <input
                     type="number"
@@ -440,6 +456,7 @@ export const InventoryPage: React.FC = () => {
                     className="input-field"
                     value={adjustAmount}
                     onChange={(e) => setAdjustAmount(Number(e.target.value))}
+                    style={{ fontSize: '18px', fontWeight: 800 }}
                   />
                 </div>
 
@@ -450,7 +467,7 @@ export const InventoryPage: React.FC = () => {
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Vendor PO #409, kitchen usage, damaged box"
+                    placeholder="e.g. Supplier delivery, spoilage, or discrepancy fix..."
                     className="input-field"
                     value={adjustReason}
                     onChange={(e) => setAdjustReason(e.target.value)}
@@ -463,7 +480,7 @@ export const InventoryPage: React.FC = () => {
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  ⚡ Apply Stock Update
+                  ✓ Apply Stock Adjustment
                 </button>
               </div>
             </form>
@@ -471,14 +488,14 @@ export const InventoryPage: React.FC = () => {
         </div>
       )}
 
-      {/* Add New Item Modal */}
+      {/* Add Inventory Item Modal */}
       {addModalOpen && (
         <div className="modal-backdrop" onClick={() => setAddModalOpen(false)}>
-          <div className="modal-card" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card" style={{ maxWidth: '560px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-header-text">
-                <h3 className="modal-title">📦 Add Inventory Item</h3>
-                <p className="modal-subtitle">Register a new raw ingredient or retail merchandise item</p>
+                <h3 className="modal-title">+ Add New Inventory Item</h3>
+                <p className="modal-subtitle">Track ingredients, beverages, and supplies in the database catalog</p>
               </div>
               <button
                 type="button"
@@ -684,6 +701,15 @@ export const InventoryPage: React.FC = () => {
                     )}
                   </tbody>
                 </table>
+
+                <InfiniteScrollSentinel
+                  hasNextPage={hasNextTransactions}
+                  isFetchingNextPage={isFetchingNextTransactions}
+                  fetchNextPage={fetchNextTransactions}
+                  totalCount={totalTxCount}
+                  currentCount={transactions.length}
+                  emptyText=""
+                />
               </div>
             </div>
 

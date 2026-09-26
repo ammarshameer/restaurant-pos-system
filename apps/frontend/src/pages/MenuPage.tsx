@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { RootState } from '../store/store';
 import {
   MenuItem,
@@ -12,6 +13,7 @@ import {
 } from '../store/slices/menuSlice';
 import { menuApi } from '../api/menu.api';
 import { inventoryApi, InventoryItem } from '../api/inventory.api';
+import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR } from '../utils/format';
 import { compressImageFile, getCategoryVisual } from '../utils/image';
 
@@ -22,7 +24,7 @@ interface IngredientFormItem {
 
 export const MenuPage: React.FC = () => {
   const dispatch = useDispatch();
-  const items = useSelector((state: RootState) => state.menu.items);
+  const queryClient = useQueryClient();
   const categories = useSelector((state: RootState) => state.menu.categories);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -69,22 +71,43 @@ export const MenuPage: React.FC = () => {
     ingredients: [],
   });
 
-  // Sync menu & inventory from Database on component mount
+  // Infinite Scroll query: 50 items per page, auto-resets on category / search change
+  const {
+    data: menuData,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    refetch: refetchMenu,
+  } = useInfiniteQuery({
+    queryKey: ['menu-items', selectedCategory, searchQuery],
+    queryFn: ({ pageParam = 1 }) =>
+      menuApi.getMenuItemsPaginated({
+        page: pageParam,
+        limit: 50,
+        category: selectedCategory !== 'All' ? selectedCategory : undefined,
+        search: searchQuery.trim() || undefined,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+  });
+
+  const filteredItems = useMemo(() => {
+    return menuData?.pages.flatMap((p) => p.data) || [];
+  }, [menuData]);
+
+  const totalMenuCount = menuData?.pages[0]?.totalCount ?? 0;
+
+  // Sync inventory list for recipe ingredient options
   useEffect(() => {
-    const fetchDbData = async () => {
-      const [dbItems, invItems] = await Promise.all([
-        menuApi.getMenu(),
-        inventoryApi.getInventory(),
-      ]);
-      if (dbItems && dbItems.length > 0) {
-        dispatch(setMenuItems(dbItems));
-      }
+    const fetchInvData = async () => {
+      const invItems = await inventoryApi.getInventory();
       if (invItems) {
         setInventoryList(invItems);
       }
     };
-    fetchDbData();
-  }, [dispatch]);
+    fetchInvData();
+  }, []);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -108,6 +131,7 @@ export const MenuPage: React.FC = () => {
       is86d: !item.is86d,
       isAvailable: item.is86d,
     });
+    queryClient.invalidateQueries({ queryKey: ['menu-items'] });
     showToast(
       item.is86d
         ? `🟢 '${item.name}' marked IN STOCK (saved to DB & available in POS)`
@@ -119,6 +143,7 @@ export const MenuPage: React.FC = () => {
     if (confirm(`Are you sure you want to remove "${item.name}" from the database menu catalog?`)) {
       dispatch(removeMenuItem(item.id));
       await menuApi.deleteMenuItem(item.id);
+      queryClient.invalidateQueries({ queryKey: ['menu-items'] });
       showToast(`🗑️ '${item.name}' deleted from database & menu`);
     }
   };
@@ -218,6 +243,7 @@ export const MenuPage: React.FC = () => {
       };
       dispatch(updateMenuItem(updated));
       await menuApi.updateMenuItem(updated.id, updated);
+      queryClient.invalidateQueries({ queryKey: ['menu-items'] });
       showToast(`✅ '${updated.name}' updated in database with ${formattedIngredients.length} linked ingredients!`);
     } else {
       const newItemId = `m-${Date.now()}`;
@@ -236,6 +262,7 @@ export const MenuPage: React.FC = () => {
       };
       dispatch(addMenuItem(newItem));
       await menuApi.createMenuItem(newItem);
+      queryClient.invalidateQueries({ queryKey: ['menu-items'] });
       showToast(`🎉 '${newItem.name}' created in Database with ${formattedIngredients.length} linked ingredients!`);
     }
 
@@ -295,31 +322,13 @@ export const MenuPage: React.FC = () => {
   };
 
   const handleRefreshMenu = async () => {
-    const [dbItems, invItems] = await Promise.all([
-      menuApi.getMenu(),
-      inventoryApi.getInventory(),
-    ]);
-    if (dbItems && dbItems.length > 0) {
-      dispatch(setMenuItems(dbItems));
-    }
+    refetchMenu();
+    const invItems = await inventoryApi.getInventory();
     if (invItems) {
       setInventoryList(invItems);
     }
     showToast('🔄 Menu & inventory catalog reloaded directly from database.');
   };
-
-  const filteredItems = items.filter((item) => {
-    const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
-    const matchesSearch =
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (item.ingredients &&
-        item.ingredients.some((ing) =>
-          ing.inventoryItem?.name.toLowerCase().includes(searchQuery.toLowerCase())
-        ));
-    return matchesCategory && matchesSearch;
-  });
 
   const filteredInventoryOptions = inventoryList.filter((inv) => {
     const notAlreadySelected = !formData.ingredients.some((i) => i.inventoryItemId === inv.id);
@@ -564,6 +573,15 @@ export const MenuPage: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      <InfiniteScrollSentinel
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        fetchNextPage={fetchNextPage}
+        totalCount={totalMenuCount}
+        currentCount={filteredItems.length}
+        emptyText="No menu items found"
+      />
 
       {/* Add / Edit Menu Item Modal */}
       {modalOpen && (

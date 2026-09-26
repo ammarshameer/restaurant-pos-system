@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { RootState } from '../store/store';
 import { Order, OrderItem, updateOrder, removeOrder, addOrder } from '../store/slices/orderSlice';
 import { MenuItem } from '../store/slices/menuSlice';
 import { ReceiptModal, ReceiptData } from '../components/ReceiptModal';
+import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { orderApi } from '../api/order.api';
 import { formatPKR } from '../utils/format';
+import { socketClient } from '../lib/socket';
 
 export const SaleInvoicesPage: React.FC = () => {
   const dispatch = useDispatch();
-  const orders = useSelector((state: RootState) => state.orders.orders);
+  const queryClient = useQueryClient();
   const menuItems = useSelector((state: RootState) => state.menu.items);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,24 +45,82 @@ export const SaleInvoicesPage: React.FC = () => {
   // Toast alert
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Fetch all orders/invoices directly from backend Database on mount
+  // React Query Infinite Scroll: 50 records per page, resets automatically on filter/search change
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+  } = useInfiniteQuery({
+    queryKey: ['orders', selectedOrderType, selectedPaymentStatus, searchQuery],
+    queryFn: ({ pageParam = 1 }) =>
+      orderApi.getOrdersPaginated({
+        page: pageParam,
+        limit: 50,
+        orderType: selectedOrderType !== 'ALL' ? selectedOrderType : undefined,
+        paymentStatus: selectedPaymentStatus !== 'ALL' ? selectedPaymentStatus : undefined,
+        search: searchQuery.trim() || undefined,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+  });
+
+  const orders = useMemo(() => {
+    return data?.pages.flatMap((page) => page.data) || [];
+  }, [data]);
+
+  const totalCount = data?.pages[0]?.totalCount ?? 0;
+
+  // Real-time WebSocket updates: Prepend newly created orders without full page reload
   useEffect(() => {
-    const fetchDbOrders = async () => {
-      const dbOrders = await orderApi.getAllOrders();
-      if (dbOrders && dbOrders.length > 0) {
-        // Sync each DB order into Redux store
-        for (const o of dbOrders) {
-          const exists = orders.some((existing) => existing.id === o.id);
-          if (exists) {
-            dispatch(updateOrder(o));
-          } else {
-            dispatch(addOrder(o));
-          }
-        }
-      }
+    const token = localStorage.getItem('auth_token') || 'pos-token';
+    const socket = socketClient.connect(token);
+    if (!socket) return;
+
+    const handleNewOrder = (incoming: any) => {
+      queryClient.setQueriesData({ queryKey: ['orders'] }, (oldData: any) => {
+        if (!oldData || !oldData.pages || oldData.pages.length === 0) return oldData;
+        const exists = oldData.pages.some((page: any) => page.data.some((o: any) => o.id === incoming.id));
+        if (exists) return oldData;
+
+        const firstPage = oldData.pages[0];
+        const updatedFirstPage = {
+          ...firstPage,
+          data: [incoming, ...firstPage.data],
+          totalCount: (firstPage.totalCount || 0) + 1,
+        };
+
+        return {
+          ...oldData,
+          pages: [updatedFirstPage, ...oldData.pages.slice(1)],
+        };
+      });
+      dispatch(addOrder(incoming));
     };
-    fetchDbOrders();
-  }, [dispatch]);
+
+    const handleUpdatedOrder = (incoming: any) => {
+      queryClient.setQueriesData({ queryKey: ['orders'] }, (oldData: any) => {
+        if (!oldData || !oldData.pages) return oldData;
+        return {
+          ...oldData,
+          pages: oldData.pages.map((page: any) => ({
+            ...page,
+            data: page.data.map((o: any) => (o.id === incoming.id ? { ...o, ...incoming } : o)),
+          })),
+        };
+      });
+      dispatch(updateOrder(incoming));
+    };
+
+    socket.on('order:new', handleNewOrder);
+    socket.on('order:updated', handleUpdatedOrder);
+
+    return () => {
+      socket.off('order:new', handleNewOrder);
+      socket.off('order:updated', handleUpdatedOrder);
+    };
+  }, [queryClient, dispatch]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -72,24 +133,6 @@ export const SaleInvoicesPage: React.FC = () => {
   const unpaidOrders = orders.filter((o) => o.paymentStatus === 'UNPAID');
   const paidRevenue = paidOrders.reduce((sum, o) => sum + (o.total || 0), 0);
   const unpaidRevenue = unpaidOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-
-  // Filter invoices
-  const filteredOrders = orders.filter((order) => {
-    const matchesType = selectedOrderType === 'ALL' || order.orderType === selectedOrderType;
-    const matchesPayment = selectedPaymentStatus === 'ALL' || order.paymentStatus === selectedPaymentStatus;
-
-    const query = searchQuery.toLowerCase().trim();
-    const matchesSearch =
-      !query ||
-      String(order.orderNumber).toLowerCase().includes(query) ||
-      (order.customerName && order.customerName.toLowerCase().includes(query)) ||
-      (order.customerPhone && order.customerPhone.toLowerCase().includes(query)) ||
-      (order.deliveryAddress && order.deliveryAddress.toLowerCase().includes(query)) ||
-      (order.dineInTag && order.dineInTag.toLowerCase().includes(query)) ||
-      order.items.some((i) => i.name.toLowerCase().includes(query));
-
-    return matchesType && matchesPayment && matchesSearch;
-  });
 
   const handleOpenReceipt = (order: Order) => {
     const isDineIn = order.orderType === 'DINE_IN';
@@ -154,6 +197,7 @@ export const SaleInvoicesPage: React.FC = () => {
     if (confirm(`Are you sure you want to void / delete Sale Invoice #${order.orderNumber} from the database?`)) {
       dispatch(removeOrder(order.id));
       await orderApi.deleteOrder(order.id);
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
       showToast(`🗑️ Sale Invoice #${order.orderNumber} deleted from database.`);
     }
   };
@@ -254,6 +298,7 @@ export const SaleInvoicesPage: React.FC = () => {
 
     dispatch(updateOrder(updated));
     await orderApi.updateOrder(updated.id, updated);
+    queryClient.invalidateQueries({ queryKey: ['orders'] });
     setEditModalOpen(false);
     setEditingOrder(null);
     showToast(`✅ Sale Invoice #${updated.orderNumber} saved & updated in Database!`);
@@ -440,7 +485,7 @@ export const SaleInvoicesPage: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {filteredOrders.length === 0 ? (
+            {orders.length === 0 && !isLoading ? (
               <tr>
                 <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
                   <div style={{ fontSize: '36px', marginBottom: '8px' }}>🧾</div>
@@ -451,7 +496,7 @@ export const SaleInvoicesPage: React.FC = () => {
                 </td>
               </tr>
             ) : (
-              filteredOrders.map((order) => {
+              orders.map((order) => {
                 const isPaid = order.paymentStatus === 'PAID';
                 const formattedDate = new Date(order.createdAt).toLocaleString('en-PK', {
                   dateStyle: 'short',
@@ -557,6 +602,16 @@ export const SaleInvoicesPage: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Infinite Scroll Sentinel */}
+      <InfiniteScrollSentinel
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        fetchNextPage={fetchNextPage}
+        totalCount={totalCount}
+        currentCount={orders.length}
+        emptyText="No Sale Invoices found"
+      />
 
       {/* EDIT INVOICE MODAL */}
       {editModalOpen && editingOrder && (

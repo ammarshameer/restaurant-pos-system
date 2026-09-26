@@ -48,7 +48,35 @@ export class AnalyticsService {
     };
   }
 
-  async getTopSellingItems(restaurantId: string, startDate: Date, endDate: Date, limit = 10) {
+  async getTopSellingItems(
+    restaurantId: string,
+    startDateOrOptions?: Date | string | { startDate?: Date | string; endDate?: Date | string; page?: number; limit?: number },
+    endDateParam?: Date | string,
+    optionsParam?: { page?: number; limit?: number } | number
+  ) {
+    let startDate: Date;
+    let endDate: Date;
+    let page = 1;
+    let limit = 50;
+
+    if (startDateOrOptions && typeof startDateOrOptions === 'object' && !(startDateOrOptions instanceof Date)) {
+      startDate = startDateOrOptions.startDate ? new Date(startDateOrOptions.startDate) : new Date(0);
+      endDate = startDateOrOptions.endDate ? new Date(startDateOrOptions.endDate) : new Date();
+      page = Math.max(1, Number(startDateOrOptions.page) || 1);
+      limit = Math.max(1, Number(startDateOrOptions.limit) || 50);
+    } else {
+      startDate = typeof startDateOrOptions === 'string' || startDateOrOptions instanceof Date ? new Date(startDateOrOptions) : new Date(0);
+      endDate = endDateParam ? new Date(endDateParam) : new Date();
+      if (typeof optionsParam === 'number') {
+        limit = optionsParam;
+      } else if (optionsParam && typeof optionsParam === 'object') {
+        page = Math.max(1, Number(optionsParam.page) || 1);
+        limit = Math.max(1, Number(optionsParam.limit) || 50);
+      }
+    }
+
+    const skip = (page - 1) * limit;
+
     const orders = await prisma.order.findMany({
       where: {
         restaurantId,
@@ -61,13 +89,17 @@ export class AnalyticsService {
       include: {
         items: {
           include: {
-            menuItem: true,
+            menuItem: {
+              include: {
+                category: true,
+              },
+            },
           },
         },
       },
     });
 
-    const itemStats = new Map<string, { id: string; name: string; quantity: number; revenue: number }>();
+    const itemStats = new Map<string, { id: string; name: string; category: string; quantity: number; revenue: number }>();
 
     orders.forEach((order) => {
       order.items.forEach((item) => {
@@ -76,15 +108,17 @@ export class AnalyticsService {
 
         const price = Number(item.unitPrice || menuItem.price);
         const revenue = price * item.quantity;
+        const catName = menuItem.category?.name || 'General';
 
-        const existing = itemStats.get(item.menuItemId);
+        const existing = itemStats.get(item.menuItemId || menuItem.id);
         if (existing) {
           existing.quantity += item.quantity;
           existing.revenue += revenue;
         } else {
-          itemStats.set(item.menuItemId, {
-            id: item.menuItemId,
-            name: menuItem.name,
+          itemStats.set(item.menuItemId || menuItem.id, {
+            id: item.menuItemId || menuItem.id,
+            name: menuItem.name || item.name || 'Dish',
+            category: catName,
             quantity: item.quantity,
             revenue,
           });
@@ -92,13 +126,28 @@ export class AnalyticsService {
       });
     });
 
-    return Array.from(itemStats.values())
+    const allSortedItems = Array.from(itemStats.values())
       .map((item) => ({
         ...item,
         revenue: +item.revenue.toFixed(2),
       }))
       .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, limit);
+      .map((item, idx) => ({
+        ...item,
+        rank: idx + 1,
+      }));
+
+    const totalCount = allSortedItems.length;
+    const pagedItems = allSortedItems.slice(skip, skip + limit);
+    const hasMore = page * limit < totalCount;
+
+    return {
+      data: pagedItems,
+      page,
+      limit,
+      totalCount,
+      hasMore,
+    };
   }
 
   async getRevenueByHour(restaurantId: string, date: Date) {

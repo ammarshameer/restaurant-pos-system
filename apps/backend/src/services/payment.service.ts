@@ -141,6 +141,88 @@ export class PaymentService {
     });
   }
 
+  async getPaymentsByRestaurant(
+    restaurantId: string,
+    options?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      method?: string;
+      startDate?: Date;
+      endDate?: Date;
+    }
+  ) {
+    const page = Math.max(1, Number(options?.page) || 1);
+    const limit = Math.max(1, Number(options?.limit) || 50);
+    const skip = (page - 1) * limit;
+
+    const whereClause: any = {
+      order: {
+        restaurantId,
+      },
+    };
+
+    if (options?.method && options.method !== 'ALL' && options.method !== 'All') {
+      whereClause.method = options.method;
+    }
+
+    if (options?.startDate || options?.endDate) {
+      whereClause.createdAt = {
+        ...(options.startDate ? { gte: options.startDate } : {}),
+        ...(options.endDate ? { lte: options.endDate } : {}),
+      };
+    }
+
+    if (options?.search && options.search.trim()) {
+      const q = options.search.trim();
+      const num = parseInt(q, 10);
+      whereClause.OR = [
+        ...(!isNaN(num) ? [{ order: { orderNumber: num } }] : []),
+        { transactionId: { contains: q } },
+        { order: { customerName: { contains: q } } },
+        { order: { customerPhone: { contains: q } } },
+      ];
+    }
+
+    const [totalCount, payments] = await Promise.all([
+      prisma.payment.count({ where: whereClause }),
+      prisma.payment.findMany({
+        where: whereClause,
+        skip,
+        take: limit,
+        include: {
+          order: {
+            include: {
+              items: {
+                include: {
+                  menuItem: true,
+                },
+              },
+              server: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const hasMore = page * limit < totalCount;
+
+    return {
+      data: payments,
+      page,
+      limit,
+      totalCount,
+      hasMore,
+    };
+  }
+
   /**
    * Generates structured receipt and invoice data with restaurant profile and item breakdown
    */

@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { RootState } from '../store/store';
-import { Order, setOrders } from '../store/slices/orderSlice';
+import { setOrders } from '../store/slices/orderSlice';
 import { orderApi } from '../api/order.api';
+import { analyticsApi, TopSellingItem } from '../api/analytics.api';
+import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR, formatNumber } from '../utils/format';
 
 type DateRange = 'today' | 'yesterday' | 'week' | 'month';
@@ -11,14 +14,6 @@ interface HourlyData {
   hour: string;
   revenue: number;
   orders: number;
-}
-
-interface TopItem {
-  rank: number;
-  name: string;
-  category: string;
-  quantity: number;
-  revenue: number;
 }
 
 interface OrderTypeStat {
@@ -153,41 +148,35 @@ export const AnalyticsPage: React.FC = () => {
 
   const maxHourlyRevenue = Math.max(...hourlySalesData.map((h) => h.revenue), 1);
 
-  // Top Selling Items (computed dynamically from line items of filtered orders)
-  const topSellingItems: TopItem[] = useMemo(() => {
-    const itemMap = new Map<string, { name: string; category: string; quantity: number; revenue: number }>();
+  // 1. Infinite Query for Top Selling Items: 50 records per page
+  const {
+    data: topItemsData,
+    fetchNextPage: fetchNextTopItems,
+    hasNextPage: hasNextTopItems,
+    isFetchingNextPage: isFetchingNextTopItems,
+    isLoading: loadingTopItems,
+  } = useInfiniteQuery({
+    queryKey: ['analytics-top-items', dateRangeBounds.start.toISOString(), dateRangeBounds.end.toISOString()],
+    queryFn: ({ pageParam = 1 }) =>
+      analyticsApi.getTopSellingItemsPaginated({
+        startDate: dateRangeBounds.start,
+        endDate: dateRangeBounds.end,
+        page: pageParam,
+        limit: 50,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+  });
 
-    filteredOrders.forEach((order) => {
-      (order.items || []).forEach((item) => {
-        const menuItem = menuItems.find((m) => m.id === item.menuItemId || m.name.toLowerCase() === item.name.toLowerCase());
-        const key = item.menuItemId || item.name;
-        const name = item.name;
-        const category = menuItem?.category || 'Mains';
-        const qty = Number(item.quantity || 1);
-        const price = Number(item.unitPrice || item.price || 0);
-        const revenue = price * qty;
+  const topSellingItems: TopSellingItem[] = useMemo(() => {
+    const list = topItemsData?.pages.flatMap((p) => p.data) || [];
+    return list.map((item, index) => ({
+      ...item,
+      rank: item.rank || index + 1,
+    }));
+  }, [topItemsData]);
 
-        const existing = itemMap.get(key);
-        if (existing) {
-          existing.quantity += qty;
-          existing.revenue += revenue;
-        } else {
-          itemMap.set(key, { name, category, quantity: qty, revenue });
-        }
-      });
-    });
-
-    return Array.from(itemMap.values())
-      .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, 10)
-      .map((item, index) => ({
-        rank: index + 1,
-        name: item.name,
-        category: item.category,
-        quantity: item.quantity,
-        revenue: +item.revenue.toFixed(2),
-      }));
-  }, [filteredOrders, menuItems]);
+  const totalTopItemsCount = topItemsData?.pages[0]?.totalCount ?? 0;
 
   // Order Type Performance Breakdown (Dine In vs Take Away vs Delivery)
   const orderTypePerformance: OrderTypeStat[] = useMemo(() => {
@@ -198,60 +187,58 @@ export const AnalyticsPage: React.FC = () => {
     ];
 
     return configs.map(({ typeKey, type, icon, color }) => {
-      const typeOrders = filteredOrders.filter((o) => o.orderType === typeKey);
-      const revenue = typeOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-      const orderCount = typeOrders.length;
-      const avgTicket = orderCount > 0 ? +(revenue / orderCount).toFixed(2) : 0;
-
+      const matchedOrders = filteredOrders.filter((o) => o.orderType === typeKey);
+      const revenue = matchedOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+      const count = matchedOrders.length;
       return {
         type,
         icon,
-        orderCount,
+        orderCount: count,
         revenue: +revenue.toFixed(2),
-        avgTicket,
+        avgTicket: count > 0 ? +(revenue / count).toFixed(2) : 0,
         color,
       };
     });
   }, [filteredOrders]);
 
-  const totalOrderTypeRevenue = orderTypePerformance.reduce((s, o) => s + o.revenue, 0);
-  const totalOrderTypeCount = orderTypePerformance.reduce((s, o) => s + o.orderCount, 0);
-
   return (
     <div className="page-container">
-      {/* Header */}
+      {/* Header & Date Filter */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <h2 style={{ fontSize: '24px', fontWeight: 800 }}>📊 Analytics & Performance Reports (PKR)</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: 800 }}>📊 Sales Analytics & Financials (PKR)</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-            Live database sales revenue, order type throughput, and dish rankings
+            Live database sales figures, menu engineering, hourly rush heatmaps, and profit margins
           </p>
         </div>
 
-        {/* Date Range Selector */}
-        <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-secondary)', padding: '4px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-          {(['today', 'yesterday', 'week', 'month'] as const).map((r) => (
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {[
+            { id: 'today', label: 'Today' },
+            { id: 'yesterday', label: 'Yesterday' },
+            { id: 'week', label: 'Last 7 Days' },
+            { id: 'month', label: 'This Month' },
+          ].map((tab) => (
             <button
-              key={r}
-              className={`btn btn-sm ${dateRange === r ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setDateRange(r)}
-              style={{ textTransform: 'capitalize' }}
+              key={tab.id}
+              className={`btn btn-sm ${dateRange === tab.id ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setDateRange(tab.id as DateRange)}
             >
-              {r === 'week' ? 'Last 7 Days' : r === 'month' ? 'This Month' : r}
+              {tab.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Top Stat Cards */}
-      <div className="grid-cols-4" style={{ marginBottom: '24px' }}>
+      {/* KPI Stat Cards */}
+      <div className="grid-cols-4" style={{ marginBottom: '28px' }}>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)' }}>
             💰
           </div>
           <div>
             <div className="stat-val" style={{ color: '#34d399' }}>{formatPKR(totalSales)}</div>
-            <div className="stat-label">Gross Sales ({dateRange === 'week' ? '7 Days' : dateRange === 'month' ? 'This Month' : dateRange})</div>
+            <div className="stat-label">Total Gross Revenue</div>
           </div>
         </div>
 
@@ -260,8 +247,8 @@ export const AnalyticsPage: React.FC = () => {
             🧾
           </div>
           <div>
-            <div className="stat-val">{formatNumber(totalOrders)}</div>
-            <div className="stat-label">Completed Orders</div>
+            <div className="stat-val">{totalOrders}</div>
+            <div className="stat-label">Total Orders Placed</div>
           </div>
         </div>
 
@@ -271,7 +258,7 @@ export const AnalyticsPage: React.FC = () => {
           </div>
           <div>
             <div className="stat-val">{formatPKR(avgOrderValue)}</div>
-            <div className="stat-label">Average Ticket Size</div>
+            <div className="stat-label">Average Order Size</div>
           </div>
         </div>
 
@@ -280,75 +267,57 @@ export const AnalyticsPage: React.FC = () => {
             📈
           </div>
           <div>
-            <div className="stat-val" style={{ color: '#fbbf24' }}>{formatPKR(netMargin)}</div>
-            <div className="stat-label">Est. Net Profit (PKR)</div>
+            <div className="stat-val" style={{ color: netMargin >= 0 ? '#34d399' : '#f87171' }}>
+              {formatPKR(netMargin)}
+            </div>
+            <div className="stat-label">Estimated Net Margin</div>
           </div>
         </div>
       </div>
 
-      {/* ORDER TYPE BREAKDOWN CARDS */}
-      <div style={{ marginBottom: '28px' }}>
-        <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '14px' }}>
-          🛵 Order Type Performance & Volume Breakdown
+      {/* Financial Health Summary Bar */}
+      <div className="card" style={{ marginBottom: '28px', padding: '20px' }}>
+        <h3 style={{ fontSize: '16px', fontWeight: 800, marginBottom: '14px' }}>
+          💵 Margin & Cost Breakdown (PKR)
         </h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
-          {orderTypePerformance.map((item) => {
-            const revenueShare = totalOrderTypeRevenue > 0 ? ((item.revenue / totalOrderTypeRevenue) * 100).toFixed(1) : '0.0';
-            const orderShare = totalOrderTypeCount > 0 ? ((item.orderCount / totalOrderTypeCount) * 100).toFixed(1) : '0.0';
-            return (
-              <div
-                key={item.type}
-                className="card"
-                style={{
-                  borderTop: `4px solid ${item.color}`,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '24px' }}>{item.icon}</span>
-                    <span style={{ fontSize: '18px', fontWeight: 800 }}>{item.type}</span>
-                  </div>
-                  <span
-                    style={{
-                      background: 'var(--bg-secondary)',
-                      padding: '4px 10px',
-                      borderRadius: '9999px',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      color: item.color,
-                      border: '1px solid var(--border-color)',
-                    }}
-                  >
-                    {revenueShare}% Revenue
-                  </span>
-                </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+          <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Gross Sales Volume</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: '#34d399', marginTop: '4px' }}>
+              {formatPKR(totalSales)}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>100% of revenue</div>
+          </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '4px' }}>
-                  <div style={{ background: 'var(--bg-secondary)', padding: '10px 12px', borderRadius: 'var(--radius-md)' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total Orders</div>
-                    <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                      {item.orderCount} <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({orderShare}%)</span>
-                    </div>
-                  </div>
+          <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Estimated Food Cost (COGS)</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: '#f87171', marginTop: '4px' }}>
+              {formatPKR(estimatedFoodCost)}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              {totalSales > 0 ? ((estimatedFoodCost / totalSales) * 100).toFixed(1) : 0}% of sales
+            </div>
+          </div>
 
-                  <div style={{ background: 'var(--bg-secondary)', padding: '10px 12px', borderRadius: 'var(--radius-md)' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Avg Ticket</div>
-                    <div style={{ fontSize: '16px', fontWeight: 800, color: '#38bdf8' }}>
-                      {formatPKR(item.avgTicket)}
-                    </div>
-                  </div>
-                </div>
+          <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Estimated Labor Overhead</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: '#fbbf24', marginTop: '4px' }}>
+              {formatPKR(estimatedLaborCost)}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              {totalSales > 0 ? ((estimatedLaborCost / totalSales) * 100).toFixed(1) : 0}% of sales
+            </div>
+          </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Total Revenue:</span>
-                  <span style={{ fontSize: '18px', fontWeight: 900, color: '#34d399' }}>{formatPKR(item.revenue)}</span>
-                </div>
-              </div>
-            );
-          })}
+          <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Net Operational Margin</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, color: '#38bdf8', marginTop: '4px' }}>
+              {formatPKR(netMargin)}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              {totalSales > 0 ? ((netMargin / totalSales) * 100).toFixed(1) : 0}% net profit
+            </div>
+          </div>
         </div>
       </div>
 
@@ -424,10 +393,10 @@ export const AnalyticsPage: React.FC = () => {
         {/* Top Selling Items */}
         <div className="card">
           <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '16px' }}>
-            🏆 Top Selling Menu Items ({topSellingItems.length})
+            🏆 Top Selling Menu Items ({totalTopItemsCount || topSellingItems.length})
           </h3>
 
-          <div className="data-table-wrapper">
+          <div className="data-table-wrapper" style={{ maxHeight: '420px', overflowY: 'auto' }}>
             <table className="data-table">
               <thead>
                 <tr>
@@ -438,7 +407,13 @@ export const AnalyticsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {topSellingItems.length === 0 ? (
+                {loadingTopItems && topSellingItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                      Loading top selling items...
+                    </td>
+                  </tr>
+                ) : topSellingItems.length === 0 ? (
                   <tr>
                     <td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
                       No items sold in this date range
@@ -446,10 +421,10 @@ export const AnalyticsPage: React.FC = () => {
                   </tr>
                 ) : (
                   topSellingItems.map((item) => (
-                    <tr key={item.rank + item.name}>
+                    <tr key={item.id || item.name}>
                       <td>
                         <div style={{ fontWeight: 700 }}>
-                          <span style={{ color: item.rank <= 3 ? '#fbbf24' : 'var(--text-muted)', marginRight: '6px' }}>
+                          <span style={{ color: item.rank && item.rank <= 3 ? '#fbbf24' : 'var(--text-muted)', marginRight: '6px' }}>
                             #{item.rank}
                           </span>
                           {item.name}
@@ -465,6 +440,15 @@ export const AnalyticsPage: React.FC = () => {
                 )}
               </tbody>
             </table>
+
+            <InfiniteScrollSentinel
+              hasNextPage={hasNextTopItems}
+              isFetchingNextPage={isFetchingNextTopItems}
+              fetchNextPage={fetchNextTopItems}
+              totalCount={totalTopItemsCount}
+              currentCount={topSellingItems.length}
+              emptyText=""
+            />
           </div>
         </div>
 

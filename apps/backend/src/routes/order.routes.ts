@@ -14,11 +14,50 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// Get all orders for restaurant
+// Get all orders with pagination support
+router.get('/', async (req, res, next) => {
+  try {
+    const restaurantId = (req.query.restaurantId as string) || 'rest-default-1';
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const search = req.query.search as string;
+    const orderType = req.query.orderType as string;
+    const paymentStatus = req.query.paymentStatus as string;
+    const status = req.query.status as string;
+
+    const result = await orderService.getAllOrdersByRestaurant(restaurantId, {
+      page,
+      limit,
+      search,
+      orderType,
+      paymentStatus,
+      status,
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get all orders for restaurant with pagination
 router.get('/restaurant/:restaurantId', async (req, res, next) => {
   try {
-    const orders = await orderService.getAllOrdersByRestaurant(req.params.restaurantId);
-    res.json(orders);
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const search = req.query.search as string;
+    const orderType = req.query.orderType as string;
+    const paymentStatus = req.query.paymentStatus as string;
+    const status = req.query.status as string;
+
+    const result = await orderService.getAllOrdersByRestaurant(req.params.restaurantId, {
+      page,
+      limit,
+      search,
+      orderType,
+      paymentStatus,
+      status,
+    });
+    res.json(result);
   } catch (error) {
     next(error);
   }

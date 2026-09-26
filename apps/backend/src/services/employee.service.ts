@@ -6,24 +6,76 @@ export type EmployeeRole = 'ADMIN' | 'MANAGER' | 'SERVER' | 'KITCHEN' | 'CASHIER
 const prisma = new PrismaClient();
 
 export class EmployeeService {
-  async getEmployees(restaurantId: string) {
-    return prisma.employee.findMany({
-      where: { restaurantId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        isActive: true,
-        pin: true,
-        hourlyRate: true,
-        phone: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      orderBy: { lastName: 'asc' },
-    });
+  async getEmployees(
+    restaurantId: string,
+    options?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      role?: string;
+      isActive?: boolean;
+    }
+  ) {
+    const page = Math.max(1, Number(options?.page) || 1);
+    const limit = Math.max(1, Number(options?.limit) || 50);
+    const skip = (page - 1) * limit;
+
+    const whereClause: any = { restaurantId };
+
+    if (options?.role && options.role !== 'All' && options.role !== 'ALL') {
+      whereClause.role = options.role;
+    }
+
+    if (options?.isActive !== undefined) {
+      whereClause.isActive = options.isActive;
+    }
+
+    if (options?.search && options.search.trim()) {
+      const q = options.search.trim();
+      whereClause.OR = [
+        { firstName: { contains: q } },
+        { lastName: { contains: q } },
+        { email: { contains: q } },
+        { phone: { contains: q } },
+      ];
+    }
+
+    const [totalCount, employees] = await Promise.all([
+      prisma.employee.count({ where: whereClause }),
+      prisma.employee.findMany({
+        where: whereClause,
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          isActive: true,
+          pin: true,
+          hourlyRate: true,
+          phone: true,
+          createdAt: true,
+          updatedAt: true,
+          timeEntries: {
+            where: { clockOut: null },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const hasMore = page * limit < totalCount;
+
+    return {
+      data: employees,
+      page,
+      limit,
+      totalCount,
+      hasMore,
+    };
   }
 
   async getEmployee(id: string) {

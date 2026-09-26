@@ -1,52 +1,115 @@
 import { api } from '../lib/api';
 import { Order } from '../store/slices/orderSlice';
+import { PaginatedResponse } from '../types/pagination';
 
 const DEFAULT_RESTAURANT_ID = 'rest-default-1';
 
+function mapOrderRecord(o: any): Order {
+  return {
+    id: o.id,
+    orderNumber: o.orderNumber,
+    orderType: o.orderType || 'DINE_IN',
+    orderTypeLabel:
+      o.orderTypeLabel ||
+      (o.orderType === 'TAKE_AWAY'
+        ? 'Take Away'
+        : o.orderType === 'DELIVERY'
+        ? 'Delivery'
+        : 'Dine In'),
+    customerName: o.customerName,
+    customerPhone: o.customerPhone,
+    deliveryAddress: o.deliveryAddress,
+    dineInTag: o.dineInTag,
+    server: o.server,
+    items: Array.isArray(o.items)
+      ? o.items.map((i: any) => ({
+          id: i.id,
+          menuItemId: i.menuItemId,
+          name: i.menuItem?.name || i.name || 'Dish',
+          quantity: i.quantity,
+          price: Number(i.price || i.unitPrice || 0),
+          unitPrice: Number(i.unitPrice || i.price || 0),
+          notes: i.specialInstructions || i.notes,
+        }))
+      : [],
+    subtotal: Number(o.subtotal || 0),
+    serviceCharge: Number(o.serviceCharge || 0),
+    serviceChargeRate: Number(o.serviceChargeRate || 0),
+    deliveryCharge: Number(o.deliveryCharge || 0),
+    tax: Number(o.tax || 0),
+    taxRate: Number(o.taxRate || 0),
+    total: Number(o.total || 0),
+    totalPaid: Number(o.totalPaid || 0),
+    change: Number(o.change || 0),
+    status: o.status || 'confirmed',
+    paymentStatus: o.paymentStatus || (o.status === 'paid' ? 'PAID' : 'UNPAID'),
+    paymentMethod: o.paymentMethod || 'CASH',
+    notes: o.notes,
+    createdAt: o.createdAt || new Date().toISOString(),
+    updatedAt: o.updatedAt,
+  };
+}
+
 export const orderApi = {
-  // Fetch all orders/invoices from DB
+  // Paginated order fetch (50 records per page by default)
+  getOrdersPaginated: async (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    orderType?: string;
+    paymentStatus?: string;
+    status?: string;
+    restaurantId?: string;
+  }): Promise<PaginatedResponse<Order>> => {
+    try {
+      const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID;
+      const res: any = await api.get(`/orders/restaurant/${restaurantId}`, {
+        page: params?.page || 1,
+        limit: params?.limit || 50,
+        search: params?.search || undefined,
+        orderType: params?.orderType || undefined,
+        paymentStatus: params?.paymentStatus || undefined,
+        status: params?.status || undefined,
+      });
+
+      if (res && res.data && Array.isArray(res.data)) {
+        return {
+          data: res.data.map(mapOrderRecord),
+          page: res.page || 1,
+          limit: res.limit || 50,
+          totalCount: res.totalCount || res.data.length,
+          hasMore: Boolean(res.hasMore),
+        };
+      }
+
+      if (Array.isArray(res)) {
+        return {
+          data: res.map(mapOrderRecord),
+          page: 1,
+          limit: res.length,
+          totalCount: res.length,
+          hasMore: false,
+        };
+      }
+    } catch (e) {
+      console.warn('Failed to fetch paginated orders from backend:', e);
+    }
+
+    return {
+      data: [],
+      page: params?.page || 1,
+      limit: params?.limit || 50,
+      totalCount: 0,
+      hasMore: false,
+    };
+  },
+
+  // Fetch all orders/invoices from DB (legacy support)
   getAllOrders: async (restaurantId = DEFAULT_RESTAURANT_ID): Promise<Order[]> => {
     try {
-      const orders: any = await api.get(`/orders/restaurant/${restaurantId}`);
-      if (Array.isArray(orders)) {
-        return orders.map((o) => ({
-          id: o.id,
-          orderNumber: o.orderNumber,
-          orderType: o.orderType || 'DINE_IN',
-          orderTypeLabel: o.orderTypeLabel || (o.orderType === 'TAKE_AWAY' ? 'Take Away' : o.orderType === 'DELIVERY' ? 'Delivery' : 'Dine In'),
-          customerName: o.customerName,
-          customerPhone: o.customerPhone,
-          deliveryAddress: o.deliveryAddress,
-          dineInTag: o.dineInTag,
-          server: o.server,
-          items: Array.isArray(o.items)
-            ? o.items.map((i: any) => ({
-                id: i.id,
-                menuItemId: i.menuItemId,
-                name: i.menuItem?.name || i.name || 'Dish',
-                quantity: i.quantity,
-                price: Number(i.price || i.unitPrice || 0),
-                unitPrice: Number(i.unitPrice || i.price || 0),
-                notes: i.specialInstructions || i.notes,
-              }))
-            : [],
-          subtotal: Number(o.subtotal || 0),
-          serviceCharge: Number(o.serviceCharge || 0),
-          serviceChargeRate: Number(o.serviceChargeRate || 0),
-          deliveryCharge: Number(o.deliveryCharge || 0),
-          tax: Number(o.tax || 0),
-          taxRate: Number(o.taxRate || 0),
-          total: Number(o.total || 0),
-          totalPaid: Number(o.totalPaid || 0),
-          change: Number(o.change || 0),
-          status: o.status || 'confirmed',
-          paymentStatus: o.paymentStatus || (o.status === 'paid' ? 'PAID' : 'UNPAID'),
-          paymentMethod: o.paymentMethod || 'CASH',
-          notes: o.notes,
-          createdAt: o.createdAt || new Date().toISOString(),
-          updatedAt: o.updatedAt,
-        }));
-      }
+      const res: any = await api.get(`/orders/restaurant/${restaurantId}`, { page: 1, limit: 100 });
+      const list = res?.data && Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
+      return list.map(mapOrderRecord);
     } catch (e) {
       console.warn('Backend orders fetch fallback to local store:', e);
     }

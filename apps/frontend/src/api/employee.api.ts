@@ -1,4 +1,5 @@
 import { api } from '../lib/api';
+import { PaginatedResponse } from '../types/pagination';
 
 const DEFAULT_RESTAURANT_ID = 'rest-default-1';
 
@@ -27,27 +28,78 @@ export interface Shift {
   laborCost?: number;
 }
 
+function mapEmployee(e: any): Employee {
+  return {
+    id: e.id,
+    firstName: e.firstName,
+    lastName: e.lastName,
+    email: e.email,
+    role: e.role,
+    hourlyRate: Number(e.hourlyRate || 0),
+    pin: e.pin,
+    phone: e.phone,
+    isActive: Boolean(e.isActive),
+    isClockedIn: Boolean(e.isClockedIn || (e.timeEntries && e.timeEntries.some((te: any) => !te.clockOut))),
+    clockInTime: e.timeEntries?.find((te: any) => !te.clockOut)?.clockIn
+      ? new Date(e.timeEntries.find((te: any) => !te.clockOut).clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : undefined,
+  };
+}
+
 export const employeeApi = {
+  getEmployeesPaginated: async (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    role?: string;
+    restaurantId?: string;
+  }): Promise<PaginatedResponse<Employee>> => {
+    try {
+      const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID;
+      const res: any = await api.get(`/employees/restaurant/${restaurantId}`, {
+        page: params?.page || 1,
+        limit: params?.limit || 50,
+        search: params?.search || undefined,
+        role: params?.role || undefined,
+      });
+
+      if (res && res.data && Array.isArray(res.data)) {
+        return {
+          data: res.data.map(mapEmployee),
+          page: res.page || 1,
+          limit: res.limit || 50,
+          totalCount: res.totalCount || res.data.length,
+          hasMore: Boolean(res.hasMore),
+        };
+      }
+
+      if (Array.isArray(res)) {
+        return {
+          data: res.map(mapEmployee),
+          page: 1,
+          limit: res.length,
+          totalCount: res.length,
+          hasMore: false,
+        };
+      }
+    } catch (err) {
+      console.warn('Failed to fetch paginated employees:', err);
+    }
+
+    return {
+      data: [],
+      page: params?.page || 1,
+      limit: params?.limit || 50,
+      totalCount: 0,
+      hasMore: false,
+    };
+  },
+
   getEmployees: async (restaurantId = DEFAULT_RESTAURANT_ID): Promise<Employee[]> => {
     try {
-      const emps: any = await api.get(`/employees/restaurant/${restaurantId}`);
-      if (Array.isArray(emps)) {
-        return emps.map((e) => ({
-          id: e.id,
-          firstName: e.firstName,
-          lastName: e.lastName,
-          email: e.email,
-          role: e.role,
-          hourlyRate: Number(e.hourlyRate || 0),
-          pin: e.pin,
-          phone: e.phone,
-          isActive: Boolean(e.isActive),
-          isClockedIn: Boolean(e.isClockedIn || (e.timeEntries && e.timeEntries.some((te: any) => !te.clockOut))),
-          clockInTime: e.timeEntries?.find((te: any) => !te.clockOut)?.clockIn
-            ? new Date(e.timeEntries.find((te: any) => !te.clockOut).clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : undefined,
-        }));
-      }
+      const res: any = await api.get(`/employees/restaurant/${restaurantId}`, { page: 1, limit: 100 });
+      const list = res?.data && Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
+      return list.map(mapEmployee);
     } catch (err) {
       console.warn('Failed to fetch employees from API:', err);
     }

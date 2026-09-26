@@ -21,19 +21,20 @@ router.get('/sales/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, 
   }
 });
 
-// Get top selling items
+// Get top selling items with pagination
 router.get('/top-items/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
     const startDate = new Date(req.query.startDate as string);
     const endDate = new Date(req.query.endDate as string);
-    const limit = parseInt(req.query.limit as string) || 10;
-    const items = await analyticsService.getTopSellingItems(
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const result = await analyticsService.getTopSellingItems(
       req.params.restaurantId,
       startDate,
       endDate,
-      limit
+      { page, limit }
     );
-    res.json(items);
+    res.json(result);
   } catch (error) {
     next(error);
   }

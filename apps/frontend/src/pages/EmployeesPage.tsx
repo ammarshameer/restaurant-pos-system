@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { employeeApi, Employee as EmployeeItem, Shift as ShiftLog } from '../api/employee.api';
+import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR } from '../utils/format';
 
 export const EmployeesPage: React.FC = () => {
-  const [employees, setEmployees] = useState<EmployeeItem[]>([]);
+  const queryClient = useQueryClient();
+
   const [shifts, setShifts] = useState<ShiftLog[]>([]);
-  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('All');
 
@@ -25,24 +27,39 @@ export const EmployeesPage: React.FC = () => {
     phone: '',
   });
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [empList, shiftList] = await Promise.all([
-        employeeApi.getEmployees(),
-        employeeApi.getActiveShifts(),
-      ]);
-      setEmployees(empList);
-      setShifts(shiftList);
-    } catch (err) {
-      console.warn('Failed to load employee data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // 1. Infinite Query for Employees Directory: 50 records per page, resets on filter/search change
+  const {
+    data: employeesData,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading: loadingEmployees,
+  } = useInfiniteQuery({
+    queryKey: ['employees', roleFilter, searchQuery],
+    queryFn: ({ pageParam = 1 }) =>
+      employeeApi.getEmployeesPaginated({
+        page: pageParam,
+        limit: 50,
+        role: roleFilter !== 'All' ? roleFilter : undefined,
+        search: searchQuery.trim() || undefined,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+  });
 
+  const employees = useMemo(() => {
+    return employeesData?.pages.flatMap((p) => p.data) || [];
+  }, [employeesData]);
+
+  const totalEmployeesCount = employeesData?.pages[0]?.totalCount ?? 0;
+
+  // Active Shifts
   useEffect(() => {
-    loadData();
+    const loadShifts = async () => {
+      const shiftList = await employeeApi.getActiveShifts();
+      setShifts(shiftList);
+    };
+    loadShifts();
   }, []);
 
   const activeEmployees = employees.filter((e) => e.isClockedIn);
@@ -62,28 +79,12 @@ export const EmployeesPage: React.FC = () => {
         await employeeApi.clockOut(emp.id);
         setClockMessage(`👋 ${emp.firstName} clocked out successfully.`);
       }
-      await loadData();
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      const updatedShifts = await employeeApi.getActiveShifts();
+      setShifts(updatedShifts);
     } catch (err) {
-      // Local optimistic fallback
-      setEmployees((prev) =>
-        prev.map((e) =>
-          e.id === emp.id
-            ? { ...e, isClockedIn: isClockingIn, clockInTime: isClockingIn ? nowTime : undefined }
-            : e
-        )
-      );
-      if (isClockingIn) {
-        const newShift: ShiftLog = {
-          id: `sh-${Date.now()}`,
-          employeeName: `${emp.firstName} ${emp.lastName}`,
-          role: emp.role,
-          clockIn: nowTime,
-        };
-        setShifts((prev) => [newShift, ...prev]);
-        setClockMessage(`✅ ${emp.firstName} clocked in successfully at ${nowTime}`);
-      } else {
-        setClockMessage(`👋 ${emp.firstName} clocked out successfully.`);
-      }
+      console.warn('Clock in/out error:', err);
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
     }
 
     setTimeout(() => setClockMessage(null), 4000);
@@ -106,15 +107,11 @@ export const EmployeesPage: React.FC = () => {
     if (!newEmployee.firstName || !newEmployee.lastName || !newEmployee.email) return;
 
     try {
-      const created = await employeeApi.createEmployee({
+      await employeeApi.createEmployee({
         ...newEmployee,
         isActive: true,
       });
-      if (created) {
-        setEmployees((prev) => [...prev, created]);
-      } else {
-        await loadData();
-      }
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
       setAddModalOpen(false);
       setNewEmployee({
         firstName: '',
@@ -129,14 +126,6 @@ export const EmployeesPage: React.FC = () => {
       alert(err.response?.data?.error || 'Failed to create employee');
     }
   };
-
-  const filteredEmployees = employees.filter((emp) => {
-    const matchesRole = roleFilter === 'All' || emp.role === roleFilter;
-    const matchesSearch =
-      `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      emp.email.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesRole && matchesSearch;
-  });
 
   return (
     <div className="page-container">
@@ -183,7 +172,7 @@ export const EmployeesPage: React.FC = () => {
             👥
           </div>
           <div>
-            <div className="stat-val">{employees.length}</div>
+            <div className="stat-val">{totalEmployeesCount || employees.length}</div>
             <div className="stat-label">Active Staff</div>
           </div>
         </div>
@@ -249,20 +238,20 @@ export const EmployeesPage: React.FC = () => {
 
       {/* Staff Grid */}
       <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '16px' }}>
-        👤 Team Directory ({filteredEmployees.length})
+        👤 Team Directory ({totalEmployeesCount || employees.length})
       </h3>
 
-      {loading ? (
+      {loadingEmployees && employees.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
           Loading staff records from database...
         </div>
-      ) : filteredEmployees.length === 0 ? (
+      ) : employees.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
           No employees found matching your criteria.
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px', marginBottom: '32px' }}>
-          {filteredEmployees.map((emp) => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+          {employees.map((emp) => (
             <div key={emp.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
@@ -330,6 +319,15 @@ export const EmployeesPage: React.FC = () => {
           ))}
         </div>
       )}
+
+      <InfiniteScrollSentinel
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        fetchNextPage={fetchNextPage}
+        totalCount={totalEmployeesCount}
+        currentCount={employees.length}
+        emptyText="No staff records found"
+      />
 
       {/* Fast PIN Punch Terminal Modal */}
       {clockModalOpen && (

@@ -5,9 +5,70 @@ import { authorize } from '../middleware/auth';
 const router = Router();
 const menuService = new MenuService();
 
-// Get full menu
+// Get all menu items with pagination
+router.get('/items', async (req, res, next) => {
+  try {
+    const restaurantId = (req.query.restaurantId as string) || 'rest-default-1';
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const search = req.query.search as string;
+    const category = req.query.category as string;
+    const categoryId = req.query.categoryId as string;
+
+    const result = await menuService.getMenuItems(restaurantId, {
+      page,
+      limit,
+      search,
+      category,
+      categoryId,
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/restaurant/:restaurantId/items', async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const search = req.query.search as string;
+    const category = req.query.category as string;
+    const categoryId = req.query.categoryId as string;
+
+    const result = await menuService.getMenuItems(req.params.restaurantId, {
+      page,
+      limit,
+      search,
+      category,
+      categoryId,
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get full menu (categories with items)
 router.get('/restaurant/:restaurantId', async (req, res, next) => {
   try {
+    if (req.query.page) {
+      const page = parseInt(req.query.page as string, 10) || 1;
+      const limit = parseInt(req.query.limit as string, 10) || 50;
+      const search = req.query.search as string;
+      const category = req.query.category as string;
+      const categoryId = req.query.categoryId as string;
+
+      const result = await menuService.getMenuItems(req.params.restaurantId, {
+        page,
+        limit,
+        search,
+        category,
+        categoryId,
+      });
+      return res.json(result);
+    }
+
     const menu = await menuService.getMenuByRestaurant(req.params.restaurantId);
     res.json(menu);
   } catch (error) {

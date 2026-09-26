@@ -5,11 +5,41 @@ import { authorize } from '../middleware/auth';
 const router = Router();
 const employeeService = new EmployeeService();
 
-// Get all employees
+// Get all employees with pagination
+router.get('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+  try {
+    const restaurantId = (req.query.restaurantId as string) || 'rest-default-1';
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const search = req.query.search as string;
+    const role = req.query.role as string;
+
+    const result = await employeeService.getEmployees(restaurantId, {
+      page,
+      limit,
+      search,
+      role,
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/restaurant/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const employees = await employeeService.getEmployees(req.params.restaurantId);
-    res.json(employees);
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const search = req.query.search as string;
+    const role = req.query.role as string;
+
+    const result = await employeeService.getEmployees(req.params.restaurantId, {
+      page,
+      limit,
+      search,
+      role,
+    });
+    res.json(result);
   } catch (error) {
     next(error);
   }

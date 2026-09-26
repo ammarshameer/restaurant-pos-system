@@ -1,10 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { RootState } from '../store/store';
-import { Order, updatePaymentStatus, setOrders } from '../store/slices/orderSlice';
+import { Order, updatePaymentStatus, addOrder, updateOrder } from '../store/slices/orderSlice';
 import { orderApi } from '../api/order.api';
+import { paymentApi, PaymentItem } from '../api/payment.api';
 import { ReceiptModal, ReceiptData } from '../components/ReceiptModal';
+import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR } from '../utils/format';
+import { socketClient } from '../lib/socket';
 
 interface OpenOrder {
   id: string;
@@ -24,31 +28,10 @@ interface OpenOrder {
   items: Array<{ name: string; quantity: number; unitPrice: number; total: number }>;
 }
 
-interface CompletedPayment {
-  id: string;
-  orderNumber: number;
-  orderType: string;
-  orderTypeIcon: string;
-  customerRef: string;
-  amount: number;
-  serviceCharge: number;
-  deliveryCharge: number;
-  tipAmount: number;
-  method: string;
-  tendered: number;
-  change: number;
-  processedAt: string;
-  items: Array<{ name: string; quantity: number; unitPrice: number; total: number }>;
-  subtotal: number;
-  tax: number;
-  taxRate: number;
-}
-
 export const PaymentsPage: React.FC = () => {
   const dispatch = useDispatch();
-  const reduxOrders = useSelector((state: RootState) => state.orders.orders);
+  const queryClient = useQueryClient();
 
-  const [loading, setLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OpenOrder | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
   const [cashTendered, setCashTendered] = useState<number>(0);
@@ -61,24 +44,7 @@ export const PaymentsPage: React.FC = () => {
   // Success alert message
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const loadLiveOrders = async () => {
-    setLoading(true);
-    try {
-      const dbOrders = await orderApi.getAllOrders();
-      if (Array.isArray(dbOrders) && dbOrders.length > 0) {
-        dispatch(setOrders(dbOrders));
-      }
-    } catch (err) {
-      console.warn('Failed to fetch orders for payments:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadLiveOrders();
-  }, []);
-
+  // Helper to format Order to OpenOrder
   const formatOrderToOpenOrder = (o: Order): OpenOrder => {
     const typeStr =
       o.orderTypeLabel ||
@@ -124,60 +90,101 @@ export const PaymentsPage: React.FC = () => {
     };
   };
 
-  const formatOrderToCompletedPayment = (o: Order): CompletedPayment => {
-    const typeStr =
-      o.orderTypeLabel ||
-      (o.orderType === 'TAKE_AWAY'
-        ? 'Take Away'
-        : o.orderType === 'DELIVERY'
-        ? 'Delivery'
-        : 'Dine In');
-    const icon =
-      o.orderType === 'TAKE_AWAY'
-        ? '🛍️'
-        : o.orderType === 'DELIVERY'
-        ? '🛵'
-        : '🍽️';
+  // 1. Infinite Query for Unpaid Orders (Left Column)
+  const {
+    data: unpaidData,
+    fetchNextPage: fetchNextUnpaid,
+    hasNextPage: hasNextUnpaid,
+    isFetchingNextPage: isFetchingNextUnpaid,
+    isLoading: loadingUnpaid,
+    refetch: refetchUnpaid,
+  } = useInfiniteQuery({
+    queryKey: ['unpaid-orders'],
+    queryFn: ({ pageParam = 1 }) =>
+      orderApi.getOrdersPaginated({
+        page: pageParam,
+        limit: 50,
+        paymentStatus: 'UNPAID',
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+  });
 
-    const ref =
-      o.customerName ||
-      o.deliveryAddress ||
-      o.dineInTag ||
-      typeStr;
+  const openOrders: OpenOrder[] = useMemo(() => {
+    const rawList = unpaidData?.pages.flatMap((p) => p.data) || [];
+    return rawList
+      .filter((o) => o.paymentStatus !== 'PAID' && o.status !== 'cancelled')
+      .map(formatOrderToOpenOrder);
+  }, [unpaidData]);
 
-    return {
-      id: `pay-${o.id}`,
-      orderNumber: typeof o.orderNumber === 'number' ? o.orderNumber : parseInt(String(o.orderNumber)) || 100,
-      orderType: typeStr,
-      orderTypeIcon: icon,
-      customerRef: `${typeStr} (${ref})`,
-      amount: Number(o.total || 0),
-      serviceCharge: Number(o.serviceCharge || 0),
-      deliveryCharge: Number(o.deliveryCharge || 0),
-      tipAmount: 0,
-      method: o.paymentMethod || 'CASH',
-      tendered: Number(o.totalPaid || o.total || 0),
-      change: Number(o.change || 0),
-      processedAt: o.updatedAt || o.createdAt || new Date().toISOString(),
-      items: (o.items || []).map((i) => ({
-        name: i.name,
-        quantity: i.quantity,
-        unitPrice: Number(i.unitPrice || i.price || 0),
-        total: Number(i.unitPrice || i.price || 0) * (i.quantity || 1),
-      })),
-      subtotal: Number(o.subtotal || 0),
-      tax: Number(o.tax || 0),
-      taxRate: Number(o.taxRate || 0),
+  const totalUnpaidCount = unpaidData?.pages[0]?.totalCount ?? 0;
+
+  // 2. Infinite Query for Paid Transactions / History (Right Column)
+  const {
+    data: paymentsData,
+    fetchNextPage: fetchNextPayments,
+    hasNextPage: hasNextPayments,
+    isFetchingNextPage: isFetchingNextPayments,
+    isLoading: loadingPayments,
+    refetch: refetchPayments,
+  } = useInfiniteQuery({
+    queryKey: ['payments'],
+    queryFn: ({ pageParam = 1 }) =>
+      paymentApi.getPaymentsPaginated({
+        page: pageParam,
+        limit: 50,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+  });
+
+  const completedPayments: PaymentItem[] = useMemo(() => {
+    return paymentsData?.pages.flatMap((p) => p.data) || [];
+  }, [paymentsData]);
+
+  const totalPaymentsCount = paymentsData?.pages[0]?.totalCount ?? 0;
+
+  // Live WebSocket sync: Prepend new orders and payments dynamically
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token') || 'pos-token';
+    const socket = socketClient.connect(token);
+    if (!socket) return;
+
+    const handleNewOrder = (incoming: any) => {
+      if (incoming.paymentStatus !== 'PAID') {
+        queryClient.setQueriesData({ queryKey: ['unpaid-orders'] }, (oldData: any) => {
+          if (!oldData || !oldData.pages || oldData.pages.length === 0) return oldData;
+          const exists = oldData.pages.some((page: any) => page.data.some((o: any) => o.id === incoming.id));
+          if (exists) return oldData;
+
+          const firstPage = oldData.pages[0];
+          return {
+            ...oldData,
+            pages: [{
+              ...firstPage,
+              data: [incoming, ...firstPage.data],
+              totalCount: (firstPage.totalCount || 0) + 1,
+            }, ...oldData.pages.slice(1)],
+          };
+        });
+      }
+      dispatch(addOrder(incoming));
     };
-  };
 
-  const openOrders: OpenOrder[] = reduxOrders
-    .filter((o) => o.paymentStatus !== 'PAID' && o.status !== 'cancelled')
-    .map(formatOrderToOpenOrder);
+    const handleUpdatedOrder = (incoming: any) => {
+      queryClient.invalidateQueries({ queryKey: ['unpaid-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      dispatch(updateOrder(incoming));
+    };
 
-  const completedPayments: CompletedPayment[] = reduxOrders
-    .filter((o) => o.paymentStatus === 'PAID')
-    .map(formatOrderToCompletedPayment);
+    socket.on('order:new', handleNewOrder);
+    socket.on('order:updated', handleUpdatedOrder);
+
+    return () => {
+      socket.off('order:new', handleNewOrder);
+      socket.off('order:updated', handleUpdatedOrder);
+    };
+  }, [queryClient, dispatch]);
 
   // Set default selected order if none or if current was paid
   useEffect(() => {
@@ -189,7 +196,7 @@ export const PaymentsPage: React.FC = () => {
     } else {
       setSelectedOrder(null);
     }
-  }, [openOrders.length]);
+  }, [openOrders]);
 
   const handleSelectOrder = (order: OpenOrder) => {
     setSelectedOrder(order);
@@ -227,6 +234,11 @@ export const PaymentsPage: React.FC = () => {
           change,
         })
       );
+
+      // Invalidate queries so lists update smoothly
+      queryClient.invalidateQueries({ queryKey: ['unpaid-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
     } catch (err) {
       console.warn('Backend payment status update error:', err);
     }
@@ -259,24 +271,32 @@ export const PaymentsPage: React.FC = () => {
     }, 5000);
   };
 
-  const handleReprintReceipt = (pay: CompletedPayment) => {
+  const handleReprintReceipt = (pay: PaymentItem) => {
+    const rawOrder = pay.order;
     const receipt: ReceiptData = {
-      orderNumber: pay.orderNumber,
-      orderId: pay.id,
-      date: pay.processedAt,
-      orderType: pay.orderType,
-      server: 'Cashier',
-      notes: pay.customerRef,
-      items: pay.items,
-      subtotal: pay.subtotal,
-      serviceCharge: pay.serviceCharge,
-      deliveryCharge: pay.deliveryCharge,
-      tax: pay.tax,
-      taxRate: pay.taxRate,
-      total: pay.amount + pay.tipAmount,
-      totalPaid: pay.tendered,
-      change: pay.change,
-      paymentMethod: pay.method,
+      orderNumber: pay.orderNumber || (rawOrder?.orderNumber ? Number(rawOrder.orderNumber) : 100),
+      orderId: pay.orderId || pay.id,
+      date: pay.processedAt || pay.createdAt,
+      orderType: pay.orderType || rawOrder?.orderType || 'Dine In',
+      server: rawOrder?.server ? `${rawOrder.server.firstName || ''} ${rawOrder.server.lastName || ''}`.trim() || 'Cashier' : 'Cashier',
+      notes: pay.customerRef || 'Direct Order',
+      items: Array.isArray(rawOrder?.items)
+        ? rawOrder.items.map((i: any) => ({
+            name: i.menuItem?.name || i.name || 'Dish',
+            quantity: i.quantity || 1,
+            unitPrice: Number(i.unitPrice || i.price || 0),
+            total: Number(i.unitPrice || i.price || 0) * (i.quantity || 1),
+          }))
+        : [{ name: 'Order Payment', quantity: 1, unitPrice: pay.amount, total: pay.amount }],
+      subtotal: rawOrder?.subtotal ? Number(rawOrder.subtotal) : pay.amount,
+      serviceCharge: rawOrder?.serviceCharge ? Number(rawOrder.serviceCharge) : 0,
+      deliveryCharge: rawOrder?.deliveryCharge ? Number(rawOrder.deliveryCharge) : 0,
+      tax: rawOrder?.tax ? Number(rawOrder.tax) : 0,
+      taxRate: rawOrder?.taxRate ? Number(rawOrder.taxRate) : 0,
+      total: pay.amount + (pay.tipAmount || 0),
+      totalPaid: pay.amount + (pay.tipAmount || 0),
+      change: 0,
+      paymentMethod: pay.method || 'CASH',
     };
     setReceiptData(receipt);
     setReceiptOpen(true);
@@ -284,6 +304,11 @@ export const PaymentsPage: React.FC = () => {
 
   const totalCollectedToday = completedPayments.reduce((sum, p) => sum + p.amount, 0);
   const totalOpenBalance = openOrders.reduce((sum, o) => sum + o.total, 0);
+
+  const handleRefreshAll = () => {
+    refetchUnpaid();
+    refetchPayments();
+  };
 
   return (
     <div className="page-container">
@@ -296,7 +321,7 @@ export const PaymentsPage: React.FC = () => {
           </p>
         </div>
 
-        <button className="btn btn-secondary" onClick={loadLiveOrders}>
+        <button className="btn btn-secondary" onClick={handleRefreshAll}>
           🔄 Refresh Invoices
         </button>
       </div>
@@ -336,7 +361,7 @@ export const PaymentsPage: React.FC = () => {
           </div>
           <div>
             <div className="stat-val" style={{ color: openOrders.length > 0 ? '#f87171' : 'var(--text-primary)' }}>
-              {openOrders.length}
+              {totalUnpaidCount || openOrders.length}
             </div>
             <div className="stat-label">Pending Unpaid Checks</div>
           </div>
@@ -357,7 +382,7 @@ export const PaymentsPage: React.FC = () => {
             ✅
           </div>
           <div>
-            <div className="stat-val">{completedPayments.length}</div>
+            <div className="stat-val">{totalPaymentsCount || completedPayments.length}</div>
             <div className="stat-label">Paid Transactions</div>
           </div>
         </div>
@@ -368,10 +393,10 @@ export const PaymentsPage: React.FC = () => {
         {/* Left: Open Orders Queue */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <h3 style={{ fontSize: '16px', fontWeight: 800, borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
-            ⏳ Unpaid Orders ({openOrders.length})
+            ⏳ Unpaid Orders ({totalUnpaidCount || openOrders.length})
           </h3>
 
-          {loading ? (
+          {loadingUnpaid && openOrders.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
               Loading checks...
             </div>
@@ -410,6 +435,15 @@ export const PaymentsPage: React.FC = () => {
                   </div>
                 </div>
               ))}
+
+              <InfiniteScrollSentinel
+                hasNextPage={hasNextUnpaid}
+                isFetchingNextPage={isFetchingNextUnpaid}
+                fetchNextPage={fetchNextUnpaid}
+                totalCount={totalUnpaidCount}
+                currentCount={openOrders.length}
+                emptyText=""
+              />
             </div>
           )}
         </div>
@@ -556,10 +590,14 @@ export const PaymentsPage: React.FC = () => {
         {/* Right: Paid Invoices Log */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <h3 style={{ fontSize: '16px', fontWeight: 800, borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
-            📜 Paid History ({completedPayments.length})
+            📜 Paid History ({totalPaymentsCount || completedPayments.length})
           </h3>
 
-          {completedPayments.length === 0 ? (
+          {loadingPayments && completedPayments.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+              Loading paid transactions...
+            </div>
+          ) : completedPayments.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--text-muted)', fontSize: '13px' }}>
               No payments settled yet.
             </div>
@@ -580,12 +618,12 @@ export const PaymentsPage: React.FC = () => {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ fontWeight: 800 }}>
-                      {p.orderTypeIcon} #{p.orderNumber}
+                      💳 #{p.orderNumber || p.order?.orderNumber || '100'}
                     </div>
                     <span style={{ fontWeight: 900, color: '#34d399' }}>{formatPKR(p.amount)}</span>
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    {p.method} • {new Date(p.processedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {p.method} • {new Date(p.processedAt || p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
                     <button
@@ -598,6 +636,15 @@ export const PaymentsPage: React.FC = () => {
                   </div>
                 </div>
               ))}
+
+              <InfiniteScrollSentinel
+                hasNextPage={hasNextPayments}
+                isFetchingNextPage={isFetchingNextPayments}
+                fetchNextPage={fetchNextPayments}
+                totalCount={totalPaymentsCount}
+                currentCount={completedPayments.length}
+                emptyText=""
+              />
             </div>
           )}
         </div>

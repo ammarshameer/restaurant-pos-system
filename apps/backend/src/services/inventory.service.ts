@@ -4,20 +4,62 @@ import { getIO } from '../websocket';
 const prisma = new PrismaClient();
 
 export class InventoryService {
-  async getInventoryItems(restaurantId: string) {
-    return prisma.inventoryItem.findMany({
-      where: { restaurantId },
-      include: {
-        menuItem: {
-          select: {
-            id: true,
-            name: true,
-            price: true,
+  async getInventoryItems(
+    restaurantId: string,
+    options?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      category?: string;
+    }
+  ) {
+    const page = Math.max(1, Number(options?.page) || 1);
+    const limit = Math.max(1, Number(options?.limit) || 50);
+    const skip = (page - 1) * limit;
+
+    const whereClause: any = { restaurantId };
+
+    if (options?.category && options.category !== 'All' && options.category !== 'ALL') {
+      whereClause.category = options.category;
+    }
+
+    if (options?.search && options.search.trim()) {
+      const q = options.search.trim();
+      whereClause.OR = [
+        { name: { contains: q } },
+        { sku: { contains: q } },
+        { category: { contains: q } },
+      ];
+    }
+
+    const [totalCount, items] = await Promise.all([
+      prisma.inventoryItem.count({ where: whereClause }),
+      prisma.inventoryItem.findMany({
+        where: whereClause,
+        skip,
+        take: limit,
+        include: {
+          menuItem: {
+            select: {
+              id: true,
+              name: true,
+              price: true,
+            },
           },
         },
-      },
-      orderBy: { name: 'asc' },
-    });
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+
+    const hasMore = page * limit < totalCount;
+
+    return {
+      data: items,
+      page,
+      limit,
+      totalCount,
+      hasMore,
+    };
   }
 
   async getInventoryItem(id: string) {
@@ -314,12 +356,61 @@ export class InventoryService {
     );
   }
 
-  async getInventoryTransactions(itemId: string, limit = 50) {
-    return prisma.inventoryTransaction.findMany({
-      where: { inventoryItemId: itemId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
+  async getInventoryTransactions(
+    itemIdOrOptions?: string | {
+      restaurantId?: string;
+      page?: number;
+      limit?: number;
+    },
+    options?: {
+      restaurantId?: string;
+      page?: number;
+      limit?: number;
+    }
+  ) {
+    let itemId: string | undefined;
+    let opts = options;
+    if (typeof itemIdOrOptions === 'string') {
+      itemId = itemIdOrOptions;
+    } else if (itemIdOrOptions && typeof itemIdOrOptions === 'object') {
+      opts = itemIdOrOptions;
+      itemId = undefined;
+    }
+
+    const page = Math.max(1, Number(opts?.page) || 1);
+    const limit = Math.max(1, Number(opts?.limit) || 50);
+    const skip = (page - 1) * limit;
+
+    const whereClause: any = {};
+    if (itemId && itemId !== 'all') {
+      whereClause.inventoryItemId = itemId;
+    }
+    if (opts?.restaurantId) {
+      whereClause.inventoryItem = { restaurantId: opts.restaurantId };
+    }
+
+    const [totalCount, transactions] = await Promise.all([
+      prisma.inventoryTransaction.count({ where: whereClause }),
+      prisma.inventoryTransaction.findMany({
+        where: whereClause,
+        skip,
+        take: limit,
+        include: {
+          inventoryItem: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const hasMore = page * limit < totalCount;
+
+    return {
+      data: transactions,
+      page,
+      limit,
+      totalCount,
+      hasMore,
+    };
   }
 
   async deleteInventoryItem(id: string) {

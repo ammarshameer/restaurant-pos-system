@@ -27,6 +27,72 @@ export class MenuService {
     });
   }
 
+  async getMenuItems(
+    restaurantId: string,
+    options?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      category?: string;
+      categoryId?: string;
+    }
+  ) {
+    const page = Math.max(1, Number(options?.page) || 1);
+    const limit = Math.max(1, Number(options?.limit) || 50);
+    const skip = (page - 1) * limit;
+
+    const whereClause: any = { restaurantId };
+
+    if (options?.categoryId && options.categoryId !== 'All' && options.categoryId !== 'ALL') {
+      whereClause.categoryId = options.categoryId;
+    } else if (options?.category && options.category !== 'All' && options.category !== 'ALL') {
+      whereClause.category = {
+        name: options.category,
+      };
+    }
+
+    if (options?.search && options.search.trim()) {
+      const q = options.search.trim();
+      whereClause.OR = [
+        { name: { contains: q } },
+        { description: { contains: q } },
+      ];
+    }
+
+    const [totalCount, items] = await Promise.all([
+      prisma.menuItem.count({ where: whereClause }),
+      prisma.menuItem.findMany({
+        where: whereClause,
+        skip,
+        take: limit,
+        include: {
+          category: true,
+          modifiers: {
+            include: {
+              modifiers: true,
+            },
+          },
+          ingredients: {
+            include: {
+              inventoryItem: true,
+            },
+          },
+        },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+
+    const hasMore = page * limit < totalCount;
+
+    return {
+      data: items,
+      page,
+      limit,
+      totalCount,
+      hasMore,
+    };
+  }
+
   async getMenuItem(id: string) {
     return prisma.menuItem.findUnique({
       where: { id },

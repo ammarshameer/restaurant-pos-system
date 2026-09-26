@@ -5,11 +5,42 @@ import { authorize } from '../middleware/auth';
 const router = Router();
 const inventoryService = new InventoryService();
 
-// Get all inventory items
+// Get all inventory items with pagination
+router.get('/', async (req, res, next) => {
+  try {
+    const restaurantId = (req.query.restaurantId as string) || 'rest-default-1';
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const search = req.query.search as string;
+    const category = req.query.category as string;
+
+    const result = await inventoryService.getInventoryItems(restaurantId, {
+      page,
+      limit,
+      search,
+      category,
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get all inventory items for restaurant
 router.get('/restaurant/:restaurantId', async (req, res, next) => {
   try {
-    const items = await inventoryService.getInventoryItems(req.params.restaurantId);
-    res.json(items);
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const search = req.query.search as string;
+    const category = req.query.category as string;
+
+    const result = await inventoryService.getInventoryItems(req.params.restaurantId, {
+      page,
+      limit,
+      search,
+      category,
+    });
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -69,11 +100,31 @@ router.get('/restaurant/:restaurantId/low-stock', async (req, res, next) => {
   }
 });
 
-// Get transactions
+// Get transactions for item or restaurant with pagination
+router.get('/transactions/all', async (req, res, next) => {
+  try {
+    const restaurantId = req.query.restaurantId as string;
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const transactions = await inventoryService.getInventoryTransactions(undefined, {
+      restaurantId,
+      page,
+      limit,
+    });
+    res.json(transactions);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/:id/transactions', async (req, res, next) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 50;
-    const transactions = await inventoryService.getInventoryTransactions(req.params.id, limit);
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const transactions = await inventoryService.getInventoryTransactions(req.params.id, {
+      page,
+      limit,
+    });
     res.json(transactions);
   } catch (error) {
     next(error);

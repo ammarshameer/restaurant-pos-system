@@ -216,26 +216,82 @@ export class OrderService {
     });
   }
 
-  async getAllOrdersByRestaurant(restaurantId: string) {
-    return prisma.order.findMany({
-      where: { restaurantId },
-      include: {
-        items: {
-          include: {
-            menuItem: true,
+  async getAllOrdersByRestaurant(
+    restaurantId: string,
+    options?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      orderType?: string;
+      paymentStatus?: string;
+      status?: string;
+    }
+  ) {
+    const page = Math.max(1, Number(options?.page) || 1);
+    const limit = Math.max(1, Number(options?.limit) || 50);
+    const skip = (page - 1) * limit;
+
+    const whereClause: any = { restaurantId };
+
+    if (options?.orderType && options.orderType !== 'ALL') {
+      whereClause.orderType = options.orderType;
+    }
+
+    if (options?.paymentStatus && options.paymentStatus !== 'ALL') {
+      whereClause.paymentStatus = options.paymentStatus;
+    }
+
+    if (options?.status && options.status !== 'ALL') {
+      whereClause.status = options.status;
+    }
+
+    if (options?.search && options.search.trim()) {
+      const q = options.search.trim();
+      const orderNum = parseInt(q, 10);
+      whereClause.OR = [
+        ...(!isNaN(orderNum) ? [{ orderNumber: orderNum }] : []),
+        { customerName: { contains: q } },
+        { customerPhone: { contains: q } },
+        { deliveryAddress: { contains: q } },
+        { dineInTag: { contains: q } },
+        { notes: { contains: q } },
+      ];
+    }
+
+    const [totalCount, orders] = await Promise.all([
+      prisma.order.count({ where: whereClause }),
+      prisma.order.findMany({
+        where: whereClause,
+        skip,
+        take: limit,
+        include: {
+          items: {
+            include: {
+              menuItem: true,
+            },
           },
-        },
-        server: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
+          server: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
           },
+          payments: true,
         },
-        payments: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const hasMore = page * limit < totalCount;
+
+    return {
+      data: orders,
+      page,
+      limit,
+      totalCount,
+      hasMore,
+    };
   }
 
   async getActiveOrders(restaurantId: string) {
