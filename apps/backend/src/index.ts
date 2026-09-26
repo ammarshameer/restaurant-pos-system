@@ -15,6 +15,8 @@ import employeeRoutes from './routes/employee.routes';
 import inventoryRoutes from './routes/inventory.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import paymentRoutes from './routes/payment.routes';
+import backupRoutes from './routes/backup.routes';
+import { backupService } from './services/backup.service';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/auth';
 import { setupWebSocket } from './websocket';
@@ -100,6 +102,7 @@ app.use('/api/employees', authenticate, employeeRoutes);
 app.use('/api/inventory', authenticate, inventoryRoutes);
 app.use('/api/analytics', authenticate, analyticsRoutes);
 app.use('/api/payments', authenticate, paymentRoutes);
+app.use('/api/backups', authenticate, backupRoutes);
 
 // WebSocket setup
 setupWebSocket(io);
@@ -142,11 +145,23 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Restaurant POS Backend running on http://127.0.0.1:${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+
+  // Perform automated startup database backup & start daily timer
+  backupService.performBackup('startup');
+  backupService.startDailyTimer();
 });
 
 // Graceful shutdown helper
 const gracefulShutdown = async (signal: string) => {
   console.log(`\n🛑 ${signal} received: closing database & HTTP server...`);
+  
+  // Trigger backup automatically on clean app shutdown
+  try {
+    backupService.performBackup('clean shutdown');
+  } catch (backupErr) {
+    console.error('Error during shutdown backup:', backupErr);
+  }
+
   try {
     await prisma.$disconnect();
     console.log('✓ Prisma disconnected');

@@ -97,7 +97,7 @@ export class OrderService {
           specialInstructions: item.notes || null,
           notes: item.notes || null,
           status: 'PENDING',
-          inventoryDeducted: false,
+          inventoryDeducted: true,
         };
       })
     );
@@ -317,6 +317,29 @@ export class OrderService {
   }
 
   async deleteOrder(id: string) {
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: { items: true },
+    });
+
+    if (order && order.status !== 'cancelled') {
+      for (const item of order.items) {
+        if (item.inventoryDeducted) {
+          try {
+            await inventoryService.restoreForMenuItem(
+              item.menuItemId || null,
+              item.name || '',
+              item.quantity,
+              `Order #${order.orderNumber} Deleted: Restored ${item.quantity}x ${item.name || 'Menu Item'}`,
+              order.restaurantId
+            );
+          } catch (invErr) {
+            console.error(`Failed to restore inventory on delete for item ${item.name}:`, invErr);
+          }
+        }
+      }
+    }
+
     await prisma.orderItem.deleteMany({
       where: { orderId: id },
     });
@@ -360,6 +383,10 @@ export class OrderService {
   }
 
   async updateOrderStatus(orderId: string, status: string) {
+    if (status.toLowerCase() === 'cancelled') {
+      return this.cancelOrder(orderId);
+    }
+
     const order = await prisma.order.findUnique({
       where: { id: orderId },
     });
@@ -407,6 +434,7 @@ export class OrderService {
       total: (item.unitPrice || item.price || 0) * (item.quantity || 1),
       notes: item.notes || null,
       status: 'PENDING',
+      inventoryDeducted: true,
     }));
 
     await prisma.orderItem.createMany({
@@ -439,13 +467,77 @@ export class OrderService {
   }
 
   async cancelOrder(orderId: string, reason?: string) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            menuItem: true,
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new Error('Order not found');
+    }
+
+    // Prevent restocking an order twice if cancelled more than once
+    if (order.status === 'cancelled') {
+      console.log(`[OrderService] Order #${order.orderNumber} is already cancelled; skipping inventory restock.`);
+      return order;
+    }
+
+    // Restore inventory for items where stock was deducted
+    for (const item of order.items) {
+      if (item.inventoryDeducted) {
+        const cancelReason = `Order #${order.orderNumber} Cancelled${reason ? ` (${reason})` : ''}: Restored ${item.quantity}x ${item.name || 'Menu Item'}`;
+        try {
+          await inventoryService.restoreForMenuItem(
+            item.menuItemId || null,
+            item.name || '',
+            item.quantity,
+            cancelReason,
+            order.restaurantId
+          );
+          // Mark item inventory as no longer deducted to prevent double-restock
+          await prisma.orderItem.update({
+            where: { id: item.id },
+            data: { inventoryDeducted: false },
+          });
+        } catch (invErr) {
+          console.error(`Failed to restore inventory for item ${item.name}:`, invErr);
+        }
+      }
+    }
+
     const updated = await prisma.order.update({
       where: { id: orderId },
       data: {
         status: 'cancelled',
-        notes: reason ? `Cancelled: ${reason}` : undefined,
+        notes: reason ? (order.notes ? `${order.notes} | Cancelled: ${reason}` : `Cancelled: ${reason}`) : order.notes,
+      },
+      include: {
+        items: {
+          include: {
+            menuItem: true,
+          },
+        },
+        server: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
     });
+
+    // Notify kitchen and waitstaff via WebSocket
+    const io = getIO();
+    io?.to(`restaurant:${updated.restaurantId}`).emit('order:updated', updated);
+    io?.to(`restaurant:${updated.restaurantId}:kitchen`).emit('kitchen:order:updated', updated);
+
     return updated;
   }
 

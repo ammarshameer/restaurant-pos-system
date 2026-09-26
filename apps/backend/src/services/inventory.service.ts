@@ -220,6 +220,89 @@ export class InventoryService {
     }
   }
 
+  async restoreForMenuItem(
+    menuItemId: string | null,
+    itemName: string,
+    itemQuantity: number,
+    orderReason: string,
+    restaurantId: string
+  ) {
+    let resolvedMenuItemId = menuItemId;
+    if (!resolvedMenuItemId && itemName) {
+      const found = await prisma.menuItem.findFirst({
+        where: { name: itemName, restaurantId },
+      });
+      if (found) {
+        resolvedMenuItemId = found.id;
+      }
+    }
+
+    if (!resolvedMenuItemId) {
+      return;
+    }
+
+    // 1. Fetch menu item details with explicit MenuItemIngredient relations
+    const menuItem = await prisma.menuItem.findUnique({
+      where: { id: resolvedMenuItemId },
+      include: {
+        ingredients: {
+          include: {
+            inventoryItem: true,
+          },
+        },
+      },
+    });
+
+    // 2. If item has zero linked ingredients, nothing to restore
+    if (!menuItem || !menuItem.ingredients || menuItem.ingredients.length === 0) {
+      return;
+    }
+
+    // 3. Restore inventory for each linked ingredient
+    for (const recipeIng of menuItem.ingredients) {
+      const invItem = recipeIng.inventoryItem;
+      if (!invItem) continue;
+
+      const qtyPerUnit = Number(recipeIng.quantityUsed);
+      if (qtyPerUnit <= 0) continue;
+
+      const totalRestoration = qtyPerUnit * itemQuantity;
+      const newQty = Number(invItem.quantity) + totalRestoration;
+
+      const [updated] = await prisma.$transaction([
+        prisma.inventoryItem.update({
+          where: { id: invItem.id },
+          data: {
+            quantity: newQty,
+            lastRestocked: new Date(),
+          },
+        }),
+        prisma.inventoryTransaction.create({
+          data: {
+            inventoryItemId: invItem.id,
+            quantity: totalRestoration,
+            type: 'RESTOCK',
+            reason: orderReason,
+          },
+        }),
+      ]);
+
+      console.log(
+        `✓ [Inventory] Restored ${totalRestoration} ${invItem.unit} for "${invItem.name}" (Stock: ${invItem.quantity} -> ${newQty}) [${orderReason}]`
+      );
+
+      // Emit real-time inventory update
+      const io = getIO();
+      io?.to(`restaurant:${restaurantId}`).emit('inventory:updated', {
+        id: updated.id,
+        quantity: Number(updated.quantity),
+        name: updated.name,
+        unit: updated.unit,
+        reorderPoint: Number(updated.reorderPoint),
+      });
+    }
+  }
+
   async getLowStockItems(restaurantId: string) {
     const allItems = await prisma.inventoryItem.findMany({
       where: { restaurantId },
