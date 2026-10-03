@@ -119,6 +119,7 @@ export class MenuService {
     description?: string;
     price: number;
     cost?: number;
+    category?: string | { id?: string; name?: string };
     categoryId?: string;
     categoryName?: string;
     restaurantId: string;
@@ -129,53 +130,39 @@ export class MenuService {
     ingredients?: Array<{ inventoryItemId: string; quantityUsed: number }>;
   }) {
     let resolvedCategoryId = data.categoryId;
+    const categoryInput =
+      data.categoryId ||
+      data.categoryName ||
+      (typeof data.category === 'string'
+        ? data.category
+        : data.category?.id || data.category?.name);
 
-    // Check if categoryId exists
-    if (resolvedCategoryId) {
+    if (categoryInput) {
       const existing = await prisma.category.findUnique({
-        where: { id: resolvedCategoryId },
+        where: { id: categoryInput },
       });
-      if (!existing) {
-        // Maybe resolvedCategoryId was actually category name like "Mains"
-        const byName = await prisma.category.findFirst({
-          where: {
-            restaurantId: data.restaurantId,
-            name: { equals: resolvedCategoryId },
-          },
+      if (existing) {
+        resolvedCategoryId = existing.id;
+      } else {
+        const allCats = await prisma.category.findMany({
+          where: { restaurantId: data.restaurantId },
         });
+        const byName = allCats.find(
+          (c) => c.name.toLowerCase() === categoryInput.toLowerCase()
+        );
         if (byName) {
           resolvedCategoryId = byName.id;
         } else {
-          // Create category with that name
           const newCat = await prisma.category.create({
             data: {
-              name: resolvedCategoryId,
+              name: categoryInput,
               restaurantId: data.restaurantId,
             },
           });
           resolvedCategoryId = newCat.id;
         }
       }
-    } else if (data.categoryName) {
-      const byName = await prisma.category.findFirst({
-        where: {
-          restaurantId: data.restaurantId,
-          name: { equals: data.categoryName },
-        },
-      });
-      if (byName) {
-        resolvedCategoryId = byName.id;
-      } else {
-        const newCat = await prisma.category.create({
-          data: {
-            name: data.categoryName,
-            restaurantId: data.restaurantId,
-          },
-        });
-        resolvedCategoryId = newCat.id;
-      }
     } else {
-      // Find first category or create General
       let firstCat = await prisma.category.findFirst({
         where: { restaurantId: data.restaurantId },
       });
@@ -199,14 +186,14 @@ export class MenuService {
         ...(data.id ? { id: data.id } : {}),
         name: data.name,
         description: data.description,
-        price: data.price,
-        cost: data.cost,
+        price: Number(data.price),
+        cost: data.cost !== undefined && data.cost !== null ? Number(data.cost) : null,
         categoryId: resolvedCategoryId,
         restaurantId: data.restaurantId,
         imageUrl: data.imageUrl,
-        preparationTime: data.preparationTime,
-        isAvailable: data.isAvailable !== undefined ? data.isAvailable : true,
-        is86d: data.is86d !== undefined ? data.is86d : false,
+        preparationTime: data.preparationTime !== undefined && data.preparationTime !== null ? Number(data.preparationTime) : 10,
+        isAvailable: data.isAvailable !== undefined ? Boolean(data.isAvailable) : true,
+        is86d: data.is86d !== undefined ? Boolean(data.is86d) : false,
         ingredients:
           validIngredients.length > 0
             ? {
@@ -229,16 +216,73 @@ export class MenuService {
   }
 
   async updateMenuItem(id: string, data: any) {
-    const { ingredients, categoryName, ...restData } = data;
+    const existing = await prisma.menuItem.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      throw new Error('Menu item not found');
+    }
+
+    const restaurantId = data.restaurantId || existing.restaurantId;
+    let resolvedCategoryId: string | undefined = undefined;
+
+    const categoryInput =
+      data.categoryId ||
+      data.categoryName ||
+      (typeof data.category === 'string'
+        ? data.category
+        : data.category?.id || data.category?.name);
+
+    if (categoryInput) {
+      const existingCat = await prisma.category.findUnique({
+        where: { id: categoryInput },
+      });
+      if (existingCat) {
+        resolvedCategoryId = existingCat.id;
+      } else {
+        const allCats = await prisma.category.findMany({
+          where: { restaurantId },
+        });
+        const byName = allCats.find(
+          (c) => c.name.toLowerCase() === categoryInput.toLowerCase()
+        );
+        if (byName) {
+          resolvedCategoryId = byName.id;
+        } else {
+          const newCat = await prisma.category.create({
+            data: {
+              name: categoryInput,
+              restaurantId,
+            },
+          });
+          resolvedCategoryId = newCat.id;
+        }
+      }
+    }
+
+    const updateData: any = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.price !== undefined) updateData.price = Number(data.price);
+    if (data.cost !== undefined) updateData.cost = data.cost !== null ? Number(data.cost) : null;
+    if (data.imageUrl !== undefined) updateData.imageUrl = data.imageUrl;
+    if (data.preparationTime !== undefined) {
+      updateData.preparationTime = data.preparationTime !== null ? Number(data.preparationTime) : null;
+    }
+    if (data.isAvailable !== undefined) updateData.isAvailable = Boolean(data.isAvailable);
+    if (data.is86d !== undefined) updateData.is86d = Boolean(data.is86d);
+    if (resolvedCategoryId) updateData.categoryId = resolvedCategoryId;
+    if (data.restaurantId !== undefined) updateData.restaurantId = data.restaurantId;
 
     return prisma.$transaction(async (tx) => {
-      if (ingredients !== undefined && Array.isArray(ingredients)) {
+      if (data.ingredients !== undefined && Array.isArray(data.ingredients)) {
         // Remove existing relations
         await tx.menuItemIngredient.deleteMany({
           where: { menuItemId: id },
         });
 
-        const validIngredients = ingredients.filter(
+        const validIngredients = data.ingredients.filter(
           (ing: any) => ing && ing.inventoryItemId && Number(ing.quantityUsed) > 0
         );
 
@@ -255,7 +299,7 @@ export class MenuService {
 
       return tx.menuItem.update({
         where: { id },
-        data: restData,
+        data: updateData,
         include: {
           category: true,
           ingredients: {
