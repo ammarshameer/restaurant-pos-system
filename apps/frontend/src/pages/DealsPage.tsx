@@ -134,8 +134,8 @@ export const DealsPage: React.FC = () => {
     queryClient.invalidateQueries({ queryKey: ['active-deals'] });
     showToast(
       nextActive
-        ? `🟢 Combo Deal "${deal.name}" activated (now live in POS)`
-        : `⚪ Combo Deal "${deal.name}" deactivated (hidden from POS)`
+        ? `🟢 Combo Deal "${deal.name}" activated (live in POS)`
+        : `⚪ Combo Deal "${deal.name}" deactivated (hidden in POS)`
     );
   };
 
@@ -353,7 +353,7 @@ export const DealsPage: React.FC = () => {
   };
 
   return (
-    <div className="menu-page-container" style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+    <div className="page-container">
       {/* Toast Notification Banner */}
       {toastMessage && (
         <div
@@ -377,7 +377,7 @@ export const DealsPage: React.FC = () => {
           <span>{toastMessage}</span>
           <button
             onClick={() => setToastMessage(null)}
-            style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}
+            style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '14px' }}
           >
             ✕
           </button>
@@ -396,68 +396,71 @@ export const DealsPage: React.FC = () => {
         }}
       >
         <div>
-          <h1 style={{ fontSize: '24px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span>🎁</span> Deals & Combo Bundles
-          </h1>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h2 style={{ fontSize: '24px', fontWeight: 800 }}>🎁 Deals & Combo Bundles Management</h2>
+            <span
+              style={{
+                fontSize: '11px',
+                background: 'rgba(99, 102, 241, 0.15)',
+                color: 'var(--primary)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                padding: '2px 8px',
+                borderRadius: '9999px',
+                fontWeight: 700,
+              }}
+            >
+              ⚡ Auto Recipe Stock Linked
+            </span>
+          </div>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
             Create discounted meal combos, family bundles, and promo packages with automatic stock deduction.
           </p>
         </div>
 
-        <button className="btn btn-primary" onClick={openCreateModal} style={{ gap: '8px' }}>
-          <span>➕</span>
-          <span>Create New Deal</span>
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="btn btn-secondary" onClick={() => refetchDeals()} title="Reload deals catalog">
+            🔄 Refresh
+          </button>
+          <button className="btn btn-primary" onClick={openCreateModal} style={{ gap: '8px' }}>
+            <span>➕</span>
+            <span>Create New Deal</span>
+          </button>
+        </div>
       </div>
 
       {/* Summary Stat Cards */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: '16px',
-          marginBottom: '24px',
-        }}
-      >
-        <div
-          style={{
-            background: 'var(--bg-secondary)',
-            padding: '16px 20px',
-            borderRadius: 'var(--radius-lg)',
-            border: '1px solid var(--border-color)',
-          }}
-        >
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>TOTAL DEALS</div>
-          <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '4px', color: 'var(--text-primary)' }}>
-            {totalDealsCount}
+      <div className="grid-cols-3" style={{ marginBottom: '24px' }}>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary)' }}>
+            🎁
+          </div>
+          <div>
+            <div className="stat-val">{totalDealsCount}</div>
+            <div className="stat-label">Total Deals Catalog</div>
           </div>
         </div>
 
-        <div
-          style={{
-            background: 'var(--bg-secondary)',
-            padding: '16px 20px',
-            borderRadius: 'var(--radius-lg)',
-            border: '1px solid var(--border-color)',
-          }}
-        >
-          <div style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>ACTIVE DEALS (IN POS)</div>
-          <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '4px', color: '#10b981' }}>
-            {activeDealsCount}
+        <div className="stat-card" style={{ borderLeft: '4px solid var(--success)' }}>
+          <div className="stat-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)' }}>
+            🟢
+          </div>
+          <div>
+            <div className="stat-val" style={{ color: 'var(--success)' }}>
+              {activeDealsCount}
+            </div>
+            <div className="stat-label">Active Deals (In POS)</div>
           </div>
         </div>
 
-        <div
-          style={{
-            background: 'var(--bg-secondary)',
-            padding: '16px 20px',
-            borderRadius: 'var(--radius-lg)',
-            border: '1px solid var(--border-color)',
-          }}
-        >
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>INACTIVE / DRAFT</div>
-          <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '4px', color: 'var(--text-secondary)' }}>
-            {Math.max(0, totalDealsCount - activeDealsCount)}
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: 'rgba(100, 116, 139, 0.15)', color: 'var(--text-muted)' }}>
+            ⚪
+          </div>
+          <div>
+            <div className="stat-val" style={{ color: 'var(--text-secondary)' }}>
+              {Math.max(0, totalDealsCount - activeDealsCount)}
+            </div>
+            <div className="stat-label">Inactive / Draft</div>
           </div>
         </div>
       </div>
@@ -465,27 +468,22 @@ export const DealsPage: React.FC = () => {
       {/* Filter and Search Bar */}
       <div
         style={{
-          background: 'var(--bg-secondary)',
-          padding: '16px',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-color)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          gap: '16px',
+          gap: '14px',
           flexWrap: 'wrap',
           marginBottom: '24px',
         }}
       >
-        <div style={{ flex: 1, minWidth: '240px' }}>
-          <input
-            type="text"
-            className="form-input"
-            placeholder="🔍 Search deals by name or description..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
+        <input
+          type="text"
+          className="form-input"
+          placeholder="🔍 Search deals by name or description..."
+          style={{ maxWidth: '380px' }}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
 
         <div style={{ display: 'flex', gap: '8px' }}>
           {(['ALL', 'ACTIVE', 'INACTIVE'] as const).map((tab) => (
@@ -509,16 +507,17 @@ export const DealsPage: React.FC = () => {
         </div>
       ) : deals.length === 0 ? (
         <div
+          className="card"
           style={{
             textAlign: 'center',
             padding: '80px 20px',
-            background: 'var(--bg-secondary)',
             borderRadius: 'var(--radius-lg)',
-            border: '1px solid var(--border-color)',
           }}
         >
           <div style={{ fontSize: '48px', marginBottom: '12px' }}>🎁</div>
-          <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '6px' }}>No Deals Found</h3>
+          <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '6px', color: 'var(--text-primary)' }}>
+            No Deals Found
+          </h3>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', maxWidth: '400px', margin: '0 auto 20px' }}>
             {searchQuery
               ? 'No deals match your search query.'
@@ -532,8 +531,9 @@ export const DealsPage: React.FC = () => {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))',
             gap: '20px',
+            paddingBottom: '32px',
           }}
         >
           {deals.map((deal) => {
@@ -551,101 +551,150 @@ export const DealsPage: React.FC = () => {
             return (
               <div
                 key={deal.id}
+                className="card"
                 style={{
-                  background: 'var(--bg-secondary)',
-                  borderRadius: 'var(--radius-lg)',
-                  border: `1px solid ${deal.isActive ? 'rgba(99, 102, 241, 0.4)' : 'var(--border-color)'}`,
+                  padding: 0,
                   overflow: 'hidden',
                   display: 'flex',
                   flexDirection: 'column',
-                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-                  boxShadow: deal.isActive ? '0 4px 20px rgba(0,0,0,0.25)' : 'none',
-                  opacity: deal.isActive ? 1 : 0.75,
+                  border: `1px solid ${deal.isActive ? 'var(--border-active)' : 'var(--border-color)'}`,
+                  opacity: deal.isActive ? 1 : 0.8,
                 }}
               >
                 {/* Visual Header / Banner */}
-                <div
-                  style={{
-                    position: 'relative',
-                    height: '140px',
-                    background: deal.imageUrl
-                      ? `url(${deal.imageUrl}) center/cover no-repeat`
-                      : 'linear-gradient(135deg, #4f46e5, #7c3aed)',
-                    display: 'flex',
-                    alignItems: 'flex-end',
-                    padding: '16px',
-                  }}
-                >
+                {deal.imageUrl ? (
                   <div
                     style={{
-                      position: 'absolute',
-                      inset: 0,
-                      background: 'linear-gradient(to top, rgba(15, 23, 42, 0.95) 0%, rgba(15, 23, 42, 0.2) 60%)',
-                    }}
-                  />
-
-                  {/* Active Toggle Badge Top Left */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleActive(deal);
-                    }}
-                    style={{
-                      position: 'absolute',
-                      top: '12px',
-                      left: '12px',
-                      background: deal.isActive ? 'rgba(16, 185, 129, 0.9)' : 'rgba(100, 116, 139, 0.8)',
-                      backdropFilter: 'blur(4px)',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '9999px',
-                      padding: '4px 10px',
-                      fontSize: '11px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
+                      position: 'relative',
+                      height: '130px',
+                      background: `url(${deal.imageUrl}) center/cover no-repeat`,
                       display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                      alignItems: 'flex-end',
+                      padding: '12px 16px',
                     }}
-                    title={deal.isActive ? 'Click to deactivate' : 'Click to activate'}
                   >
-                    <span>{deal.isActive ? '🟢 ACTIVE IN POS' : '⚪ INACTIVE'}</span>
-                  </button>
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'linear-gradient(to top, rgba(15, 23, 42, 0.92) 0%, rgba(15, 23, 42, 0.2) 60%)',
+                      }}
+                    />
 
-                  {/* Price Tag Top Right */}
+                    {/* Active Toggle Badge Top Left */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleActive(deal);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        top: '10px',
+                        left: '10px',
+                        background: deal.isActive ? 'rgba(16, 185, 129, 0.9)' : 'rgba(100, 116, 139, 0.85)',
+                        backdropFilter: 'blur(4px)',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '9999px',
+                        padding: '3px 9px',
+                        fontSize: '11px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                      }}
+                      title={deal.isActive ? 'Click to deactivate' : 'Click to activate'}
+                    >
+                      <span>{deal.isActive ? '🟢 ACTIVE IN POS' : '⚪ INACTIVE'}</span>
+                    </button>
+
+                    {/* Price Tag Top Right */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '10px',
+                        right: '10px',
+                        background: 'rgba(15, 23, 42, 0.85)',
+                        backdropFilter: 'blur(4px)',
+                        color: '#38bdf8',
+                        border: '1px solid rgba(56, 189, 248, 0.4)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '3px 10px',
+                        fontSize: '14px',
+                        fontWeight: 800,
+                      }}
+                    >
+                      {formatPKR(deal.price)}
+                    </div>
+
+                    {/* Deal Title */}
+                    <div style={{ position: 'relative', zIndex: 2 }}>
+                      <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+                        {deal.name}
+                      </h3>
+                    </div>
+                  </div>
+                ) : (
                   <div
                     style={{
-                      position: 'absolute',
-                      top: '12px',
-                      right: '12px',
-                      background: 'rgba(15, 23, 42, 0.9)',
-                      backdropFilter: 'blur(4px)',
-                      color: '#38bdf8',
-                      border: '1px solid rgba(56, 189, 248, 0.4)',
-                      borderRadius: 'var(--radius-md)',
-                      padding: '4px 12px',
-                      fontSize: '15px',
-                      fontWeight: 900,
-                      boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
+                      padding: '14px 16px',
+                      background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.08))',
+                      borderBottom: '1px solid var(--border-color)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      gap: '12px',
                     }}
                   >
-                    {formatPKR(deal.price)}
-                  </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleActive(deal)}
+                          style={{
+                            background: deal.isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(100, 116, 139, 0.15)',
+                            color: deal.isActive ? 'var(--success)' : 'var(--text-muted)',
+                            border: `1px solid ${deal.isActive ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-color)'}`,
+                            borderRadius: '9999px',
+                            padding: '2px 8px',
+                            fontSize: '10px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                          }}
+                          title={deal.isActive ? 'Click to deactivate' : 'Click to activate'}
+                        >
+                          {deal.isActive ? '🟢 ACTIVE IN POS' : '⚪ INACTIVE'}
+                        </button>
+                      </div>
+                      <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                        {deal.name}
+                      </h3>
+                    </div>
 
-                  {/* Deal Title */}
-                  <div style={{ position: 'relative', zIndex: 2 }}>
-                    <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#fff', textShadow: '0 2px 4px rgba(0,0,0,0.6)' }}>
-                      {deal.name}
-                    </h3>
+                    <div
+                      style={{
+                        background: 'rgba(99, 102, 241, 0.15)',
+                        color: 'var(--primary)',
+                        border: '1px solid rgba(99, 102, 241, 0.3)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '4px 10px',
+                        fontSize: '15px',
+                        fontWeight: 900,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {formatPKR(deal.price)}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Deal Body */}
                 <div style={{ padding: '16px', flex: 1, display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {deal.description && (
-                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
                       {deal.description}
                     </p>
                   )}
@@ -654,8 +703,8 @@ export const DealsPage: React.FC = () => {
                   {sumOriginalPrice > 0 && (
                     <div
                       style={{
-                        background: dealDiscount > 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.05)',
-                        border: `1px solid ${dealDiscount > 0 ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-color)'}`,
+                        background: dealDiscount > 0 ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-box-alt)',
+                        border: `1px solid ${dealDiscount > 0 ? 'rgba(16, 185, 129, 0.25)' : 'var(--border-color)'}`,
                         borderRadius: 'var(--radius-md)',
                         padding: '8px 12px',
                         display: 'flex',
@@ -668,7 +717,7 @@ export const DealsPage: React.FC = () => {
                         Items Value: <del>{formatPKR(sumOriginalPrice)}</del>
                       </span>
                       {dealDiscount > 0 ? (
-                        <span style={{ color: '#10b981', fontWeight: 800 }}>
+                        <span style={{ color: 'var(--success)', fontWeight: 800 }}>
                           Save {formatPKR(dealDiscount)} ({dealPercent}% OFF)
                         </span>
                       ) : (
@@ -686,7 +735,7 @@ export const DealsPage: React.FC = () => {
                         color: 'var(--text-muted)',
                         textTransform: 'uppercase',
                         letterSpacing: '0.05em',
-                        marginBottom: '8px',
+                        marginBottom: '6px',
                       }}
                     >
                       📦 INCLUDED ITEMS ({deal.items.reduce((s, i) => s + i.quantity, 0)} TOTAL):
@@ -702,13 +751,14 @@ export const DealsPage: React.FC = () => {
                               display: 'flex',
                               justifyContent: 'space-between',
                               alignItems: 'center',
-                              background: 'rgba(255, 255, 255, 0.03)',
+                              background: 'var(--bg-box-alt)',
+                              border: '1px solid var(--border-color)',
                               padding: '6px 10px',
                               borderRadius: 'var(--radius-sm)',
                               fontSize: '12px',
                             }}
                           >
-                            <span style={{ fontWeight: 600 }}>
+                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                               <span style={{ color: 'var(--primary)', marginRight: '6px', fontWeight: 800 }}>
                                 {di.quantity}x
                               </span>
@@ -758,7 +808,7 @@ export const DealsPage: React.FC = () => {
                       onClick={() => handleDelete(deal)}
                       style={{
                         background: 'rgba(239, 68, 68, 0.15)',
-                        color: '#f87171',
+                        color: 'var(--danger)',
                         border: '1px solid rgba(239, 68, 68, 0.3)',
                         fontSize: '11px',
                         padding: '6px 10px',
@@ -791,22 +841,32 @@ export const DealsPage: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
-              <h3 className="modal-title">
-                {editingDeal ? '✏️ Edit Deal / Combo Bundle' : '🎁 Create New Combo Deal'}
-              </h3>
-              <button className="btn btn-secondary btn-sm" onClick={() => setModalOpen(false)}>
+              <div className="modal-header-text">
+                <h3 className="modal-title">
+                  {editingDeal ? '✏️ Edit Deal / Combo Bundle' : '🎁 Create New Combo Deal'}
+                </h3>
+                <p className="modal-subtitle">
+                  Configure bundled items, pricing discount, and POS availability
+                </p>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setModalOpen(false)}
+                title="Close modal"
+              >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveDeal} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-              <div className="modal-body" style={{ overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <form onSubmit={handleSaveDeal} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto' }}>
                 {formError && (
                   <div
                     style={{
-                      background: 'rgba(239, 68, 68, 0.2)',
-                      color: '#f87171',
-                      border: '1px solid rgba(239, 68, 68, 0.4)',
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      color: 'var(--danger)',
+                      border: '1px solid rgba(239, 68, 68, 0.35)',
                       padding: '10px 14px',
                       borderRadius: 'var(--radius-md)',
                       fontSize: '13px',
@@ -819,7 +879,9 @@ export const DealsPage: React.FC = () => {
 
                 {/* Deal Name */}
                 <div className="form-group">
-                  <label className="form-label">Deal / Combo Name *</label>
+                  <label className="form-label">
+                    <span>Deal / Combo Name *</span>
+                  </label>
                   <input
                     type="text"
                     className="form-input"
@@ -831,12 +893,15 @@ export const DealsPage: React.FC = () => {
                 </div>
 
                 {/* Deal Price & Active Status */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px', alignItems: 'flex-start' }}>
                   <div className="form-group">
-                    <label className="form-label">Special Bundle Price (PKR) *</label>
+                    <label className="form-label">
+                      <span>Special Bundle Price (PKR) *</span>
+                    </label>
                     <input
                       type="number"
                       step="any"
+                      min="1"
                       className="form-input"
                       placeholder="e.g. 1999"
                       value={formData.price}
@@ -846,7 +911,9 @@ export const DealsPage: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Status in POS</label>
+                    <label className="form-label">
+                      <span>Status in POS</span>
+                    </label>
                     <label
                       style={{
                         display: 'flex',
@@ -854,10 +921,11 @@ export const DealsPage: React.FC = () => {
                         gap: '10px',
                         cursor: 'pointer',
                         padding: '10px 14px',
-                        background: 'rgba(255, 255, 255, 0.04)',
+                        background: 'var(--bg-box-alt)',
                         borderRadius: 'var(--radius-md)',
                         border: '1px solid var(--border-color)',
                         height: '42px',
+                        boxSizing: 'border-box',
                       }}
                     >
                       <input
@@ -866,7 +934,7 @@ export const DealsPage: React.FC = () => {
                         onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
                         style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                       />
-                      <span style={{ fontSize: '13px', fontWeight: 600 }}>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
                         {formData.isActive ? '🟢 Active in POS' : '⚪ Inactive'}
                       </span>
                     </label>
@@ -875,7 +943,10 @@ export const DealsPage: React.FC = () => {
 
                 {/* Description */}
                 <div className="form-group">
-                  <label className="form-label">Short Description / Subtitle</label>
+                  <label className="form-label">
+                    <span>Short Description / Subtitle</span>
+                    <span className="label-hint" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Optional</span>
+                  </label>
                   <textarea
                     className="form-input"
                     rows={2}
@@ -887,8 +958,11 @@ export const DealsPage: React.FC = () => {
 
                 {/* Image Upload */}
                 <div className="form-group">
-                  <label className="form-label">Deal Image (Optional)</label>
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <label className="form-label">
+                    <span>Deal Image</span>
+                    <span className="label-hint" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Optional</span>
+                  </label>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
                     <input
                       type="file"
                       ref={fileInputRef}
@@ -910,8 +984,7 @@ export const DealsPage: React.FC = () => {
                     {formData.imageUrl && (
                       <button
                         type="button"
-                        className="btn btn-sm"
-                        style={{ color: '#f87171' }}
+                        className="btn btn-danger btn-sm"
                         onClick={() => setFormData({ ...formData, imageUrl: '' })}
                       >
                         Remove Image
@@ -919,7 +992,7 @@ export const DealsPage: React.FC = () => {
                     )}
                   </div>
                   {imageError && (
-                    <span style={{ color: '#f87171', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+                    <span style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px', display: 'block' }}>
                       {imageError}
                     </span>
                   )}
@@ -928,7 +1001,7 @@ export const DealsPage: React.FC = () => {
                       <img
                         src={formData.imageUrl}
                         alt="Preview"
-                        style={{ width: '100px', height: '60px', objectFit: 'cover', borderRadius: 'var(--radius-md)' }}
+                        style={{ width: '100px', height: '60px', objectFit: 'cover', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}
                       />
                     </div>
                   )}
@@ -938,14 +1011,14 @@ export const DealsPage: React.FC = () => {
                 <div
                   style={{
                     border: '1px solid var(--border-color)',
-                    background: 'rgba(0, 0, 0, 0.2)',
+                    background: 'var(--bg-box-alt)',
                     borderRadius: 'var(--radius-lg)',
                     padding: '16px',
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <label className="form-label" style={{ margin: 0, fontWeight: 700 }}>
-                      📦 Bundled Menu Items (Recipe Stock Linked) *
+                      <span>📦 Bundled Menu Items (Recipe Stock Linked) *</span>
                     </label>
                     <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                       {formData.items.length} item{formData.items.length !== 1 ? 's' : ''} in combo
@@ -954,7 +1027,7 @@ export const DealsPage: React.FC = () => {
 
                   {/* Add Item Row */}
                   <div style={{ position: 'relative', marginBottom: '14px' }} ref={dropdownRef}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px auto', gap: '8px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px auto', gap: '8px', alignItems: 'stretch' }}>
                       <input
                         type="text"
                         className="form-input"
@@ -976,15 +1049,15 @@ export const DealsPage: React.FC = () => {
                         placeholder="Qty"
                         value={selectedQtyToAdd}
                         onChange={(e) => setSelectedQtyToAdd(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                        style={{ fontSize: '13px' }}
+                        style={{ fontSize: '13px', textAlign: 'center' }}
                       />
 
                       <button
                         type="button"
-                        className="btn btn-primary btn-sm"
+                        className="btn btn-primary"
                         onClick={handleAddItemToCombo}
                         disabled={!selectedMenuItemToAdd}
-                        style={{ padding: '0 16px', fontWeight: 700 }}
+                        style={{ padding: '0 18px', fontWeight: 700, minHeight: '42px' }}
                       >
                         + Add
                       </button>
@@ -997,14 +1070,14 @@ export const DealsPage: React.FC = () => {
                           position: 'absolute',
                           top: '100%',
                           left: 0,
-                          right: '180px',
+                          right: '100px',
                           zIndex: 50,
-                          background: 'var(--bg-secondary)',
+                          background: 'var(--bg-modal)',
                           border: '1px solid var(--border-color)',
                           borderRadius: 'var(--radius-md)',
                           maxHeight: '200px',
                           overflowY: 'auto',
-                          boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                          boxShadow: 'var(--shadow-lg)',
                           marginTop: '4px',
                         }}
                       >
@@ -1024,11 +1097,12 @@ export const DealsPage: React.FC = () => {
                               style={{
                                 padding: '8px 12px',
                                 cursor: 'pointer',
-                                borderBottom: '1px solid rgba(255,255,255,0.05)',
+                                borderBottom: '1px solid var(--border-color)',
                                 display: 'flex',
                                 justifyContent: 'space-between',
                                 alignItems: 'center',
                                 fontSize: '12px',
+                                color: 'var(--text-primary)',
                               }}
                               onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)')}
                               onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
@@ -1071,17 +1145,19 @@ export const DealsPage: React.FC = () => {
                             key={idx}
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: '1fr 100px 90px 40px',
+                              gridTemplateColumns: '1fr 90px 100px 36px',
                               gap: '8px',
                               alignItems: 'center',
-                              background: 'rgba(255, 255, 255, 0.04)',
+                              background: 'var(--bg-card)',
                               padding: '8px 12px',
                               borderRadius: 'var(--radius-md)',
                               border: '1px solid var(--border-color)',
                             }}
                           >
                             <div>
-                              <div style={{ fontWeight: 700, fontSize: '13px' }}>{mi?.name || 'Menu Item'}</div>
+                              <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)' }}>
+                                {mi?.name || 'Menu Item'}
+                              </div>
                               <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                                 Unit: {formatPKR(itemPrice)}
                               </div>
@@ -1104,18 +1180,15 @@ export const DealsPage: React.FC = () => {
 
                             <button
                               type="button"
+                              className="btn btn-danger btn-sm"
                               onClick={() => handleRemoveItemFromCombo(idx)}
                               style={{
-                                background: 'rgba(239, 68, 68, 0.15)',
-                                color: '#f87171',
-                                border: '1px solid rgba(239, 68, 68, 0.3)',
-                                borderRadius: 'var(--radius-sm)',
+                                padding: '6px',
                                 width: '32px',
                                 height: '32px',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                cursor: 'pointer',
                               }}
                               title="Remove item"
                             >
@@ -1146,13 +1219,13 @@ export const DealsPage: React.FC = () => {
                     >
                       <div>
                         <span style={{ color: 'var(--text-secondary)' }}>Individual Items Total: </span>
-                        <strong style={{ textDecoration: savingsAmount > 0 ? 'line-through' : 'none' }}>
+                        <strong style={{ textDecoration: savingsAmount > 0 ? 'line-through' : 'none', color: 'var(--text-primary)' }}>
                           {formatPKR(originalItemsTotal)}
                         </strong>
                       </div>
 
                       {savingsAmount > 0 ? (
-                        <div style={{ color: '#10b981', fontWeight: 800 }}>
+                        <div style={{ color: 'var(--success)', fontWeight: 800 }}>
                           🎉 Customer Saves: {formatPKR(savingsAmount)} ({savingsPercent}% OFF)
                         </div>
                       ) : (
@@ -1166,12 +1239,12 @@ export const DealsPage: React.FC = () => {
               </div>
 
               {/* Modal Footer */}
-              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setModalOpen(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary" style={{ padding: '0 24px' }}>
-                  {editingDeal ? 'Save Changes' : 'Create Deal'}
+                <button type="submit" className="btn btn-primary" disabled={imageUploading}>
+                  {editingDeal ? '✓ Save Changes' : '+ Create Deal'}
                 </button>
               </div>
             </form>
@@ -1183,3 +1256,4 @@ export const DealsPage: React.FC = () => {
 };
 
 export default DealsPage;
+

@@ -4,7 +4,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { RootState } from '../store/store';
 import { setOrders } from '../store/slices/orderSlice';
 import { orderApi } from '../api/order.api';
-import { analyticsApi, TopSellingItem } from '../api/analytics.api';
+import { analyticsApi, TopSellingItem, ProductRevenueItem } from '../api/analytics.api';
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR, formatNumber } from '../utils/format';
 
@@ -29,6 +29,7 @@ export const AnalyticsPage: React.FC = () => {
   const dispatch = useDispatch();
   const orders = useSelector((state: RootState) => state.orders.orders);
   const menuItems = useSelector((state: RootState) => state.menu.items);
+  const deals = useSelector((state: RootState) => state.deal.deals);
 
   const [dateRange, setDateRange] = useState<DateRange>('today');
   const [loading, setLoading] = useState(false);
@@ -95,12 +96,59 @@ export const AnalyticsPage: React.FC = () => {
   const totalOrders = filteredOrders.length;
   const avgOrderValue = totalOrders > 0 ? +(totalSales / totalOrders).toFixed(2) : 0;
 
+  // Commercial Revenue Streams (Deals vs Standalone Menu Items)
+  const { dealRevenue, standaloneRevenue, dealsCount, standaloneCount } = useMemo(() => {
+    let dRev = 0;
+    let sRev = 0;
+    let dCount = 0;
+    let sCount = 0;
+
+    filteredOrders.forEach((order) => {
+      (order.items || []).forEach((item) => {
+        const itemQty = Number(item.quantity) || 1;
+        const matchedDeal = deals.find(
+          (d) => d.id === item.dealId || d.name.toLowerCase() === (item.name || '').toLowerCase()
+        );
+        const isDealItem = Boolean(item.dealId || item.isDeal || matchedDeal);
+        const price = Number(item.unitPrice || item.price || matchedDeal?.price || 0);
+        const lineRev = price * itemQty;
+
+        if (isDealItem) {
+          dRev += lineRev;
+          dCount += itemQty;
+        } else {
+          sRev += lineRev;
+          sCount += itemQty;
+        }
+      });
+    });
+
+    return {
+      dealRevenue: +dRev.toFixed(2),
+      standaloneRevenue: +sRev.toFixed(2),
+      dealsCount: dCount,
+      standaloneCount: sCount,
+    };
+  }, [filteredOrders, deals]);
+
   // Food cost calculated from menu item cost records or fallback 28%
   const estimatedFoodCost = useMemo(() => {
     let foodCostSum = 0;
     filteredOrders.forEach((o) => {
       (o.items || []).forEach((item) => {
-        const menuItem = menuItems.find((m) => m.id === item.menuItemId || m.name.toLowerCase() === item.name.toLowerCase());
+        if (item.dealId) {
+          const deal = deals.find((d) => d.id === item.dealId);
+          if (deal && deal.items && deal.items.length > 0) {
+            let dealCost = 0;
+            deal.items.forEach((di) => {
+              const m = menuItems.find((mi) => mi.id === di.menuItemId);
+              dealCost += (m?.cost || (m?.price ? m.price * 0.28 : 0)) * (di.quantity || 1);
+            });
+            foodCostSum += dealCost * (item.quantity || 1);
+            return;
+          }
+        }
+        const menuItem = menuItems.find((m) => m.id === item.menuItemId || m.name.toLowerCase() === (item.name || '').toLowerCase());
         if (menuItem && menuItem.cost) {
           foodCostSum += menuItem.cost * (item.quantity || 1);
         } else {
@@ -109,7 +157,7 @@ export const AnalyticsPage: React.FC = () => {
       });
     });
     return +(foodCostSum > 0 ? foodCostSum : totalSales * 0.28).toFixed(2);
-  }, [filteredOrders, menuItems, totalSales]);
+  }, [filteredOrders, menuItems, deals, totalSales]);
 
   // Labor cost estimated proportionally to sales volume for timeframe
   const estimatedLaborCost = useMemo(() => {
@@ -148,7 +196,108 @@ export const AnalyticsPage: React.FC = () => {
 
   const maxHourlyRevenue = Math.max(...hourlySalesData.map((h) => h.revenue), 1);
 
-  // 1. Infinite Query for Top Selling Items: 50 records per page
+  // 1. Infinite Query for Product & Deal Sales Revenue Breakdown
+  const {
+    data: productRevenueData,
+    fetchNextPage: fetchNextProductRevenue,
+    hasNextPage: hasNextProductRevenue,
+    isFetchingNextPage: isFetchingNextProductRevenue,
+    isLoading: loadingProductRevenue,
+  } = useInfiniteQuery({
+    queryKey: ['analytics-product-revenue', dateRangeBounds.start.toISOString(), dateRangeBounds.end.toISOString()],
+    queryFn: ({ pageParam = 1 }) =>
+      analyticsApi.getProductRevenuePaginated({
+        startDate: dateRangeBounds.start,
+        endDate: dateRangeBounds.end,
+        page: pageParam,
+        limit: 50,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+  });
+
+  const productRevenueItems: ProductRevenueItem[] = useMemo(() => {
+    const list = productRevenueData?.pages.flatMap((p) => p.data) || [];
+    return list.map((item, index) => ({
+      ...item,
+      rank: item.rank || index + 1,
+    }));
+  }, [productRevenueData]);
+
+  const fallbackProductRevenueItems: ProductRevenueItem[] = useMemo(() => {
+    const stats = new Map<string, ProductRevenueItem>();
+    filteredOrders.forEach((order) => {
+      (order.items || []).forEach((item) => {
+        const itemQty = Number(item.quantity) || 1;
+        const matchedDeal = deals.find(
+          (d) => d.id === item.dealId || d.name.toLowerCase() === (item.name || '').toLowerCase()
+        );
+        if (item.dealId || item.isDeal || matchedDeal) {
+          const dealId = item.dealId || matchedDeal?.id || item.name;
+          const dealName = matchedDeal?.name || item.name || 'Combo Deal';
+          const unitPrice = Number(item.unitPrice || item.price || matchedDeal?.price || 0);
+          const revenue = unitPrice * itemQty;
+          const key = `deal:${dealId}`;
+          const existing = stats.get(key);
+          if (existing) {
+            existing.quantity += itemQty;
+            existing.revenue += revenue;
+            existing.unitPrice = existing.quantity > 0 ? +(existing.revenue / existing.quantity).toFixed(2) : unitPrice;
+          } else {
+            stats.set(key, {
+              id: dealId,
+              dealId: matchedDeal?.id || item.dealId || null,
+              menuItemId: null,
+              name: dealName,
+              type: 'DEAL',
+              category: 'Combo Deals',
+              quantity: itemQty,
+              unitPrice: +unitPrice.toFixed(2),
+              revenue,
+            });
+          }
+        } else {
+          const menuItem = menuItems.find(
+            (m) => m.id === item.menuItemId || m.name.toLowerCase() === (item.name || '').toLowerCase()
+          );
+          const mId = item.menuItemId || menuItem?.id || item.name;
+          const mName = menuItem?.name || item.name || 'Dish';
+          const catName = typeof menuItem?.category === 'object' ? (menuItem.category as any)?.name : (menuItem?.category || 'General');
+          const unitPrice = Number(item.unitPrice || item.price || menuItem?.price || 0);
+          const revenue = unitPrice * itemQty;
+          const key = `menu:${mId}`;
+          const existing = stats.get(key);
+          if (existing) {
+            existing.quantity += itemQty;
+            existing.revenue += revenue;
+            existing.unitPrice = existing.quantity > 0 ? +(existing.revenue / existing.quantity).toFixed(2) : unitPrice;
+          } else {
+            stats.set(key, {
+              id: mId,
+              dealId: null,
+              menuItemId: menuItem?.id || item.menuItemId || null,
+              name: mName,
+              type: 'MENU_ITEM',
+              category: catName,
+              quantity: itemQty,
+              unitPrice: +unitPrice.toFixed(2),
+              revenue,
+            });
+          }
+        }
+      });
+    });
+
+    return Array.from(stats.values())
+      .map((item) => ({ ...item, revenue: +item.revenue.toFixed(2) }))
+      .sort((a, b) => b.revenue - a.revenue || b.quantity - a.quantity)
+      .map((item, idx) => ({ ...item, rank: idx + 1 }));
+  }, [filteredOrders, deals, menuItems]);
+
+  const displayProductRevenueItems = productRevenueItems.length > 0 ? productRevenueItems : fallbackProductRevenueItems;
+  const totalProductItemsCount = productRevenueData?.pages[0]?.totalCount ?? displayProductRevenueItems.length;
+
+  // 2. Infinite Query for Top Selling Items (True Kitchen Consumption View)
   const {
     data: topItemsData,
     fetchNextPage: fetchNextTopItems,
@@ -176,7 +325,77 @@ export const AnalyticsPage: React.FC = () => {
     }));
   }, [topItemsData]);
 
-  const totalTopItemsCount = topItemsData?.pages[0]?.totalCount ?? 0;
+  const fallbackTopSellingItems: TopSellingItem[] = useMemo(() => {
+    const stats = new Map<string, TopSellingItem>();
+    filteredOrders.forEach((order) => {
+      (order.items || []).forEach((item) => {
+        const itemQty = Number(item.quantity) || 1;
+        const matchedDeal = deals.find(
+          (d) => d.id === item.dealId || d.name.toLowerCase() === (item.name || '').toLowerCase()
+        );
+        if (item.dealId || item.isDeal || matchedDeal) {
+          const dealComponents = matchedDeal?.items || matchedDeal?.dealItems || [];
+          dealComponents.forEach((di: any) => {
+            const mId = di.menuItemId || di.menuItem?.id;
+            if (!mId) return;
+            const menuItem = menuItems.find((m) => m.id === mId) || di.menuItem;
+            const mName = menuItem?.name || 'Dish';
+            const catName = typeof menuItem?.category === 'object' ? (menuItem.category as any)?.name : (menuItem?.category || 'General');
+            const compQty = Number(di.quantity || 1) * itemQty;
+            const existing = stats.get(mId);
+            if (existing) {
+              existing.comboQuantity += compQty;
+              existing.quantity += compQty;
+            } else {
+              stats.set(mId, {
+                id: mId,
+                name: mName,
+                category: catName,
+                directQuantity: 0,
+                comboQuantity: compQty,
+                quantity: compQty,
+                revenue: 0,
+              });
+            }
+          });
+        } else {
+          const menuItem = menuItems.find(
+            (m) => m.id === item.menuItemId || m.name.toLowerCase() === (item.name || '').toLowerCase()
+          );
+          const mId = item.menuItemId || menuItem?.id || item.name;
+          if (!mId) return;
+          const mName = menuItem?.name || item.name || 'Dish';
+          const catName = typeof menuItem?.category === 'object' ? (menuItem.category as any)?.name : (menuItem?.category || 'General');
+          const unitPrice = Number(item.unitPrice || item.price || menuItem?.price || 0);
+          const revenue = unitPrice * itemQty;
+          const existing = stats.get(mId);
+          if (existing) {
+            existing.directQuantity += itemQty;
+            existing.quantity += itemQty;
+            existing.revenue += revenue;
+          } else {
+            stats.set(mId, {
+              id: mId,
+              name: mName,
+              category: catName,
+              directQuantity: itemQty,
+              comboQuantity: 0,
+              quantity: itemQty,
+              revenue,
+            });
+          }
+        }
+      });
+    });
+
+    return Array.from(stats.values())
+      .map((item) => ({ ...item, revenue: +item.revenue.toFixed(2) }))
+      .sort((a, b) => b.quantity - a.quantity || b.revenue - a.revenue)
+      .map((item, idx) => ({ ...item, rank: idx + 1 }));
+  }, [filteredOrders, deals, menuItems]);
+
+  const displayTopSellingItems = topSellingItems.length > 0 ? topSellingItems : fallbackTopSellingItems;
+  const totalTopItemsCount = topItemsData?.pages[0]?.totalCount ?? displayTopSellingItems.length;
 
   // Order Type Performance Breakdown (Dine In vs Take Away vs Delivery)
   const orderTypePerformance: OrderTypeStat[] = useMemo(() => {
@@ -206,9 +425,9 @@ export const AnalyticsPage: React.FC = () => {
       {/* Header & Date Filter */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <h2 style={{ fontSize: '24px', fontWeight: 800 }}>📊 Sales Analytics & Financials (PKR)</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: 800 }}>📊 Sales Analytics & Daily Reporting (PKR)</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-            Live database sales figures, menu engineering, hourly rush heatmaps, and profit margins
+            Live database sales figures, combo deal revenues, true kitchen item consumption, and profit margins
           </p>
         </div>
 
@@ -230,40 +449,59 @@ export const AnalyticsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Stat Cards */}
-      <div className="grid-cols-4" style={{ marginBottom: '28px' }}>
+      {/* KPI Stat Cards with Deal Revenue vs Standalone Revenue Highlights */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '28px' }}>
+        {/* Card 1: Total Gross Revenue */}
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)' }}>
             💰
           </div>
           <div>
             <div className="stat-val" style={{ color: '#34d399' }}>{formatPKR(totalSales)}</div>
-            <div className="stat-label">Total Gross Revenue</div>
+            <div className="stat-label">Total Gross Revenue ({totalOrders} orders)</div>
           </div>
         </div>
 
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary)' }}>
-            🧾
+        {/* Card 2: Deal Sales Revenue */}
+        <div className="stat-card" style={{ borderLeft: '4px solid #818cf8' }}>
+          <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8' }}>
+            🎁
           </div>
           <div>
-            <div className="stat-val">{totalOrders}</div>
-            <div className="stat-label">Total Orders Placed</div>
+            <div className="stat-val" style={{ color: '#818cf8' }}>{formatPKR(dealRevenue)}</div>
+            <div className="stat-label">
+              Combo Deal Sales ({dealsCount} deals • {totalSales > 0 ? Math.round((dealRevenue / totalSales) * 100) : 0}%)
+            </div>
           </div>
         </div>
 
-        <div className="stat-card">
+        {/* Card 3: Standalone Menu Sales Revenue */}
+        <div className="stat-card" style={{ borderLeft: '4px solid #38bdf8' }}>
           <div className="stat-icon" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+            🍽️
+          </div>
+          <div>
+            <div className="stat-val" style={{ color: '#38bdf8' }}>{formatPKR(standaloneRevenue)}</div>
+            <div className="stat-label">
+              Standalone Dishes ({standaloneCount} items • {totalSales > 0 ? Math.round((standaloneRevenue / totalSales) * 100) : 0}%)
+            </div>
+          </div>
+        </div>
+
+        {/* Card 4: Average Order Ticket */}
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)' }}>
             🎯
           </div>
           <div>
             <div className="stat-val">{formatPKR(avgOrderValue)}</div>
-            <div className="stat-label">Average Order Size</div>
+            <div className="stat-label">Average Ticket Size</div>
           </div>
         </div>
 
+        {/* Card 5: Net Margin */}
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)' }}>
+          <div className="stat-icon" style={{ background: 'rgba(52, 211, 153, 0.15)', color: '#34d399' }}>
             📈
           </div>
           <div>
@@ -275,46 +513,134 @@ export const AnalyticsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Financial Health Summary Bar */}
-      <div className="card" style={{ marginBottom: '28px', padding: '20px' }}>
-        <h3 style={{ fontSize: '16px', fontWeight: 800, marginBottom: '14px' }}>
-          💵 Margin & Cost Breakdown (PKR)
-        </h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-          <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Gross Sales Volume</div>
-            <div style={{ fontSize: '18px', fontWeight: 900, color: '#34d399', marginTop: '4px' }}>
-              {formatPKR(totalSales)}
+      {/* Financial Health Summary Bar with Revenue Stream Comparison */}
+      <div className="card" style={{ marginBottom: '28px', padding: '22px 24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ fontSize: '17px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>💵</span> Revenue Streams & Operational Cost Breakdown (PKR)
+          </h3>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>
+            Live Stream Distribution
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+          {/* Card 1: Combo Deals Revenue */}
+          <div
+            className="metric-card"
+            style={{
+              borderTop: '4px solid #818cf8',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>🎁 Combo Deals Revenue</span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  background: 'rgba(129, 140, 248, 0.15)',
+                  color: '#818cf8',
+                  padding: '2px 7px',
+                  borderRadius: '9999px',
+                  fontWeight: 800,
+                }}
+              >
+                DEALS
+              </span>
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>100% of revenue</div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: '#818cf8', marginTop: '8px' }}>
+              {formatPKR(dealRevenue)}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 500 }}>
+              {dealsCount} combos sold ({totalSales > 0 ? ((dealRevenue / totalSales) * 100).toFixed(1) : 0}% of gross)
+            </div>
           </div>
 
-          <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Estimated Food Cost (COGS)</div>
-            <div style={{ fontSize: '18px', fontWeight: 900, color: '#f87171', marginTop: '4px' }}>
+          {/* Card 2: Standalone Menu Revenue */}
+          <div
+            className="metric-card"
+            style={{
+              borderTop: '4px solid #38bdf8',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>🍽️ Standalone Dishes</span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  background: 'rgba(56, 189, 248, 0.15)',
+                  color: '#38bdf8',
+                  padding: '2px 7px',
+                  borderRadius: '9999px',
+                  fontWeight: 800,
+                }}
+              >
+                A LA CARTE
+              </span>
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: '#38bdf8', marginTop: '8px' }}>
+              {formatPKR(standaloneRevenue)}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 500 }}>
+              {standaloneCount} items sold ({totalSales > 0 ? ((standaloneRevenue / totalSales) * 100).toFixed(1) : 0}% of gross)
+            </div>
+          </div>
+
+          {/* Card 3: Food Cost */}
+          <div
+            className="metric-card"
+            style={{
+              borderTop: '4px solid #f87171',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>📦 Food Cost (COGS)</span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  background: 'rgba(248, 113, 113, 0.15)',
+                  color: '#f87171',
+                  padding: '2px 7px',
+                  borderRadius: '9999px',
+                  fontWeight: 800,
+                }}
+              >
+                COST
+              </span>
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: '#f87171', marginTop: '8px' }}>
               {formatPKR(estimatedFoodCost)}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              {totalSales > 0 ? ((estimatedFoodCost / totalSales) * 100).toFixed(1) : 0}% of sales
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 500 }}>
+              {totalSales > 0 ? ((estimatedFoodCost / totalSales) * 100).toFixed(1) : 0}% of gross sales
             </div>
           </div>
 
-          <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Estimated Labor Overhead</div>
-            <div style={{ fontSize: '18px', fontWeight: 900, color: '#fbbf24', marginTop: '4px' }}>
-              {formatPKR(estimatedLaborCost)}
+          {/* Card 4: Net Operational Margin */}
+          <div
+            className="metric-card"
+            style={{
+              borderTop: '4px solid #34d399',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>📈 Net Margin</span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  background: 'rgba(52, 211, 153, 0.15)',
+                  color: '#34d399',
+                  padding: '2px 7px',
+                  borderRadius: '9999px',
+                  fontWeight: 800,
+                }}
+              >
+                MARGIN
+              </span>
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              {totalSales > 0 ? ((estimatedLaborCost / totalSales) * 100).toFixed(1) : 0}% of sales
-            </div>
-          </div>
-
-          <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Net Operational Margin</div>
-            <div style={{ fontSize: '18px', fontWeight: 900, color: '#38bdf8', marginTop: '4px' }}>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: '#34d399', marginTop: '8px' }}>
               {formatPKR(netMargin)}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 500 }}>
               {totalSales > 0 ? ((netMargin / totalSales) * 100).toFixed(1) : 0}% net profit
             </div>
           </div>
@@ -388,39 +714,196 @@ export const AnalyticsPage: React.FC = () => {
         )}
       </div>
 
-      {/* Grid: Top Selling Items and Detailed Order Type Summary Table */}
-      <div className="grid-cols-2">
-        {/* Top Selling Items */}
-        <div className="card">
-          <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '16px' }}>
-            🏆 Top Selling Menu Items ({totalTopItemsCount || topSellingItems.length})
-          </h3>
+      {/* DUAL REPORTING SECTIONS: Commercial Revenue vs True Kitchen Consumption */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))', gap: '24px', marginBottom: '28px' }}>
+        {/* VIEW 1: Commercial Sales & Revenue Breakdown (Deals & Standalone Products) */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+            <div>
+              <h3 style={{ fontSize: '18px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>💰</span> Sales by Product / Deal ({totalProductItemsCount || productRevenueItems.length})
+              </h3>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Commercial Revenue View — Deals appear as single sale items at bundled price
+              </p>
+            </div>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '4px 8px',
+                background: 'rgba(99, 102, 241, 0.12)',
+                color: '#818cf8',
+                borderRadius: '6px',
+              }}
+            >
+              Revenue View
+            </span>
+          </div>
 
-          <div className="data-table-wrapper" style={{ maxHeight: '420px', overflowY: 'auto' }}>
+          <div
+            style={{
+              background: 'rgba(99, 102, 241, 0.06)',
+              border: '1px solid rgba(99, 102, 241, 0.18)',
+              borderRadius: '8px',
+              padding: '10px 12px',
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              marginBottom: '16px',
+              lineHeight: 1.4,
+            }}
+          >
+            💡 <strong>Owner Note:</strong> Each deal sold (e.g. <em>Combo</em>) is recorded as 1 sale line item at its actual bundle price. Deals are <strong>not</strong> broken into components here.
+          </div>
+
+          <div className="data-table-wrapper" style={{ maxHeight: '440px', overflowY: 'auto', flex: 1 }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Rank & Product</th>
+                  <th>Category</th>
+                  <th style={{ textAlign: 'right' }}>Unit Price</th>
+                  <th style={{ textAlign: 'center' }}>Sold</th>
+                  <th style={{ textAlign: 'right' }}>Revenue (PKR)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingProductRevenue && displayProductRevenueItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                      Loading sales breakdown...
+                    </td>
+                  </tr>
+                ) : displayProductRevenueItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                      No product or deal sales recorded in this date range
+                    </td>
+                  </tr>
+                ) : (
+                  displayProductRevenueItems.map((item) => (
+                    <tr key={item.id || item.name}>
+                      <td>
+                        <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ color: item.rank && item.rank <= 3 ? '#fbbf24' : 'var(--text-muted)' }}>
+                            #{item.rank}
+                          </span>
+                          <span>{item.name}</span>
+                          {item.type === 'DEAL' && (
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 800,
+                                padding: '2px 6px',
+                                background: 'rgba(99, 102, 241, 0.2)',
+                                color: '#818cf8',
+                                borderRadius: '4px',
+                                border: '1px solid rgba(99, 102, 241, 0.4)',
+                              }}
+                            >
+                              🎁 DEAL
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${item.type === 'DEAL' ? 'badge-primary' : 'badge-open'}`}>
+                          {item.category}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
+                        {formatPKR(item.unitPrice)}
+                      </td>
+                      <td style={{ textAlign: 'center', fontWeight: 800 }}>
+                        {item.quantity}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 800, color: item.type === 'DEAL' ? '#818cf8' : '#34d399' }}>
+                        {formatPKR(item.revenue)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+
+            <InfiniteScrollSentinel
+              hasNextPage={hasNextProductRevenue}
+              isFetchingNextPage={isFetchingNextProductRevenue}
+              fetchNextPage={fetchNextProductRevenue}
+              totalCount={totalProductItemsCount}
+              currentCount={displayProductRevenueItems.length}
+              emptyText=""
+            />
+          </div>
+        </div>
+
+        {/* VIEW 2: True Kitchen & Stock Consumption View (Direct + Combo Multipliers) */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+            <div>
+              <h3 style={{ fontSize: '18px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>🔥</span> Top Consumed Menu Items ({totalTopItemsCount || displayTopSellingItems.length})
+              </h3>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Kitchen & Stock Consumption View — Combines standalone sales + items inside deals
+              </p>
+            </div>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '4px 8px',
+                background: 'rgba(245, 158, 11, 0.15)',
+                color: '#fbbf24',
+                borderRadius: '6px',
+              }}
+            >
+              Consumption View
+            </span>
+          </div>
+
+          <div
+            style={{
+              background: 'rgba(245, 158, 11, 0.06)',
+              border: '1px solid rgba(245, 158, 11, 0.2)',
+              borderRadius: '8px',
+              padding: '10px 12px',
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              marginBottom: '16px',
+              lineHeight: 1.4,
+            }}
+          >
+            🍳 <strong>Inventory Alignment:</strong> For each menu item, the count includes standalone orders <strong>plus</strong> units consumed inside sold combo deals (<em>component qty × deals sold</em>).
+          </div>
+
+          <div className="data-table-wrapper" style={{ maxHeight: '440px', overflowY: 'auto', flex: 1 }}>
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Rank & Dish</th>
                   <th>Category</th>
-                  <th>Quantity</th>
-                  <th style={{ textAlign: 'right' }}>Total Revenue (PKR)</th>
+                  <th style={{ textAlign: 'center' }}>Direct Sales</th>
+                  <th style={{ textAlign: 'center' }}>Combo Usage</th>
+                  <th style={{ textAlign: 'center' }}>Total Units Used</th>
+                  <th style={{ textAlign: 'right' }}>Direct Rev (PKR)</th>
                 </tr>
               </thead>
               <tbody>
-                {loadingTopItems && topSellingItems.length === 0 ? (
+                {loadingTopItems && displayTopSellingItems.length === 0 ? (
                   <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
-                      Loading top selling items...
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                      Loading consumed items...
                     </td>
                   </tr>
-                ) : topSellingItems.length === 0 ? (
+                ) : displayTopSellingItems.length === 0 ? (
                   <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
-                      No items sold in this date range
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                      No items consumed in this date range
                     </td>
                   </tr>
                 ) : (
-                  topSellingItems.map((item) => (
+                  displayTopSellingItems.map((item) => (
                     <tr key={item.id || item.name}>
                       <td>
                         <div style={{ fontWeight: 700 }}>
@@ -431,8 +914,22 @@ export const AnalyticsPage: React.FC = () => {
                         </div>
                       </td>
                       <td><span className="badge badge-open">{item.category}</span></td>
-                      <td style={{ fontWeight: 800 }}>{item.quantity} sold</td>
-                      <td style={{ textAlign: 'right', fontWeight: 800, color: '#38bdf8' }}>
+                      <td style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+                        {item.directQuantity || 0}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        {item.comboQuantity > 0 ? (
+                          <span style={{ color: '#38bdf8', fontWeight: 700 }}>
+                            +{item.comboQuantity}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>-</span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'center', fontWeight: 900, color: '#38bdf8' }}>
+                        {item.quantity} units
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-secondary)' }}>
                         {formatPKR(item.revenue)}
                       </td>
                     </tr>
@@ -446,47 +943,47 @@ export const AnalyticsPage: React.FC = () => {
               isFetchingNextPage={isFetchingNextTopItems}
               fetchNextPage={fetchNextTopItems}
               totalCount={totalTopItemsCount}
-              currentCount={topSellingItems.length}
+              currentCount={displayTopSellingItems.length}
               emptyText=""
             />
           </div>
         </div>
+      </div>
 
-        {/* Order Type Detailed Summary Table */}
-        <div className="card">
-          <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '16px' }}>
-            📋 Order Type Detailed Breakdown
-          </h3>
+      {/* Order Type Detailed Summary Table */}
+      <div className="card">
+        <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '16px' }}>
+          📋 Channel & Order Type Performance Breakdown
+        </h3>
 
-          <div className="data-table-wrapper">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Order Type</th>
-                  <th>Completed Orders</th>
-                  <th>Avg Ticket</th>
-                  <th style={{ textAlign: 'right' }}>Revenue (PKR)</th>
+        <div className="data-table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Order Type</th>
+                <th>Completed Orders</th>
+                <th>Average Ticket Size</th>
+                <th style={{ textAlign: 'right' }}>Total Revenue (PKR)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orderTypePerformance.map((o) => (
+                <tr key={o.type}>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700 }}>
+                      <span>{o.icon}</span>
+                      <span>{o.type}</span>
+                    </div>
+                  </td>
+                  <td style={{ fontWeight: 700 }}>{o.orderCount} orders</td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{formatPKR(o.avgTicket)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 800, color: '#34d399' }}>
+                    {formatPKR(o.revenue)}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {orderTypePerformance.map((o) => (
-                  <tr key={o.type}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700 }}>
-                        <span>{o.icon}</span>
-                        <span>{o.type}</span>
-                      </div>
-                    </td>
-                    <td style={{ fontWeight: 700 }}>{o.orderCount} orders</td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{formatPKR(o.avgTicket)}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 800, color: '#34d399' }}>
-                      {formatPKR(o.revenue)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

@@ -24,8 +24,11 @@ function mapOrderRecord(o: any): Order {
     items: Array.isArray(o.items)
       ? o.items.map((i: any) => ({
           id: i.id,
-          menuItemId: i.menuItemId,
-          name: i.menuItem?.name || i.name || 'Dish',
+          menuItemId: i.menuItemId || undefined,
+          dealId: i.dealId || undefined,
+          isDeal: Boolean(i.dealId || i.deal || i.isDeal),
+          deal: i.deal,
+          name: i.deal?.name || i.menuItem?.name || i.name || 'Dish',
           quantity: i.quantity,
           price: Number(i.price || i.unitPrice || 0),
           unitPrice: Number(i.unitPrice || i.price || 0),
@@ -142,8 +145,9 @@ export const orderApi = {
         paymentStatus: order.paymentStatus || 'UNPAID',
         paymentMethod: order.paymentMethod || 'CASH',
         notes: order.notes,
-        items: (order.items || []).map((i) => ({
-          menuItemId: i.menuItemId,
+        items: (order.items || []).map((i: any) => ({
+          menuItemId: i.menuItemId || undefined,
+          dealId: i.dealId || undefined,
           name: i.name,
           quantity: i.quantity,
           unitPrice: i.unitPrice || i.price,
@@ -180,7 +184,15 @@ export const orderApi = {
         status: data.status,
         paymentStatus: data.paymentStatus,
         paymentMethod: data.paymentMethod,
-        items: data.items,
+        items: (data.items || []).map((i: any) => ({
+          menuItemId: i.menuItemId || undefined,
+          dealId: i.dealId || undefined,
+          name: i.name,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice || i.price,
+          price: i.unitPrice || i.price,
+          notes: i.notes,
+        })),
       });
     } catch (e) {
       console.warn('Failed to update order in backend DB:', e);
