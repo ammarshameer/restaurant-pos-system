@@ -211,7 +211,7 @@ model DealItem {
 
 model Order {
   id              String        @id @default(cuid())
-  orderNumber     Int           @unique
+  orderNumber     Int
   orderType       String        @default("DINE_IN") // DINE_IN, TAKE_AWAY, DELIVERY
   orderTypeLabel  String        @default("Dine In")
   customerName    String?
@@ -245,6 +245,8 @@ model Order {
   items           OrderItem[]
   payments        Payment[]
   modifications   OrderModification[]
+
+  @@unique([restaurantId, orderNumber])
 }
 
 model OrderItem {

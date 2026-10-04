@@ -62,9 +62,12 @@ export class InventoryService {
     };
   }
 
-  async getInventoryItem(id: string) {
-    return prisma.inventoryItem.findUnique({
-      where: { id },
+  async getInventoryItem(id: string, restaurantId?: string) {
+    return prisma.inventoryItem.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
       include: {
         menuItem: true,
         transactions: {
@@ -86,6 +89,10 @@ export class InventoryService {
     category?: string;
     menuItemId?: string;
   }) {
+    if (!data.restaurantId) {
+      throw new Error('restaurantId is required to create an inventory item');
+    }
+
     const item = await prisma.inventoryItem.create({
       data: {
         name: data.name,
@@ -120,10 +127,22 @@ export class InventoryService {
     return item;
   }
 
-  async updateInventoryItem(id: string, data: any) {
+  async updateInventoryItem(id: string, data: any, restaurantId?: string) {
+    const existing = await prisma.inventoryItem.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!existing) {
+      throw new Error('Inventory item not found or unauthorized');
+    }
+
+    const { restaurantId: _, ...updateFields } = data;
     const item = await prisma.inventoryItem.update({
       where: { id },
-      data,
+      data: updateFields,
     });
 
     // Check if stock is low
@@ -138,14 +157,18 @@ export class InventoryService {
     id: string,
     adjustmentQuantity: number,
     type: 'RESTOCK' | 'USAGE' | 'WASTE' | 'ADJUSTMENT' = 'ADJUSTMENT',
-    reason?: string
+    reason?: string,
+    restaurantId?: string
   ) {
-    const item = await prisma.inventoryItem.findUnique({
-      where: { id },
+    const item = await prisma.inventoryItem.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
     });
 
     if (!item) {
-      throw new Error('Inventory item not found');
+      throw new Error('Inventory item not found or unauthorized');
     }
 
     const newQuantity = Number(item.quantity) + adjustmentQuantity;
@@ -198,8 +221,8 @@ export class InventoryService {
     }
 
     // 1. Fetch menu item details with explicit MenuItemIngredient relations
-    const menuItem = await prisma.menuItem.findUnique({
-      where: { id: resolvedMenuItemId },
+    const menuItem = await prisma.menuItem.findFirst({
+      where: { id: resolvedMenuItemId, restaurantId },
       include: {
         ingredients: {
           include: {
@@ -284,8 +307,8 @@ export class InventoryService {
     }
 
     // 1. Fetch menu item details with explicit MenuItemIngredient relations
-    const menuItem = await prisma.menuItem.findUnique({
-      where: { id: resolvedMenuItemId },
+    const menuItem = await prisma.menuItem.findFirst({
+      where: { id: resolvedMenuItemId, restaurantId },
       include: {
         ingredients: {
           include: {
@@ -364,8 +387,8 @@ export class InventoryService {
 
     if (!resolvedDealId) return;
 
-    const deal = await (prisma as any).deal.findUnique({
-      where: { id: resolvedDealId },
+    const deal = await (prisma as any).deal.findFirst({
+      where: { id: resolvedDealId, restaurantId },
       include: {
         items: {
           include: {
@@ -410,8 +433,8 @@ export class InventoryService {
 
     if (!resolvedDealId) return;
 
-    const deal = await (prisma as any).deal.findUnique({
-      where: { id: resolvedDealId },
+    const deal = await (prisma as any).deal.findFirst({
+      where: { id: resolvedDealId, restaurantId },
       include: {
         items: {
           include: {
@@ -505,7 +528,18 @@ export class InventoryService {
     };
   }
 
-  async deleteInventoryItem(id: string) {
+  async deleteInventoryItem(id: string, restaurantId?: string) {
+    const existing = await prisma.inventoryItem.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!existing) {
+      throw new Error('Inventory item not found or unauthorized');
+    }
+
     return prisma.inventoryItem.delete({
       where: { id },
     });

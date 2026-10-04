@@ -42,35 +42,48 @@ export class OrderService {
     }>;
     notes?: string;
   }) {
-    // Generate order number if missing
+    const restaurantId = data.restaurantId;
+    if (!restaurantId) {
+      throw new Error('restaurantId is required to create an order');
+    }
+
+    // Verify restaurant exists
+    const rest = await prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+    });
+    if (!rest) {
+      throw new Error(`Restaurant '${restaurantId}' not found.`);
+    }
+
+    // Generate order number scoped strictly to this restaurant
     let orderNum = data.orderNumber;
     if (!orderNum) {
       const maxOrder = await prisma.order.findFirst({
+        where: { restaurantId },
         orderBy: { orderNumber: 'desc' },
       });
       orderNum = maxOrder ? maxOrder.orderNumber + 1 : 101;
     }
 
-    // Resolve restaurant ID
-    let restaurantId = data.restaurantId;
-    const rest = await prisma.restaurant.findFirst();
-    if (!restaurantId || restaurantId === 'rest-default-1') {
-      restaurantId = rest?.id || 'rest-default-1';
-    }
-
-    // Resolve server ID
+    // Resolve server ID strictly within this restaurant
     let serverId = data.serverId;
-    const defaultEmployee = await prisma.employee.findFirst({
-      where: { restaurantId },
-    });
-    if (!serverId || !defaultEmployee) {
-      const anyEmployee = await prisma.employee.findFirst();
-      serverId = anyEmployee?.id || 'emp-manager-1';
-    } else {
-      serverId = defaultEmployee.id;
+    if (serverId) {
+      const empExists = await prisma.employee.findFirst({
+        where: { id: serverId, restaurantId },
+      });
+      if (!empExists) {
+        serverId = undefined;
+      }
     }
 
-    // Process order items
+    if (!serverId) {
+      const defaultEmployee = await prisma.employee.findFirst({
+        where: { restaurantId, isActive: true },
+      });
+      serverId = defaultEmployee?.id || 'emp-manager-1';
+    }
+
+    // Process order items scoped strictly to this restaurant
     let subtotal = 0;
     const orderItemsData = await Promise.all(
       data.items.map(async (item) => {
@@ -82,19 +95,27 @@ export class OrderService {
         let validDealId: string | null = null;
 
         if (item.dealId) {
-          const exists = await (prisma as any).deal.findUnique({ where: { id: item.dealId } });
+          const exists = await (prisma as any).deal.findFirst({
+            where: { id: item.dealId, restaurantId },
+          });
           if (exists) validDealId = item.dealId;
         } else if (item.menuItemId) {
-          const exists = await prisma.menuItem.findUnique({ where: { id: item.menuItemId } });
+          const exists = await prisma.menuItem.findFirst({
+            where: { id: item.menuItemId, restaurantId },
+          });
           if (exists) validMenuItemId = item.menuItemId;
         }
 
         if (!validMenuItemId && !validDealId && item.name) {
-          const dealFound = await (prisma as any).deal.findFirst({ where: { name: item.name, restaurantId } });
+          const dealFound = await (prisma as any).deal.findFirst({
+            where: { name: item.name, restaurantId },
+          });
           if (dealFound) {
             validDealId = dealFound.id;
           } else {
-            const exists = await prisma.menuItem.findFirst({ where: { name: item.name, restaurantId } });
+            const exists = await prisma.menuItem.findFirst({
+              where: { name: item.name, restaurantId },
+            });
             if (exists) validMenuItemId = exists.id;
           }
         }
@@ -226,9 +247,12 @@ export class OrderService {
     return order;
   }
 
-  async getOrderById(id: string) {
-    return prisma.order.findUnique({
-      where: { id },
+  async getOrderById(id: string, restaurantId?: string) {
+    const where: any = { id };
+    if (restaurantId) where.restaurantId = restaurantId;
+
+    return prisma.order.findFirst({
+      where,
       include: {
         items: {
           include: {
@@ -378,7 +402,20 @@ export class OrderService {
     });
   }
 
-  async updateOrder(id: string, data: any) {
+  async updateOrder(id: string, data: any, restaurantId?: string) {
+    const existingOrder = await prisma.order.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!existingOrder) {
+      throw new Error('Order not found or unauthorized');
+    }
+
+    const currentRestaurantId = existingOrder.restaurantId;
+
     // If items are provided, replace existing items
     if (data.items && Array.isArray(data.items)) {
       await prisma.orderItem.deleteMany({
@@ -441,13 +478,20 @@ export class OrderService {
     return updatedOrder;
   }
 
-  async deleteOrder(id: string) {
-    const order = await prisma.order.findUnique({
-      where: { id },
+  async deleteOrder(id: string, restaurantId?: string) {
+    const order = await prisma.order.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
       include: { items: true },
     });
 
-    if (order && order.status !== 'cancelled') {
+    if (!order) {
+      throw new Error('Order not found or unauthorized');
+    }
+
+    if (order.status !== 'cancelled') {
       for (const item of order.items) {
         if (item.inventoryDeducted) {
           try {
@@ -487,7 +531,7 @@ export class OrderService {
     });
   }
 
-  async updateOrderItemStatus(itemId: string, status: string) {
+  async updateOrderItemStatus(itemId: string, status: string, restaurantId?: string) {
     const item = await prisma.orderItem.findUnique({
       where: { id: itemId },
       include: {
@@ -496,8 +540,8 @@ export class OrderService {
       },
     });
 
-    if (!item) {
-      throw new Error('Order item not found');
+    if (!item || (restaurantId && item.order.restaurantId !== restaurantId)) {
+      throw new Error('Order item not found or unauthorized');
     }
 
     const updatedItem = await prisma.orderItem.update({
@@ -518,17 +562,20 @@ export class OrderService {
     return updatedItem;
   }
 
-  async updateOrderStatus(orderId: string, status: string) {
+  async updateOrderStatus(orderId: string, status: string, restaurantId?: string) {
     if (status.toLowerCase() === 'cancelled') {
-      return this.cancelOrder(orderId);
+      return this.cancelOrder(orderId, undefined, restaurantId);
     }
 
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
+    const order = await prisma.order.findFirst({
+      where: {
+        id: orderId,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
     });
 
     if (!order) {
-      throw new Error('Order not found');
+      throw new Error('Order not found or unauthorized');
     }
 
     const updatedOrder = await prisma.order.update({
@@ -568,7 +615,18 @@ export class OrderService {
     return updatedOrder;
   }
 
-  async addItemsToOrder(orderId: string, items: any[]) {
+  async addItemsToOrder(orderId: string, items: any[], restaurantId?: string) {
+    const targetOrder = await prisma.order.findFirst({
+      where: {
+        id: orderId,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!targetOrder) {
+      throw new Error('Order not found or unauthorized');
+    }
+
     const orderItemsData = items.map((item) => ({
       orderId,
       menuItemId: item.menuItemId || null,
@@ -587,44 +645,44 @@ export class OrderService {
       data: orderItemsData,
     });
 
-    const targetOrder = await prisma.order.findUnique({ where: { id: orderId } });
-    if (targetOrder) {
-      for (const item of items) {
-        const orderReason = `Order #${targetOrder.orderNumber} (Add-on): ${item.quantity || 1}x ${item.name || 'Item'}`;
-        try {
-          if (item.dealId) {
-            await inventoryService.deductForDeal(
-              item.dealId,
-              item.name || '',
-              item.quantity || 1,
-              orderReason,
-              targetOrder.restaurantId
-            );
-          } else {
-            await inventoryService.deductForMenuItem(
-              item.menuItemId || null,
-              item.name || '',
-              item.quantity || 1,
-              orderReason,
-              targetOrder.restaurantId
-            );
-          }
-        } catch (invErr) {
-          console.error(`Failed to deduct inventory for add-on ${item.name}:`, invErr);
+    for (const item of items) {
+      const orderReason = `Order #${targetOrder.orderNumber} (Add-on): ${item.quantity || 1}x ${item.name || 'Item'}`;
+      try {
+        if (item.dealId) {
+          await inventoryService.deductForDeal(
+            item.dealId,
+            item.name || '',
+            item.quantity || 1,
+            orderReason,
+            targetOrder.restaurantId
+          );
+        } else {
+          await inventoryService.deductForMenuItem(
+            item.menuItemId || null,
+            item.name || '',
+            item.quantity || 1,
+            orderReason,
+            targetOrder.restaurantId
+          );
         }
+      } catch (invErr) {
+        console.error(`Failed to deduct inventory for add-on ${item.name}:`, invErr);
       }
     }
 
-    return this.getOrderById(orderId);
+    return this.getOrderById(orderId, targetOrder.restaurantId);
   }
 
-  async completeOrder(orderId: string) {
-    return this.updateOrderStatus(orderId, 'paid');
+  async completeOrder(orderId: string, restaurantId?: string) {
+    return this.updateOrderStatus(orderId, 'paid', restaurantId);
   }
 
-  async cancelOrder(orderId: string, reason?: string) {
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
+  async cancelOrder(orderId: string, reason?: string, restaurantId?: string) {
+    const order = await prisma.order.findFirst({
+      where: {
+        id: orderId,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
       include: {
         items: {
           include: {
@@ -644,7 +702,7 @@ export class OrderService {
     });
 
     if (!order) {
-      throw new Error('Order not found');
+      throw new Error('Order not found or unauthorized');
     }
 
     // Prevent restocking an order twice if cancelled more than once
@@ -725,12 +783,15 @@ export class OrderService {
     return updated;
   }
 
-  async getOrderTotal(orderId: string) {
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
+  async getOrderTotal(orderId: string, restaurantId?: string) {
+    const order = await prisma.order.findFirst({
+      where: {
+        id: orderId,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
       include: { items: true },
     });
-    if (!order) throw new Error('Order not found');
+    if (!order) throw new Error('Order not found or unauthorized');
     return {
       subtotal: order.subtotal,
       serviceCharge: order.serviceCharge,

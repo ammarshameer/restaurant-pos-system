@@ -78,9 +78,12 @@ export class EmployeeService {
     };
   }
 
-  async getEmployee(id: string) {
-    return prisma.employee.findUnique({
-      where: { id },
+  async getEmployee(id: string, restaurantId?: string) {
+    return prisma.employee.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
       select: {
         id: true,
         email: true,
@@ -108,6 +111,10 @@ export class EmployeeService {
     hourlyRate?: number;
     phone?: string;
   }) {
+    if (!data.restaurantId) {
+      throw new Error('restaurantId is required to create an employee');
+    }
+
     const existingEmployee = await prisma.employee.findUnique({
       where: { email: data.email },
     });
@@ -149,8 +156,20 @@ export class EmployeeService {
     return employee;
   }
 
-  async updateEmployee(id: string, data: any) {
+  async updateEmployee(id: string, data: any, restaurantId?: string) {
+    const existing = await prisma.employee.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!existing) {
+      throw new Error('Employee not found or unauthorized');
+    }
+
     const updateData = { ...data };
+    delete updateData.restaurantId;
     if (updateData.password) {
       updateData.passwordHash = await bcrypt.hash(updateData.password, 10);
       delete updateData.password;
@@ -174,14 +193,36 @@ export class EmployeeService {
     });
   }
 
-  async deactivateEmployee(id: string) {
+  async deactivateEmployee(id: string, restaurantId?: string) {
+    const existing = await prisma.employee.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!existing) {
+      throw new Error('Employee not found or unauthorized');
+    }
+
     return prisma.employee.update({
       where: { id },
       data: { isActive: false },
     });
   }
 
-  async clockIn(employeeId: string) {
+  async clockIn(employeeId: string, restaurantId?: string) {
+    const emp = await prisma.employee.findFirst({
+      where: {
+        id: employeeId,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!emp) {
+      throw new Error('Employee not found or unauthorized');
+    }
+
     const activeShift = await prisma.timeEntry.findFirst({
       where: {
         employeeId,
@@ -211,7 +252,18 @@ export class EmployeeService {
     });
   }
 
-  async clockOut(employeeId: string) {
+  async clockOut(employeeId: string, restaurantId?: string) {
+    const emp = await prisma.employee.findFirst({
+      where: {
+        id: employeeId,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!emp) {
+      throw new Error('Employee not found or unauthorized');
+    }
+
     const activeShift = await prisma.timeEntry.findFirst({
       where: {
         employeeId,
@@ -248,7 +300,16 @@ export class EmployeeService {
     });
   }
 
-  async getEmployeeShifts(employeeId: string, startDate?: Date, endDate?: Date) {
+  async getEmployeeShifts(employeeId: string, startDate?: Date, endDate?: Date, restaurantId?: string) {
+    if (restaurantId) {
+      const emp = await prisma.employee.findFirst({
+        where: { id: employeeId, restaurantId },
+      });
+      if (!emp) {
+        throw new Error('Employee not found or unauthorized');
+      }
+    }
+
     const where: any = { employeeId };
     if (startDate || endDate) {
       where.clockIn = {};

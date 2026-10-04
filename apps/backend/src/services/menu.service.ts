@@ -93,9 +93,12 @@ export class MenuService {
     };
   }
 
-  async getMenuItem(id: string) {
-    return prisma.menuItem.findUnique({
-      where: { id },
+  async getMenuItem(id: string, restaurantId?: string) {
+    return prisma.menuItem.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
       include: {
         category: true,
         modifiers: {
@@ -129,6 +132,10 @@ export class MenuService {
     is86d?: boolean;
     ingredients?: Array<{ inventoryItemId: string; quantityUsed: number }>;
   }) {
+    if (!data.restaurantId) {
+      throw new Error('restaurantId is required to create a menu item');
+    }
+
     let resolvedCategoryId = data.categoryId;
     const categoryInput =
       data.categoryId ||
@@ -138,8 +145,8 @@ export class MenuService {
         : data.category?.id || data.category?.name);
 
     if (categoryInput) {
-      const existing = await prisma.category.findUnique({
-        where: { id: categoryInput },
+      const existing = await prisma.category.findFirst({
+        where: { id: categoryInput, restaurantId: data.restaurantId },
       });
       if (existing) {
         resolvedCategoryId = existing.id;
@@ -215,16 +222,19 @@ export class MenuService {
     });
   }
 
-  async updateMenuItem(id: string, data: any) {
-    const existing = await prisma.menuItem.findUnique({
-      where: { id },
+  async updateMenuItem(id: string, data: any, restaurantId?: string) {
+    const existing = await prisma.menuItem.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
     });
 
     if (!existing) {
-      throw new Error('Menu item not found');
+      throw new Error('Menu item not found or unauthorized');
     }
 
-    const restaurantId = data.restaurantId || existing.restaurantId;
+    const currentRestaurantId = existing.restaurantId;
     let resolvedCategoryId: string | undefined = undefined;
 
     const categoryInput =
@@ -235,14 +245,14 @@ export class MenuService {
         : data.category?.id || data.category?.name);
 
     if (categoryInput) {
-      const existingCat = await prisma.category.findUnique({
-        where: { id: categoryInput },
+      const existingCat = await prisma.category.findFirst({
+        where: { id: categoryInput, restaurantId: currentRestaurantId },
       });
       if (existingCat) {
         resolvedCategoryId = existingCat.id;
       } else {
         const allCats = await prisma.category.findMany({
-          where: { restaurantId },
+          where: { restaurantId: currentRestaurantId },
         });
         const byName = allCats.find(
           (c) => c.name.toLowerCase() === categoryInput.toLowerCase()
@@ -253,7 +263,7 @@ export class MenuService {
           const newCat = await prisma.category.create({
             data: {
               name: categoryInput,
-              restaurantId,
+              restaurantId: currentRestaurantId,
             },
           });
           resolvedCategoryId = newCat.id;
@@ -273,7 +283,6 @@ export class MenuService {
     if (data.isAvailable !== undefined) updateData.isAvailable = Boolean(data.isAvailable);
     if (data.is86d !== undefined) updateData.is86d = Boolean(data.is86d);
     if (resolvedCategoryId) updateData.categoryId = resolvedCategoryId;
-    if (data.restaurantId !== undefined) updateData.restaurantId = data.restaurantId;
 
     return prisma.$transaction(async (tx) => {
       if (data.ingredients !== undefined && Array.isArray(data.ingredients)) {
@@ -312,7 +321,18 @@ export class MenuService {
     });
   }
 
-  async deleteMenuItem(id: string) {
+  async deleteMenuItem(id: string, restaurantId?: string) {
+    const existing = await prisma.menuItem.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!existing) {
+      throw new Error('Menu item not found or unauthorized');
+    }
+
     return prisma.menuItem.delete({
       where: { id },
     });
@@ -323,6 +343,9 @@ export class MenuService {
     restaurantId: string;
     displayOrder?: number;
   }) {
+    if (!data.restaurantId) {
+      throw new Error('restaurantId is required to create a category');
+    }
     return prisma.category.create({
       data: {
         name: data.name,
@@ -332,14 +355,37 @@ export class MenuService {
     });
   }
 
-  async updateCategory(id: string, data: any) {
+  async updateCategory(id: string, data: any, restaurantId?: string) {
+    const existing = await prisma.category.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!existing) {
+      throw new Error('Category not found or unauthorized');
+    }
+
+    const { restaurantId: _, ...updateFields } = data;
     return prisma.category.update({
       where: { id },
-      data,
+      data: updateFields,
     });
   }
 
-  async deleteCategory(id: string) {
+  async deleteCategory(id: string, restaurantId?: string) {
+    const existing = await prisma.category.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!existing) {
+      throw new Error('Category not found or unauthorized');
+    }
+
     return prisma.category.delete({
       where: { id },
     });

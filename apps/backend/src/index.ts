@@ -63,6 +63,16 @@ export const prisma = new PrismaClient(
     : undefined
 );
 
+// Production Environment Hardening Check
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'restaurant-pos-super-secret-jwt-key-change-in-production') {
+    console.warn(`⚠️ [SECURITY WARNING] Insecure default JWT_SECRET detected in production environment! Please set a strong, random JWT_SECRET.`);
+  }
+}
+
+// Trust proxy for Render / Railway / reverse proxies
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(
   helmet({
@@ -71,11 +81,23 @@ app.use(
   })
 );
 
+const isOriginAllowed = (origin: string | undefined): boolean => {
+  if (!origin) return true; // Electron, mobile apps, local file://, curl, server-to-server
+  if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) return true;
+  if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) return true;
+  if (process.env.NODE_ENV !== 'production') return true;
+  return false;
+};
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (Electron file/local requests) or configured origins
-      callback(null, true);
+      if (isOriginAllowed(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`[CORS Blocked] Request origin: "${origin}"`);
+        callback(new Error(`Not allowed by CORS`));
+      }
     },
     credentials: true,
   })
@@ -84,15 +106,44 @@ app.use(
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
 
-// Health check endpoint for Electron main process readiness polling
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    env: process.env.NODE_ENV || 'development',
-    dbConnected: true,
+// Lightweight structured request logger for cloud debugging
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const authRestId = (req as any).user?.restaurantId || (req as any).restaurantId || '-';
+    if (!req.path.startsWith('/health') && !req.path.startsWith('/socket.io')) {
+      console.log(`[HTTP] ${req.method} ${req.path} -> ${res.statusCode} (${duration}ms) [Tenant: ${authRestId}]`);
+    }
   });
+  next();
 });
+
+// Health check endpoint for Render/Railway/Electron polling
+const handleHealthCheck = async (req: express.Request, res: express.Response) => {
+  try {
+    const restaurantCount = await prisma.restaurant.count();
+    res.json({
+      status: 'ok',
+      mode: process.env.DATABASE_PROVIDER || (process.env.DATABASE_URL?.startsWith('postgres') ? 'online-postgres' : 'offline-sqlite'),
+      dbConnected: true,
+      tenants: restaurantCount,
+      timestamp: new Date().toISOString(),
+      env: process.env.NODE_ENV || 'development',
+    });
+  } catch (dbErr: any) {
+    console.error('[Health Check DB Error]', dbErr.message);
+    res.status(503).json({
+      status: 'degraded',
+      dbConnected: false,
+      error: dbErr.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+};
+
+app.get('/health', handleHealthCheck);
+app.get('/api/health', handleHealthCheck);
 
 // API Routes
 app.use('/api/auth', authRoutes);

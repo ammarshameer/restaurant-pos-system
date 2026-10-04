@@ -12,6 +12,137 @@ export class AuthService {
   private JWT_EXPIRES_IN = '24h'; // Convenient for POS shifts
   private JWT_REFRESH_EXPIRES_IN = '7d';
 
+  async onboardRestaurant(data: {
+    restaurantName: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    timezone?: string;
+    adminEmail: string;
+    adminPassword: string;
+    adminFirstName: string;
+    adminLastName: string;
+    adminPin?: string;
+    adminPhone?: string;
+  }) {
+    const existingUser = await prisma.employee.findUnique({
+      where: { email: data.adminEmail.trim().toLowerCase() },
+    });
+
+    if (existingUser) {
+      throw new Error('An account with this administrator email already exists.');
+    }
+
+    const hashedPassword = await bcrypt.hash(data.adminPassword, 10);
+    const pin = data.adminPin || '1234';
+
+    return prisma.$transaction(async (tx) => {
+      // 1. Create Restaurant record
+      const restaurant = await tx.restaurant.create({
+        data: {
+          name: data.restaurantName.trim(),
+          address: data.address?.trim() || 'Default Address',
+          phone: data.phone?.trim() || '+1234567890',
+          email: data.email?.trim() || data.adminEmail.trim().toLowerCase(),
+          timezone: data.timezone || 'Asia/Karachi',
+        },
+      });
+
+      // 2. Create initial Admin Employee
+      const adminUser = await tx.employee.create({
+        data: {
+          email: data.adminEmail.trim().toLowerCase(),
+          passwordHash: hashedPassword,
+          firstName: data.adminFirstName.trim(),
+          lastName: data.adminLastName.trim(),
+          restaurantId: restaurant.id,
+          role: 'ADMIN',
+          pin,
+          phone: data.adminPhone || data.phone,
+          hourlyRate: 25.0,
+          isActive: true,
+        },
+      });
+
+      // 3. Create starter menu categories
+      const starterCategories = ['Burgers & Fast Food', 'Pizzas & Platters', 'Beverages & Drinks', 'Desserts'];
+      for (let i = 0; i < starterCategories.length; i++) {
+        await tx.category.create({
+          data: {
+            name: starterCategories[i],
+            displayOrder: i + 1,
+            restaurantId: restaurant.id,
+          },
+        });
+      }
+
+      // 4. Create default floor plan and starter tables
+      const floorPlan = await tx.floorPlan.create({
+        data: {
+          name: 'Main Dining Hall',
+          restaurantId: restaurant.id,
+          layout: JSON.stringify({ grid: 12 }),
+          isActive: true,
+        },
+      });
+
+      for (let t = 1; t <= 4; t++) {
+        await tx.table.create({
+          data: {
+            number: `T-${t}`,
+            floorPlanId: floorPlan.id,
+            capacity: 4,
+            minCapacity: 1,
+            x: (t - 1) * 120 + 20,
+            y: 50,
+            status: 'AVAILABLE',
+          },
+        });
+      }
+
+      // 5. Generate tokens
+      const { accessToken, refreshToken } = this.generateTokens({
+        id: adminUser.id,
+        email: adminUser.email,
+        role: adminUser.role,
+        restaurantId: restaurant.id,
+      });
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+
+      await tx.refreshToken.create({
+        data: {
+          token: refreshToken,
+          employeeId: adminUser.id,
+          expiresAt,
+        },
+      });
+
+      return {
+        message: 'Restaurant onboarded successfully',
+        restaurant: {
+          id: restaurant.id,
+          name: restaurant.name,
+          address: restaurant.address,
+          phone: restaurant.phone,
+          email: restaurant.email,
+        },
+        user: {
+          id: adminUser.id,
+          email: adminUser.email,
+          firstName: adminUser.firstName,
+          lastName: adminUser.lastName,
+          role: adminUser.role,
+          restaurantId: restaurant.id,
+          restaurantName: restaurant.name,
+        },
+        accessToken,
+        refreshToken,
+      };
+    });
+  }
+
   async register(data: {
     email: string;
     password: string;

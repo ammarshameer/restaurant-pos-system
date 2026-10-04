@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { dealService } from '../services/deal.service';
-import { authorize } from '../middleware/auth';
+import { authorize, getAuthenticatedRestaurantId } from '../middleware/auth';
 
 const router = Router();
 
 // Get active deals directly
 router.get('/active', async (req, res, next) => {
   try {
-    const restaurantId = (req.query.restaurantId as string) || 'rest-default-1';
+    const restaurantId = getAuthenticatedRestaurantId(req);
     const deals = await dealService.getActiveDeals(restaurantId);
     res.json(deals);
   } catch (error) {
@@ -18,7 +18,7 @@ router.get('/active', async (req, res, next) => {
 // Get all deals with pagination
 router.get('/', async (req, res, next) => {
   try {
-    const restaurantId = (req.query.restaurantId as string) || 'rest-default-1';
+    const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = parseInt(req.query.limit as string, 10) || 50;
     const search = req.query.search as string;
@@ -39,7 +39,8 @@ router.get('/', async (req, res, next) => {
 // Get active deals for specific restaurant
 router.get('/restaurant/:restaurantId/active', async (req, res, next) => {
   try {
-    const deals = await dealService.getActiveDeals(req.params.restaurantId);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const deals = await dealService.getActiveDeals(restaurantId);
     res.json(deals);
   } catch (error) {
     next(error);
@@ -49,12 +50,13 @@ router.get('/restaurant/:restaurantId/active', async (req, res, next) => {
 // Get all deals for specific restaurant with pagination
 router.get('/restaurant/:restaurantId', async (req, res, next) => {
   try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = parseInt(req.query.limit as string, 10) || 50;
     const search = req.query.search as string;
     const isActive = req.query.isActive !== undefined ? req.query.isActive === 'true' : undefined;
 
-    const result = await dealService.getDeals(req.params.restaurantId, {
+    const result = await dealService.getDeals(restaurantId, {
       page,
       limit,
       search,
@@ -69,7 +71,8 @@ router.get('/restaurant/:restaurantId', async (req, res, next) => {
 // Get single deal by ID
 router.get('/:id', async (req, res, next) => {
   try {
-    const deal = await dealService.getDealById(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const deal = await dealService.getDealById(req.params.id, restaurantId);
     if (!deal) {
       return res.status(404).json({ error: 'Deal not found' });
     }
@@ -82,7 +85,11 @@ router.get('/:id', async (req, res, next) => {
 // Create new deal
 router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const deal = await dealService.createDeal(req.body);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const deal = await dealService.createDeal({
+      ...req.body,
+      restaurantId,
+    });
     res.status(201).json(deal);
   } catch (error) {
     next(error);
@@ -92,7 +99,8 @@ router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
 // Toggle deal active status
 router.patch('/:id/toggle', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const deal = await dealService.toggleDealActive(req.params.id, req.body.isActive);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const deal = await dealService.toggleDealActive(req.params.id, req.body.isActive, restaurantId);
     res.json(deal);
   } catch (error) {
     next(error);
@@ -102,7 +110,8 @@ router.patch('/:id/toggle', authorize(['ADMIN', 'MANAGER']), async (req, res, ne
 // Update deal (PUT)
 router.put('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const deal = await dealService.updateDeal(req.params.id, req.body);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const deal = await dealService.updateDeal(req.params.id, req.body, restaurantId);
     res.json(deal);
   } catch (error) {
     next(error);
@@ -112,7 +121,8 @@ router.put('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
 // Update deal (PATCH)
 router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const deal = await dealService.updateDeal(req.params.id, req.body);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const deal = await dealService.updateDeal(req.params.id, req.body, restaurantId);
     res.json(deal);
   } catch (error) {
     next(error);
@@ -122,7 +132,8 @@ router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => 
 // Delete deal
 router.delete('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    await dealService.deleteDeal(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    await dealService.deleteDeal(req.params.id, restaurantId);
     res.status(204).send();
   } catch (error) {
     next(error);

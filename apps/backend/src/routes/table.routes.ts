@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { TableService } from '../services/table.service';
-import { authorize } from '../middleware/auth';
+import { authorize, getAuthenticatedRestaurantId } from '../middleware/auth';
 
 const router = Router();
 const tableService = new TableService();
@@ -8,7 +8,8 @@ const tableService = new TableService();
 // Get all tables for a floor plan
 router.get('/floor/:floorPlanId', async (req, res, next) => {
   try {
-    const tables = await tableService.getTablesByFloorPlan(req.params.floorPlanId);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const tables = await tableService.getTablesByFloorPlan(req.params.floorPlanId, restaurantId);
     res.json(tables);
   } catch (error) {
     next(error);
@@ -18,7 +19,8 @@ router.get('/floor/:floorPlanId', async (req, res, next) => {
 // Get single table
 router.get('/:id', async (req, res, next) => {
   try {
-    const table = await tableService.getTableById(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const table = await tableService.getTableById(req.params.id, restaurantId);
     if (!table) {
       return res.status(404).json({ error: 'Table not found' });
     }
@@ -31,7 +33,8 @@ router.get('/:id', async (req, res, next) => {
 // Create table
 router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const table = await tableService.createTable(req.body);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const table = await tableService.createTable(req.body, restaurantId);
     res.status(201).json(table);
   } catch (error) {
     next(error);
@@ -41,7 +44,8 @@ router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
 // Update table
 router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const table = await tableService.updateTable(req.params.id, req.body);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const table = await tableService.updateTable(req.params.id, req.body, restaurantId);
     res.json(table);
   } catch (error) {
     next(error);
@@ -51,7 +55,8 @@ router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => 
 // Update table status
 router.patch('/:id/status', async (req, res, next) => {
   try {
-    const table = await tableService.updateTableStatus(req.params.id, req.body);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const table = await tableService.updateTableStatus(req.params.id, req.body, restaurantId);
     res.json(table);
   } catch (error) {
     next(error);
@@ -61,7 +66,8 @@ router.patch('/:id/status', async (req, res, next) => {
 // Delete table
 router.delete('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    await tableService.deleteTable(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    await tableService.deleteTable(req.params.id, restaurantId);
     res.status(204).send();
   } catch (error) {
     next(error);
@@ -71,8 +77,9 @@ router.delete('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) =>
 // Combine tables
 router.post('/combine', authorize(['ADMIN', 'MANAGER', 'SERVER']), async (req, res, next) => {
   try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
     const { tableIds } = req.body;
-    const result = await tableService.combineTables(tableIds);
+    const result = await tableService.combineTables(tableIds, restaurantId);
     res.json(result);
   } catch (error) {
     next(error);
@@ -82,7 +89,8 @@ router.post('/combine', authorize(['ADMIN', 'MANAGER', 'SERVER']), async (req, r
 // Split tables
 router.post('/split/:id', authorize(['ADMIN', 'MANAGER', 'SERVER']), async (req, res, next) => {
   try {
-    const result = await tableService.splitTable(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const result = await tableService.splitTable(req.params.id, restaurantId);
     res.json(result);
   } catch (error) {
     next(error);

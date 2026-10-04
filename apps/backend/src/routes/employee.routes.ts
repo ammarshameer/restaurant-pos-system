@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { EmployeeService } from '../services/employee.service';
-import { authorize } from '../middleware/auth';
+import { authorize, getAuthenticatedRestaurantId } from '../middleware/auth';
 
 const router = Router();
 const employeeService = new EmployeeService();
@@ -8,7 +8,7 @@ const employeeService = new EmployeeService();
 // Get all employees with pagination
 router.get('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const restaurantId = (req.query.restaurantId as string) || 'rest-default-1';
+    const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = parseInt(req.query.limit as string, 10) || 50;
     const search = req.query.search as string;
@@ -28,12 +28,13 @@ router.get('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
 
 router.get('/restaurant/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = parseInt(req.query.limit as string, 10) || 50;
     const search = req.query.search as string;
     const role = req.query.role as string;
 
-    const result = await employeeService.getEmployees(req.params.restaurantId, {
+    const result = await employeeService.getEmployees(restaurantId, {
       page,
       limit,
       search,
@@ -48,7 +49,8 @@ router.get('/restaurant/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (
 // Get single employee
 router.get('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const employee = await employeeService.getEmployee(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const employee = await employeeService.getEmployee(req.params.id, restaurantId);
     if (!employee) {
       return res.status(404).json({ error: 'Employee not found' });
     }
@@ -61,7 +63,11 @@ router.get('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
 // Create employee
 router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const employee = await employeeService.createEmployee(req.body);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const employee = await employeeService.createEmployee({
+      ...req.body,
+      restaurantId,
+    });
     res.status(201).json(employee);
   } catch (error) {
     next(error);
@@ -71,7 +77,8 @@ router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
 // Update employee
 router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const employee = await employeeService.updateEmployee(req.params.id, req.body);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const employee = await employeeService.updateEmployee(req.params.id, req.body, restaurantId);
     res.json(employee);
   } catch (error) {
     next(error);
@@ -81,7 +88,8 @@ router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => 
 // Deactivate employee
 router.post('/:id/deactivate', authorize(['ADMIN']), async (req, res, next) => {
   try {
-    const employee = await employeeService.deactivateEmployee(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const employee = await employeeService.deactivateEmployee(req.params.id, restaurantId);
     res.json(employee);
   } catch (error) {
     next(error);
@@ -91,7 +99,8 @@ router.post('/:id/deactivate', authorize(['ADMIN']), async (req, res, next) => {
 // Clock in
 router.post('/:id/clock-in', async (req, res, next) => {
   try {
-    const shift = await employeeService.clockIn(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const shift = await employeeService.clockIn(req.params.id, restaurantId);
     res.json(shift);
   } catch (error) {
     next(error);
@@ -101,7 +110,8 @@ router.post('/:id/clock-in', async (req, res, next) => {
 // Clock out
 router.post('/:id/clock-out', async (req, res, next) => {
   try {
-    const shift = await employeeService.clockOut(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const shift = await employeeService.clockOut(req.params.id, restaurantId);
     res.json(shift);
   } catch (error) {
     next(error);
@@ -111,9 +121,10 @@ router.post('/:id/clock-out', async (req, res, next) => {
 // Get employee shifts
 router.get('/:id/shifts', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
     const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
     const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
-    const shifts = await employeeService.getEmployeeShifts(req.params.id, startDate, endDate);
+    const shifts = await employeeService.getEmployeeShifts(req.params.id, startDate, endDate, restaurantId);
     res.json(shifts);
   } catch (error) {
     next(error);
@@ -123,7 +134,8 @@ router.get('/:id/shifts', authorize(['ADMIN', 'MANAGER']), async (req, res, next
 // Get active shifts
 router.get('/restaurant/:restaurantId/active-shifts', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const shifts = await employeeService.getActiveShifts(req.params.restaurantId);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const shifts = await employeeService.getActiveShifts(restaurantId);
     res.json(shifts);
   } catch (error) {
     next(error);

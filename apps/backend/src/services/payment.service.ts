@@ -15,7 +15,19 @@ export class PaymentService {
     method?: PaymentMethod;
     splitNumber?: number;
     transactionId?: string;
-  }) {
+  }, restaurantId?: string) {
+    const order = await prisma.order.findFirst({
+      where: {
+        id: data.orderId,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+      include: { payments: true },
+    });
+
+    if (!order) {
+      throw new Error('Order not found or unauthorized');
+    }
+
     const payment = await prisma.payment.create({
       data: {
         orderId: data.orderId,
@@ -30,28 +42,40 @@ export class PaymentService {
     });
 
     // Check if order is now fully paid
-    const order = await prisma.order.findUnique({
+    const updatedOrder = await prisma.order.findUnique({
       where: { id: data.orderId },
       include: { payments: true },
     });
 
-    if (order) {
-      const totalPaid = order.payments
+    if (updatedOrder) {
+      const totalPaid = updatedOrder.payments
         .filter((p) => p.status === 'COMPLETED')
         .reduce((sum, p) => sum + Number(p.amount), 0);
 
-      const orderTotal = Number(order.total);
+      const orderTotal = Number(updatedOrder.total);
 
       if (totalPaid >= orderTotal - 0.01) {
         // Complete order & deduct inventory
-        await orderService.completeOrder(order.id);
+        await orderService.completeOrder(updatedOrder.id, updatedOrder.restaurantId);
       }
     }
 
     return payment;
   }
 
-  async confirmPayment(paymentId: string) {
+  async confirmPayment(paymentId: string, restaurantId?: string) {
+    const existingPayment = await prisma.payment.findFirst({
+      where: {
+        id: paymentId,
+        ...(restaurantId ? { order: { restaurantId } } : {}),
+      },
+      include: { order: true },
+    });
+
+    if (!existingPayment) {
+      throw new Error('Payment not found or unauthorized');
+    }
+
     const payment = await prisma.payment.update({
       where: { id: paymentId },
       data: {
@@ -74,20 +98,23 @@ export class PaymentService {
       const orderTotal = Number(order.total);
 
       if (totalPaid >= orderTotal - 0.01) {
-        await orderService.completeOrder(order.id);
+        await orderService.completeOrder(order.id, order.restaurantId);
       }
     }
 
     return payment;
   }
 
-  async processRefund(paymentId: string, _amount?: number) {
-    const payment = await prisma.payment.findUnique({
-      where: { id: paymentId },
+  async processRefund(paymentId: string, _amount?: number, restaurantId?: string) {
+    const payment = await prisma.payment.findFirst({
+      where: {
+        id: paymentId,
+        ...(restaurantId ? { order: { restaurantId } } : {}),
+      },
     });
 
     if (!payment) {
-      throw new Error('Payment not found');
+      throw new Error('Payment not found or unauthorized');
     }
 
     const updatedPayment = await prisma.payment.update({
@@ -102,15 +129,19 @@ export class PaymentService {
 
   async splitBill(
     orderId: string,
-    splits: Array<{ amount: number; method?: PaymentMethod }>
+    splits: Array<{ amount: number; method?: PaymentMethod }>,
+    restaurantId?: string
   ) {
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
+    const order = await prisma.order.findFirst({
+      where: {
+        id: orderId,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
       include: { items: { include: { menuItem: true } } },
     });
 
     if (!order) {
-      throw new Error('Order not found');
+      throw new Error('Order not found or unauthorized');
     }
 
     const total = Number(order.total);
@@ -127,14 +158,25 @@ export class PaymentService {
           amount: split.amount,
           method: split.method || 'CASH',
           splitNumber: index + 1,
-        })
+        }, order.restaurantId)
       )
     );
 
     return payments;
   }
 
-  async getPaymentsByOrder(orderId: string) {
+  async getPaymentsByOrder(orderId: string, restaurantId?: string) {
+    const order = await prisma.order.findFirst({
+      where: {
+        id: orderId,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!order) {
+      throw new Error('Order not found or unauthorized');
+    }
+
     return prisma.payment.findMany({
       where: { orderId },
       orderBy: { createdAt: 'desc' },
@@ -226,10 +268,13 @@ export class PaymentService {
   /**
    * Generates structured receipt and invoice data with restaurant profile and item breakdown
    */
-  async getReceiptData(paymentIdOrOrderId: string) {
+  async getReceiptData(paymentIdOrOrderId: string, restaurantId?: string) {
     // Try finding by payment ID first
-    let payment = await prisma.payment.findUnique({
-      where: { id: paymentIdOrOrderId },
+    let payment = await prisma.payment.findFirst({
+      where: {
+        id: paymentIdOrOrderId,
+        ...(restaurantId ? { order: { restaurantId } } : {}),
+      },
       include: {
         order: {
           include: {
@@ -260,8 +305,11 @@ export class PaymentService {
 
     if (!order) {
       // Find directly by order ID
-      order = await prisma.order.findUnique({
-        where: { id: paymentIdOrOrderId },
+      order = await prisma.order.findFirst({
+        where: {
+          id: paymentIdOrOrderId,
+          ...(restaurantId ? { restaurantId } : {}),
+        },
         include: {
           restaurant: true,
           table: true,
@@ -289,7 +337,7 @@ export class PaymentService {
     }
 
     if (!order) {
-      throw new Error('Order or Payment not found');
+      throw new Error('Order or Payment not found or unauthorized');
     }
 
     const restaurant = order.restaurant;

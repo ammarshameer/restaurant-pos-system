@@ -1,17 +1,24 @@
 import { Router } from 'express';
 import { AnalyticsService } from '../services/analytics.service';
-import { authorize } from '../middleware/auth';
+import { authorize, getAuthenticatedRestaurantId } from '../middleware/auth';
 
 const router = Router();
 const analyticsService = new AnalyticsService();
 
+// Helper to parse dates with defaults
+const parseDateRange = (query: any) => {
+  const startDate = query.startDate ? new Date(query.startDate as string) : new Date(0);
+  const endDate = query.endDate ? new Date(query.endDate as string) : new Date();
+  return { startDate, endDate };
+};
+
 // Get sales analytics
-router.get('/sales/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.get(['/sales', '/sales/:restaurantId'], authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const startDate = new Date(req.query.startDate as string);
-    const endDate = new Date(req.query.endDate as string);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const { startDate, endDate } = parseDateRange(req.query);
     const analytics = await analyticsService.getSalesAnalytics(
-      req.params.restaurantId,
+      restaurantId,
       startDate,
       endDate
     );
@@ -22,33 +29,14 @@ router.get('/sales/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, 
 });
 
 // Get product & deal sales revenue breakdown with pagination
-router.get('/product-sales/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.get(['/product-sales', '/product-sales/:restaurantId', '/product-revenue', '/product-revenue/:restaurantId'], authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const startDate = new Date(req.query.startDate as string);
-    const endDate = new Date(req.query.endDate as string);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const { startDate, endDate } = parseDateRange(req.query);
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = parseInt(req.query.limit as string, 10) || 50;
     const result = await analyticsService.getProductRevenueBreakdown(
-      req.params.restaurantId,
-      startDate,
-      endDate,
-      { page, limit }
-    );
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Alias for product-revenue
-router.get('/product-revenue/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
-  try {
-    const startDate = new Date(req.query.startDate as string);
-    const endDate = new Date(req.query.endDate as string);
-    const page = parseInt(req.query.page as string, 10) || 1;
-    const limit = parseInt(req.query.limit as string, 10) || 50;
-    const result = await analyticsService.getProductRevenueBreakdown(
-      req.params.restaurantId,
+      restaurantId,
       startDate,
       endDate,
       { page, limit }
@@ -60,14 +48,14 @@ router.get('/product-revenue/:restaurantId', authorize(['ADMIN', 'MANAGER']), as
 });
 
 // Get top selling items with pagination
-router.get('/top-items/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.get(['/top-items', '/top-items/:restaurantId'], authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const startDate = new Date(req.query.startDate as string);
-    const endDate = new Date(req.query.endDate as string);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const { startDate, endDate } = parseDateRange(req.query);
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = parseInt(req.query.limit as string, 10) || 50;
     const result = await analyticsService.getTopSellingItems(
-      req.params.restaurantId,
+      restaurantId,
       startDate,
       endDate,
       { page, limit }
@@ -79,10 +67,11 @@ router.get('/top-items/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (r
 });
 
 // Get revenue by hour
-router.get('/revenue-by-hour/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.get(['/revenue-by-hour', '/revenue-by-hour/:restaurantId'], authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const date = new Date(req.query.date as string);
-    const data = await analyticsService.getRevenueByHour(req.params.restaurantId, date);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const date = req.query.date ? new Date(req.query.date as string) : new Date();
+    const data = await analyticsService.getRevenueByHour(restaurantId, date);
     res.json(data);
   } catch (error) {
     next(error);
@@ -90,12 +79,12 @@ router.get('/revenue-by-hour/:restaurantId', authorize(['ADMIN', 'MANAGER']), as
 });
 
 // Get table performance
-router.get('/tables/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.get(['/tables', '/tables/:restaurantId'], authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const startDate = new Date(req.query.startDate as string);
-    const endDate = new Date(req.query.endDate as string);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const { startDate, endDate } = parseDateRange(req.query);
     const performance = await analyticsService.getTablePerformance(
-      req.params.restaurantId,
+      restaurantId,
       startDate,
       endDate
     );
@@ -106,12 +95,12 @@ router.get('/tables/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req,
 });
 
 // Get employee performance
-router.get('/employees/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.get(['/employees', '/employees/:restaurantId'], authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const startDate = new Date(req.query.startDate as string);
-    const endDate = new Date(req.query.endDate as string);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const { startDate, endDate } = parseDateRange(req.query);
     const performance = await analyticsService.getEmployeePerformance(
-      req.params.restaurantId,
+      restaurantId,
       startDate,
       endDate
     );
@@ -122,9 +111,10 @@ router.get('/employees/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (r
 });
 
 // Get dashboard summary
-router.get('/dashboard/:restaurantId', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.get(['/dashboard', '/dashboard/:restaurantId'], authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   try {
-    const summary = await analyticsService.getDashboardSummary(req.params.restaurantId);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const summary = await analyticsService.getDashboardSummary(restaurantId);
     res.json(summary);
   } catch (error) {
     next(error);

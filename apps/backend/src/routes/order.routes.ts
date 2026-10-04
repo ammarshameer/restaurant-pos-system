@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { OrderService } from '../services/order.service';
+import { getAuthenticatedRestaurantId } from '../middleware/auth';
 
 const router = Router();
 const orderService = new OrderService();
@@ -7,7 +8,11 @@ const orderService = new OrderService();
 // Create new order
 router.post('/', async (req, res, next) => {
   try {
-    const order = await orderService.createOrder(req.body);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const order = await orderService.createOrder({
+      ...req.body,
+      restaurantId,
+    });
     res.status(201).json(order);
   } catch (error) {
     next(error);
@@ -17,7 +22,7 @@ router.post('/', async (req, res, next) => {
 // Get all orders with pagination support
 router.get('/', async (req, res, next) => {
   try {
-    const restaurantId = (req.query.restaurantId as string) || 'rest-default-1';
+    const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = parseInt(req.query.limit as string, 10) || 50;
     const search = req.query.search as string;
@@ -42,6 +47,7 @@ router.get('/', async (req, res, next) => {
 // Get all orders for restaurant with pagination
 router.get('/restaurant/:restaurantId', async (req, res, next) => {
   try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = parseInt(req.query.limit as string, 10) || 50;
     const search = req.query.search as string;
@@ -49,7 +55,7 @@ router.get('/restaurant/:restaurantId', async (req, res, next) => {
     const paymentStatus = req.query.paymentStatus as string;
     const status = req.query.status as string;
 
-    const result = await orderService.getAllOrdersByRestaurant(req.params.restaurantId, {
+    const result = await orderService.getAllOrdersByRestaurant(restaurantId, {
       page,
       limit,
       search,
@@ -66,7 +72,8 @@ router.get('/restaurant/:restaurantId', async (req, res, next) => {
 // Get active orders for restaurant
 router.get('/restaurant/:restaurantId/active', async (req, res, next) => {
   try {
-    const orders = await orderService.getActiveOrders(req.params.restaurantId);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const orders = await orderService.getActiveOrders(restaurantId);
     res.json(orders);
   } catch (error) {
     next(error);
@@ -76,7 +83,8 @@ router.get('/restaurant/:restaurantId/active', async (req, res, next) => {
 // Get order by ID
 router.get('/:id', async (req, res, next) => {
   try {
-    const order = await orderService.getOrderById(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const order = await orderService.getOrderById(req.params.id, restaurantId);
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
     }
@@ -89,7 +97,8 @@ router.get('/:id', async (req, res, next) => {
 // Update order / invoice details
 router.patch('/:id', async (req, res, next) => {
   try {
-    const order = await orderService.updateOrder(req.params.id, req.body);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const order = await orderService.updateOrder(req.params.id, req.body, restaurantId);
     res.json(order);
   } catch (error) {
     next(error);
@@ -98,7 +107,8 @@ router.patch('/:id', async (req, res, next) => {
 
 router.put('/:id', async (req, res, next) => {
   try {
-    const order = await orderService.updateOrder(req.params.id, req.body);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const order = await orderService.updateOrder(req.params.id, req.body, restaurantId);
     res.json(order);
   } catch (error) {
     next(error);
@@ -108,7 +118,8 @@ router.put('/:id', async (req, res, next) => {
 // Delete / void order
 router.delete('/:id', async (req, res, next) => {
   try {
-    await orderService.deleteOrder(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    await orderService.deleteOrder(req.params.id, restaurantId);
     res.status(204).send();
   } catch (error) {
     next(error);
@@ -118,7 +129,8 @@ router.delete('/:id', async (req, res, next) => {
 // Add items to order
 router.post('/:id/items', async (req, res, next) => {
   try {
-    const order = await orderService.addItemsToOrder(req.params.id, req.body.items);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const order = await orderService.addItemsToOrder(req.params.id, req.body.items, restaurantId);
     res.json(order);
   } catch (error) {
     next(error);
@@ -128,7 +140,8 @@ router.post('/:id/items', async (req, res, next) => {
 // Update order item status
 router.patch('/items/:itemId/status', async (req, res, next) => {
   try {
-    const item = await orderService.updateOrderItemStatus(req.params.itemId, req.body.status);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const item = await orderService.updateOrderItemStatus(req.params.itemId, req.body.status, restaurantId);
     res.json(item);
   } catch (error) {
     next(error);
@@ -138,7 +151,8 @@ router.patch('/items/:itemId/status', async (req, res, next) => {
 // Update order status
 router.patch('/:id/status', async (req, res, next) => {
   try {
-    const order = await orderService.updateOrderStatus(req.params.id, req.body.status);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const order = await orderService.updateOrderStatus(req.params.id, req.body.status, restaurantId);
     res.json(order);
   } catch (error) {
     next(error);
@@ -148,7 +162,8 @@ router.patch('/:id/status', async (req, res, next) => {
 // Complete order
 router.post('/:id/complete', async (req, res, next) => {
   try {
-    const order = await orderService.completeOrder(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const order = await orderService.completeOrder(req.params.id, restaurantId);
     res.json(order);
   } catch (error) {
     next(error);
@@ -158,7 +173,8 @@ router.post('/:id/complete', async (req, res, next) => {
 // Cancel order
 router.post('/:id/cancel', async (req, res, next) => {
   try {
-    const order = await orderService.cancelOrder(req.params.id, req.body.reason);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const order = await orderService.cancelOrder(req.params.id, req.body.reason, restaurantId);
     res.json(order);
   } catch (error) {
     next(error);
@@ -168,7 +184,8 @@ router.post('/:id/cancel', async (req, res, next) => {
 // Get order total
 router.get('/:id/total', async (req, res, next) => {
   try {
-    const total = await orderService.getOrderTotal(req.params.id);
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const total = await orderService.getOrderTotal(req.params.id, restaurantId);
     res.json(total);
   } catch (error) {
     next(error);

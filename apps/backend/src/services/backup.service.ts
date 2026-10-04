@@ -10,7 +10,22 @@ export class BackupService {
     this.resolvePaths();
   }
 
+  private isSQLite(): boolean {
+    const rawDbUrl = process.env.DATABASE_URL || '';
+    const provider = (process.env.DATABASE_PROVIDER || '').toLowerCase();
+    if (provider === 'postgresql' || provider === 'postgres' || rawDbUrl.startsWith('postgresql:') || rawDbUrl.startsWith('postgres:')) {
+      return false;
+    }
+    return true;
+  }
+
   public resolvePaths() {
+    if (!this.isSQLite()) {
+      this.dbPath = null;
+      this.backupsDir = null;
+      return;
+    }
+
     const rawDbUrl = process.env.DATABASE_URL || 'file:./prisma/dev.db';
     let cleanPath = rawDbUrl.replace(/^file:/, '').split('?')[0];
 
@@ -44,7 +59,7 @@ export class BackupService {
   }
 
   enforceRetention(maxCount = 30) {
-    if (!this.backupsDir || !fs.existsSync(this.backupsDir)) return;
+    if (!this.isSQLite() || !this.backupsDir || !fs.existsSync(this.backupsDir)) return;
 
     try {
       const files = fs.readdirSync(this.backupsDir);
@@ -74,6 +89,11 @@ export class BackupService {
   }
 
   performBackup(triggerReason = 'startup'): boolean {
+    if (!this.isSQLite()) {
+      console.log(`[Backup] Cloud/PostgreSQL database detected. Automated backups are managed by cloud database provider.`);
+      return true;
+    }
+
     if (!this.dbPath || !fs.existsSync(this.dbPath)) {
       console.warn(`[Backup] Source SQLite database file not found at: ${this.dbPath}`);
       return false;

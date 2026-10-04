@@ -22,17 +22,11 @@ export class DealService {
       isActive?: boolean;
     }
   ) {
-    let resolvedRestId = restaurantId;
-    if (!resolvedRestId || resolvedRestId === 'rest-default-1') {
-      const firstRest = await prisma.restaurant.findFirst();
-      resolvedRestId = firstRest?.id || 'rest-default-1';
-    }
-
     const page = Math.max(1, Number(options?.page) || 1);
     const limit = Math.max(1, Number(options?.limit) || 50);
     const skip = (page - 1) * limit;
 
-    const whereClause: any = { restaurantId: resolvedRestId };
+    const whereClause: any = { restaurantId };
 
     if (options?.isActive !== undefined) {
       whereClause.isActive = options.isActive;
@@ -79,15 +73,9 @@ export class DealService {
   }
 
   async getActiveDeals(restaurantId: string) {
-    let resolvedRestId = restaurantId;
-    if (!resolvedRestId || resolvedRestId === 'rest-default-1') {
-      const firstRest = await prisma.restaurant.findFirst();
-      resolvedRestId = firstRest?.id || 'rest-default-1';
-    }
-
     const deals = await prisma.deal.findMany({
       where: {
-        restaurantId: resolvedRestId,
+        restaurantId,
         isActive: true,
       },
       include: {
@@ -107,9 +95,12 @@ export class DealService {
     return deals.map(formatDealResponse);
   }
 
-  async getDealById(id: string) {
-    const deal = await prisma.deal.findUnique({
-      where: { id },
+  async getDealById(id: string, restaurantId?: string) {
+    const deal = await prisma.deal.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
       include: {
         items: {
           include: {
@@ -126,21 +117,20 @@ export class DealService {
     return formatDealResponse(deal);
   }
 
-  async createDeal(restaurantIdOrData: any, maybeData?: any) {
-    let restaurantId: string;
-    let data: any;
-
-    if (typeof restaurantIdOrData === 'string') {
-      restaurantId = restaurantIdOrData;
-      data = maybeData || {};
-    } else {
-      data = restaurantIdOrData || {};
-      restaurantId = data.restaurantId;
-    }
-
-    if (!restaurantId || restaurantId === 'rest-default-1') {
-      const firstRest = await prisma.restaurant.findFirst();
-      restaurantId = firstRest?.id || 'rest-default-1';
+  async createDeal(data: {
+    id?: string;
+    name: string;
+    description?: string;
+    price: number;
+    isActive?: boolean;
+    imageUrl?: string;
+    restaurantId: string;
+    items?: any[];
+    dealItems?: any[];
+  }) {
+    const restaurantId = data.restaurantId;
+    if (!restaurantId) {
+      throw new Error('restaurantId is required to create a deal');
     }
 
     const rawList = data.items || data.dealItems || [];
@@ -183,13 +173,16 @@ export class DealService {
     return formatDealResponse(created);
   }
 
-  async updateDeal(id: string, data: any) {
-    const existing = await prisma.deal.findUnique({
-      where: { id },
+  async updateDeal(id: string, data: any, restaurantId?: string) {
+    const existing = await prisma.deal.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
     });
 
     if (!existing) {
-      throw new Error('Deal not found');
+      throw new Error('Deal not found or unauthorized');
     }
 
     const updateData: any = {};
@@ -198,7 +191,6 @@ export class DealService {
     if (data.price !== undefined) updateData.price = Number(data.price);
     if (data.isActive !== undefined) updateData.isActive = Boolean(data.isActive);
     if (data.imageUrl !== undefined) updateData.imageUrl = data.imageUrl?.trim() || null;
-    if (data.restaurantId !== undefined) updateData.restaurantId = data.restaurantId;
 
     return prisma.$transaction(async (tx) => {
       const itemsList = data.items !== undefined ? data.items : data.dealItems;
@@ -242,18 +234,21 @@ export class DealService {
     });
   }
 
-  async toggleDealActive(id: string, restaurantIdOrIsActive?: any) {
-    const existing = await prisma.deal.findUnique({
-      where: { id },
+  async toggleDealActive(id: string, isActive?: boolean, restaurantId?: string) {
+    const existing = await prisma.deal.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
     });
 
     if (!existing) {
-      throw new Error('Deal not found');
+      throw new Error('Deal not found or unauthorized');
     }
 
     const nextState =
-      typeof restaurantIdOrIsActive === 'boolean'
-        ? restaurantIdOrIsActive
+      typeof isActive === 'boolean'
+        ? isActive
         : !existing.isActive;
 
     const updated = await prisma.deal.update({
@@ -276,6 +271,17 @@ export class DealService {
   }
 
   async deleteDeal(id: string, restaurantId?: string) {
+    const existing = await prisma.deal.findFirst({
+      where: {
+        id,
+        ...(restaurantId ? { restaurantId } : {}),
+      },
+    });
+
+    if (!existing) {
+      throw new Error('Deal not found or unauthorized');
+    }
+
     return prisma.deal.delete({
       where: { id },
     });
