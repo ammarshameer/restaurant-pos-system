@@ -259,6 +259,69 @@ async function main() {
 
   console.log('✓ Menu items seeded');
 
+  // 5.1 Create Sample Deals
+  const dealsData = [
+    {
+      id: 'deal-1',
+      name: 'Classic Burger & Float Combo',
+      description: 'Classic Smash Burger + Loaded Cheese Fries + Craft Root Beer Float',
+      price: 1999,
+      isActive: true,
+      items: [
+        { menuItemId: 'm1', quantity: 1 },
+        { menuItemId: 'm4', quantity: 1 },
+        { menuItemId: 'm8', quantity: 1 },
+      ],
+    },
+    {
+      id: 'deal-2',
+      name: 'Pizza & Wings Party Bundle',
+      description: 'Wood-Fired Margherita Pizza + 8pc Buffalo Wings + 2x Iced Caramel Lattes',
+      price: 2799,
+      isActive: true,
+      items: [
+        { menuItemId: 'm5', quantity: 1 },
+        { menuItemId: 'm3', quantity: 1 },
+        { menuItemId: 'm7', quantity: 2 },
+      ],
+    },
+    {
+      id: 'deal-3',
+      name: 'Twin Truffle Burger Duo',
+      description: '2x Truffle Bacon Burgers + Large Loaded Cheese Fries',
+      price: 2999,
+      isActive: true,
+      items: [
+        { menuItemId: 'm2', quantity: 2 },
+        { menuItemId: 'm4', quantity: 1 },
+      ],
+    },
+  ];
+
+  for (const deal of dealsData) {
+    const existing = await prisma.deal.findUnique({ where: { id: deal.id } });
+    if (!existing) {
+      await prisma.deal.create({
+        data: {
+          id: deal.id,
+          name: deal.name,
+          description: deal.description,
+          price: deal.price,
+          isActive: deal.isActive,
+          restaurantId: restaurant.id,
+          items: {
+            create: deal.items.map((di) => ({
+              menuItemId: di.menuItemId,
+              quantity: di.quantity,
+            })),
+          },
+        },
+      });
+    }
+  }
+
+  console.log('✓ Deals seeded');
+
   // 6. Create Inventory Items & Transactions
   const inventoryData = [
     { id: 'inv-1', name: 'Fresh Angus Beef Patties', sku: 'BEEF-001', category: 'Meat', quantity: 18, unit: 'lbs', reorderPoint: 20, costPerUnit: 650 },

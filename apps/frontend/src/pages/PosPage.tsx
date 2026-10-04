@@ -8,16 +8,22 @@ import { socketClient } from '../lib/socket';
 import { formatPKR } from '../utils/format';
 import { menuApi } from '../api/menu.api';
 import { orderApi } from '../api/order.api';
+import { dealApi } from '../api/deal.api';
+import { Deal } from '../types/deal.types';
 import { getCategoryVisual } from '../utils/image';
 
 export type OrderType = 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY';
 
 interface CartItem {
-  menuItemId: string;
+  id: string;
+  menuItemId?: string;
+  dealId?: string;
+  isDeal?: boolean;
   name: string;
   price: number;
   quantity: number;
   notes?: string;
+  dealComponents?: string[];
 }
 
 export const PosPage: React.FC = () => {
@@ -25,16 +31,27 @@ export const PosPage: React.FC = () => {
   const authUser = useSelector((state: RootState) => state.auth.user);
   const menuItems = useSelector((state: RootState) => state.menu.items);
   const menuCategories = useSelector((state: RootState) => state.menu.categories);
+  const [deals, setDeals] = useState<Deal[]>([]);
 
-  // Sync menu items from Database on mount
+  // Sync menu items & active deals from Database on mount
   useEffect(() => {
-    const fetchDbMenu = async () => {
-      const dbItems = await menuApi.getMenu();
-      if (dbItems && dbItems.length > 0) {
-        dispatch(setMenuItems(dbItems));
+    const fetchDbData = async () => {
+      try {
+        const [dbItems, activeDeals] = await Promise.all([
+          menuApi.getMenu(),
+          dealApi.getActiveDeals(),
+        ]);
+        if (dbItems && dbItems.length > 0) {
+          dispatch(setMenuItems(dbItems));
+        }
+        if (activeDeals) {
+          setDeals(activeDeals);
+        }
+      } catch (err) {
+        console.warn('Failed to load menu or deals:', err);
       }
     };
-    fetchDbMenu();
+    fetchDbData();
   }, [dispatch]);
 
   // Order Type state: DINE_IN | TAKE_AWAY | DELIVERY
@@ -117,14 +134,29 @@ export const PosPage: React.FC = () => {
     return getOrderTypeLabel(orderType);
   };
 
-  const filteredItems = menuItems.filter((item) => {
-    const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
+  const isDealsTab = selectedCategory === '🎁 Deals & Combos';
+
+  const filteredDeals = deals.filter((deal) => {
+    const matchesCategory = selectedCategory === 'All' || isDealsTab;
     const matchesSearch =
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.category.toLowerCase().includes(searchQuery.toLowerCase());
+      deal.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (deal.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (deal.dealItems || []).some((di) =>
+        (di.menuItem?.name || '').toLowerCase().includes(searchQuery.toLowerCase())
+      );
     return matchesCategory && matchesSearch;
   });
+
+  const filteredItems = isDealsTab
+    ? []
+    : menuItems.filter((item) => {
+        const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
+        const matchesSearch =
+          item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          item.category.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchesCategory && matchesSearch;
+      });
 
   const addToCart = (item: MenuItem) => {
     if (item.is86d) {
@@ -133,21 +165,62 @@ export const PosPage: React.FC = () => {
       return;
     }
     setCart((prev) => {
-      const existing = prev.find((i) => i.menuItemId === item.id);
+      const existing = prev.find((i) => !i.isDeal && i.menuItemId === item.id);
       if (existing) {
         return prev.map((i) =>
-          i.menuItemId === item.id ? { ...i, quantity: i.quantity + 1 } : i
+          !i.isDeal && i.menuItemId === item.id ? { ...i, quantity: i.quantity + 1 } : i
         );
       }
-      return [...prev, { menuItemId: item.id, name: item.name, price: item.price, quantity: 1 }];
+      return [
+        ...prev,
+        {
+          id: `menu-${item.id}`,
+          menuItemId: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: 1,
+        },
+      ];
     });
   };
 
-  const updateQuantity = (menuItemId: string, delta: number) => {
+  const addDealToCart = (deal: Deal) => {
+    if (!deal.isActive) {
+      setNotification(`⚠️ "${deal.name}" is currently inactive.`);
+      setTimeout(() => setNotification(null), 3500);
+      return;
+    }
+    setCart((prev) => {
+      const existing = prev.find((i) => i.isDeal && i.dealId === deal.id);
+      if (existing) {
+        return prev.map((i) =>
+          i.isDeal && i.dealId === deal.id ? { ...i, quantity: i.quantity + 1 } : i
+        );
+      }
+      const dealComponents =
+        deal.dealItems?.map(
+          (di) => `${di.quantity}x ${di.menuItem?.name || 'Item'}`
+        ) || [];
+      return [
+        ...prev,
+        {
+          id: `deal-${deal.id}`,
+          dealId: deal.id,
+          isDeal: true,
+          name: deal.name,
+          price: deal.price,
+          quantity: 1,
+          dealComponents,
+        },
+      ];
+    });
+  };
+
+  const updateQuantity = (cartItemId: string, delta: number) => {
     setCart((prev) =>
       prev
         .map((item) => {
-          if (item.menuItemId === menuItemId) {
+          if (item.id === cartItemId || item.menuItemId === cartItemId || item.dealId === cartItemId) {
             const newQty = item.quantity + delta;
             return newQty > 0 ? { ...item, quantity: newQty } : null;
           }
@@ -157,9 +230,13 @@ export const PosPage: React.FC = () => {
     );
   };
 
-  const updateItemNotes = (menuItemId: string, notes: string) => {
+  const updateItemNotes = (cartItemId: string, notes: string) => {
     setCart((prev) =>
-      prev.map((i) => (i.menuItemId === menuItemId ? { ...i, notes } : i))
+      prev.map((i) =>
+        i.id === cartItemId || i.menuItemId === cartItemId || i.dealId === cartItemId
+          ? { ...i, notes }
+          : i
+      )
     );
   };
 
@@ -197,7 +274,10 @@ export const PosPage: React.FC = () => {
       server: authUser || { firstName: 'Alex', lastName: 'Morgan' },
       items: cart.map((c) => ({
         id: `oi-${Math.random().toString(36).substring(2, 7)}`,
-        menuItemId: c.menuItemId,
+        menuItemId: c.menuItemId || undefined,
+        dealId: c.dealId || undefined,
+        isDeal: Boolean(c.isDeal),
+        dealComponents: c.dealComponents,
         name: c.name,
         quantity: c.quantity,
         price: c.price,
@@ -254,7 +334,9 @@ export const PosPage: React.FC = () => {
         .filter(Boolean)
         .join(' • '),
       items: cart.map((c) => ({
-        name: c.name,
+        name: c.isDeal ? `🎁 ${c.name}` : c.name,
+        isDeal: Boolean(c.isDeal),
+        dealComponents: c.dealComponents,
         quantity: c.quantity,
         unitPrice: c.price,
         total: c.price * c.quantity,
@@ -306,7 +388,10 @@ export const PosPage: React.FC = () => {
       server: authUser || { firstName: 'Alex', lastName: 'Morgan' },
       items: cart.map((c) => ({
         id: `oi-${Math.random().toString(36).substring(2, 7)}`,
-        menuItemId: c.menuItemId,
+        menuItemId: c.menuItemId || undefined,
+        dealId: c.dealId || undefined,
+        isDeal: Boolean(c.isDeal),
+        dealComponents: c.dealComponents,
         name: c.name,
         quantity: c.quantity,
         price: c.price,
@@ -356,7 +441,9 @@ export const PosPage: React.FC = () => {
         .filter(Boolean)
         .join(' • '),
       items: cart.map((c) => ({
-        name: c.name,
+        name: c.isDeal ? `🎁 ${c.name}` : c.name,
+        isDeal: Boolean(c.isDeal),
+        dealComponents: c.dealComponents,
         quantity: c.quantity,
         unitPrice: c.price,
         total: c.price * c.quantity,
@@ -551,24 +638,33 @@ export const PosPage: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-            {menuCategories.map((cat) => (
+            {['All', '🎁 Deals & Combos', ...menuCategories.filter((c) => c !== 'All')].map((cat) => (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
                 className={`btn btn-sm ${
                   selectedCategory === cat ? 'btn-primary' : 'btn-secondary'
                 }`}
-                style={{ flexShrink: 0 }}
+                style={{
+                  flexShrink: 0,
+                  background:
+                    cat === '🎁 Deals & Combos' && selectedCategory === cat
+                      ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
+                      : undefined,
+                  borderColor:
+                    cat === '🎁 Deals & Combos' ? '#818cf8' : undefined,
+                  fontWeight: cat === '🎁 Deals & Combos' ? 700 : 500,
+                }}
               >
-                {cat}
+                {cat} {cat === '🎁 Deals & Combos' && deals.length > 0 ? `(${deals.length})` : ''}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Menu Items Grid */}
+        {/* Menu Items & Deals Grid */}
         <div className="menu-grid">
-          {filteredItems.length === 0 ? (
+          {filteredDeals.length === 0 && filteredItems.length === 0 ? (
             <div
               style={{
                 gridColumn: '1 / -1',
@@ -578,109 +674,247 @@ export const PosPage: React.FC = () => {
               }}
             >
               <div style={{ fontSize: '40px', marginBottom: '8px' }}>🍽️</div>
-              <div style={{ fontWeight: 700, fontSize: '16px' }}>No items match your filter</div>
+              <div style={{ fontWeight: 700, fontSize: '16px' }}>No menu items or deals match your filter</div>
               <div style={{ fontSize: '13px', marginTop: '4px' }}>
-                Manage or add dishes from the "Menu & Recipes" management page.
+                Manage dishes in "Menu & Recipes" or combo packages in "Deals & Combos".
               </div>
             </div>
           ) : (
-            filteredItems.map((item) => {
-              const isAvailable = !item.is86d && item.isAvailable;
-              const visual = getCategoryVisual(item.category);
-
-              return (
-                <div
-                  key={item.id}
-                  className={`menu-card ${!isAvailable ? 'unavailable' : ''}`}
-                  onClick={() => isAvailable && addToCart(item)}
-                  style={{
-                    opacity: isAvailable ? 1 : 0.6,
-                    cursor: isAvailable ? 'pointer' : 'not-allowed',
-                  }}
-                >
-                  {/* Dish Image / Visual Banner */}
-                  <div className="menu-card-image-wrap">
-                    {item.imageUrl ? (
-                      <img
-                        src={item.imageUrl}
-                        alt={item.name}
-                        className="menu-card-img"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div
-                        className="menu-card-placeholder"
-                        style={{ background: visual.gradient }}
-                      >
-                        <span>{visual.icon}</span>
-                      </div>
-                    )}
-                    <span
-                      style={{
-                        position: 'absolute',
-                        top: '6px',
-                        right: '6px',
-                        background: 'rgba(15, 23, 42, 0.85)',
-                        backdropFilter: 'blur(4px)',
-                        color: '#38bdf8',
-                        fontWeight: 800,
-                        fontSize: '12px',
-                        padding: '2px 8px',
-                        borderRadius: 'var(--radius-sm)',
-                        border: '1px solid rgba(56, 189, 248, 0.3)',
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                      }}
-                    >
-                      {formatPKR(item.price)}
-                    </span>
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
-                      <h4 style={{ fontSize: '14px', fontWeight: 700, lineHeight: '1.3' }}>{item.name}</h4>
-                    </div>
-                    {item.description && (
-                      <p
+            <>
+              {/* Active Deals Cards */}
+              {filteredDeals.map((deal) => {
+                const totalIncluded = (deal.dealItems || []).reduce((s, di) => s + di.quantity, 0);
+                return (
+                  <div
+                    key={`pos-deal-${deal.id}`}
+                    className="menu-card"
+                    onClick={() => addDealToCart(deal)}
+                    style={{
+                      cursor: 'pointer',
+                      border: '1px solid rgba(99, 102, 241, 0.4)',
+                      background: 'linear-gradient(180deg, rgba(99, 102, 241, 0.08) 0%, var(--bg-card) 100%)',
+                      position: 'relative',
+                    }}
+                  >
+                    {/* Deal Image / Visual Banner */}
+                    <div className="menu-card-image-wrap">
+                      {deal.imageUrl ? (
+                        <img
+                          src={deal.imageUrl}
+                          alt={deal.name}
+                          className="menu-card-img"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div
+                          className="menu-card-placeholder"
+                          style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }}
+                        >
+                          <span style={{ fontSize: '32px' }}>🎁</span>
+                        </div>
+                      )}
+                      <span
                         style={{
-                          fontSize: '11px',
-                          color: 'var(--text-muted)',
-                          lineHeight: '1.3',
-                          marginBottom: '8px',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
+                          position: 'absolute',
+                          top: '6px',
+                          right: '6px',
+                          background: 'rgba(15, 23, 42, 0.9)',
+                          backdropFilter: 'blur(4px)',
+                          color: '#34d399',
+                          fontWeight: 800,
+                          fontSize: '12px',
+                          padding: '2px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid rgba(52, 211, 153, 0.4)',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
                         }}
                       >
-                        {item.description}
-                      </p>
-                    )}
-                  </div>
+                        {formatPKR(deal.price)}
+                      </span>
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: '6px',
+                          left: '6px',
+                          background: 'linear-gradient(135deg, #6366f1, #a855f7)',
+                          color: '#fff',
+                          fontWeight: 800,
+                          fontSize: '10px',
+                          padding: '2px 6px',
+                          borderRadius: 'var(--radius-sm)',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                        }}
+                      >
+                        🎁 COMBO DEAL
+                      </span>
+                    </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                      ⏱️ {item.preparationTime || 10}m
-                    </span>
-                    {isAvailable ? (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                        <h4 style={{ fontSize: '14px', fontWeight: 700, lineHeight: '1.3' }}>{deal.name}</h4>
+                      </div>
+                      {deal.description && (
+                        <p
+                          style={{
+                            fontSize: '11px',
+                            color: 'var(--text-muted)',
+                            lineHeight: '1.3',
+                            marginBottom: '6px',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {deal.description}
+                        </p>
+                      )}
+
+                      {/* Included Items Badges */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', margin: '4px 0 8px 0' }}>
+                        {(deal.dealItems || []).map((di, dIdx) => (
+                          <span
+                            key={dIdx}
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              background: 'rgba(255, 255, 255, 0.06)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '4px',
+                              padding: '2px 5px',
+                              color: 'var(--text-secondary)',
+                            }}
+                          >
+                            {di.quantity}x {di.menuItem?.name || 'Item'}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto' }}>
+                      <span style={{ fontSize: '11px', color: '#a5b4fc', fontWeight: 600 }}>
+                        🍱 {totalIncluded} Items Included
+                      </span>
                       <button
                         className="btn btn-primary btn-sm"
-                        style={{ padding: '4px 10px', fontSize: '12px' }}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                          border: 'none',
+                        }}
                         onClick={(e) => {
                           e.stopPropagation();
-                          addToCart(item);
+                          addDealToCart(deal);
                         }}
                       >
-                        + Add
+                        + Add Combo
                       </button>
-                    ) : (
-                      <span className="badge badge-danger" style={{ fontSize: '10px' }}>
-                        86'd (Out)
-                      </span>
-                    )}
+                    </div>
                   </div>
-                </div>
-              );
-            })
+                );
+              })}
+
+              {/* Standard Menu Item Cards */}
+              {filteredItems.map((item) => {
+                const isAvailable = !item.is86d && item.isAvailable;
+                const visual = getCategoryVisual(item.category);
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`menu-card ${!isAvailable ? 'unavailable' : ''}`}
+                    onClick={() => isAvailable && addToCart(item)}
+                    style={{
+                      opacity: isAvailable ? 1 : 0.6,
+                      cursor: isAvailable ? 'pointer' : 'not-allowed',
+                    }}
+                  >
+                    {/* Dish Image / Visual Banner */}
+                    <div className="menu-card-image-wrap">
+                      {item.imageUrl ? (
+                        <img
+                          src={item.imageUrl}
+                          alt={item.name}
+                          className="menu-card-img"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div
+                          className="menu-card-placeholder"
+                          style={{ background: visual.gradient }}
+                        >
+                          <span>{visual.icon}</span>
+                        </div>
+                      )}
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: '6px',
+                          right: '6px',
+                          background: 'rgba(15, 23, 42, 0.85)',
+                          backdropFilter: 'blur(4px)',
+                          color: '#38bdf8',
+                          fontWeight: 800,
+                          fontSize: '12px',
+                          padding: '2px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid rgba(56, 189, 248, 0.3)',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                        }}
+                      >
+                        {formatPKR(item.price)}
+                      </span>
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                        <h4 style={{ fontSize: '14px', fontWeight: 700, lineHeight: '1.3' }}>{item.name}</h4>
+                      </div>
+                      {item.description && (
+                        <p
+                          style={{
+                            fontSize: '11px',
+                            color: 'var(--text-muted)',
+                            lineHeight: '1.3',
+                            marginBottom: '8px',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {item.description}
+                        </p>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        ⏱️ {item.preparationTime || 10}m
+                      </span>
+                      {isAvailable ? (
+                        <button
+                          className="btn btn-primary btn-sm"
+                          style={{ padding: '4px 10px', fontSize: '12px' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addToCart(item);
+                          }}
+                        >
+                          + Add
+                        </button>
+                      ) : (
+                        <span className="badge badge-danger" style={{ fontSize: '10px' }}>
+                          86'd (Out)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
           )}
         </div>
       </div>
@@ -737,35 +971,46 @@ export const PosPage: React.FC = () => {
             <div style={{ textAlign: 'center', padding: '30px 14px', color: 'var(--text-muted)' }}>
               <div style={{ fontSize: '36px', marginBottom: '8px' }}>🛒</div>
               <p style={{ fontWeight: 600, fontSize: '13px' }}>Cart is empty</p>
-              <p style={{ fontSize: '11px', marginTop: '2px' }}>Click any menu dish to start order</p>
+              <p style={{ fontSize: '11px', marginTop: '2px' }}>Click any menu dish or combo deal to start order</p>
             </div>
           ) : (
             cart.map((item) => (
               <div
-                key={item.menuItemId}
+                key={item.id}
                 style={{
-                  background: 'var(--bg-secondary)',
+                  background: item.isDeal ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-secondary)',
                   padding: '10px 12px',
                   borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-color)',
+                  border: item.isDeal ? '1px solid rgba(99, 102, 241, 0.35)' : '1px solid var(--border-color)',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <span style={{ fontWeight: 600, fontSize: '13px' }}>{item.name}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {item.isDeal && <span style={{ fontSize: '13px' }}>🎁</span>}
+                    <span style={{ fontWeight: 600, fontSize: '13px' }}>{item.name}</span>
+                  </div>
                   <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '13px' }}>
                     {formatPKR(item.price * item.quantity)}
                   </span>
                 </div>
 
+                {item.dealComponents && item.dealComponents.length > 0 && (
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', paddingLeft: '4px', lineHeight: '1.3' }}>
+                    {item.dealComponents.map((comp, cIdx) => (
+                      <div key={cIdx}>↳ {comp}</div>
+                    ))}
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    {formatPKR(item.price)} ea
+                    {formatPKR(item.price)} ea {item.isDeal ? '(Combo Bundle)' : ''}
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <button
                       className="btn btn-secondary btn-sm"
                       style={{ padding: '2px 6px', height: '22px', fontSize: '12px' }}
-                      onClick={() => updateQuantity(item.menuItemId, -1)}
+                      onClick={() => updateQuantity(item.id, -1)}
                     >
                       -
                     </button>
@@ -775,7 +1020,7 @@ export const PosPage: React.FC = () => {
                     <button
                       className="btn btn-secondary btn-sm"
                       style={{ padding: '2px 6px', height: '22px', fontSize: '12px' }}
-                      onClick={() => updateQuantity(item.menuItemId, 1)}
+                      onClick={() => updateQuantity(item.id, 1)}
                     >
                       +
                     </button>
@@ -787,7 +1032,7 @@ export const PosPage: React.FC = () => {
                   type="text"
                   placeholder="Item note (e.g. extra sauce, no pickles)..."
                   value={item.notes || ''}
-                  onChange={(e) => updateItemNotes(item.menuItemId, e.target.value)}
+                  onChange={(e) => updateItemNotes(item.id, e.target.value)}
                   style={{
                     width: '100%',
                     marginTop: '6px',

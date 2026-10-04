@@ -8,6 +8,8 @@ export interface ReceiptItem {
   unitPrice: number;
   total: number;
   notes?: string;
+  isDeal?: boolean;
+  dealComponents?: string[];
 }
 
 export interface ReceiptData {
@@ -199,8 +201,15 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                             {formatPKR(itemTotal)}
                           </span>
                         </div>
+                        {item.dealComponents && item.dealComponents.length > 0 && (
+                          <div style={{ fontSize: '10.5px', color: '#444', paddingLeft: '14px', marginTop: '2px', lineHeight: '1.3' }}>
+                            {item.dealComponents.map((comp, cIdx) => (
+                              <div key={cIdx}>↳ {comp}</div>
+                            ))}
+                          </div>
+                        )}
                         {item.notes && (
-                          <div style={{ fontSize: '10px', color: '#666', fontStyle: 'italic', paddingLeft: '12px' }}>
+                          <div style={{ fontSize: '10px', color: '#666', fontStyle: 'italic', paddingLeft: '12px', marginTop: '2px' }}>
                             * {item.notes}
                           </div>
                         )}
@@ -356,6 +365,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                       <div className="kot-item-qty">{item.quantity}x</div>
                       <div className="kot-item-details">
                         <div className="kot-item-name">{item.name}</div>
+                        {item.dealComponents && item.dealComponents.length > 0 && (
+                          <div style={{ fontSize: '11px', color: '#475569', marginLeft: '4px', marginTop: '2px', fontStyle: 'italic' }}>
+                            {item.dealComponents.map((comp, cIdx) => (
+                              <div key={cIdx}>↳ {comp}</div>
+                            ))}
+                          </div>
+                        )}
                         {item.notes && (
                           <div className="kot-item-note">👉 {item.notes}</div>
                         )}

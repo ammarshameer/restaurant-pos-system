@@ -32,7 +32,8 @@ export class OrderService {
     paymentStatus?: string;
     paymentMethod?: string;
     items: Array<{
-      menuItemId: string;
+      menuItemId?: string;
+      dealId?: string;
       name?: string;
       quantity: number;
       price?: number;
@@ -78,17 +79,29 @@ export class OrderService {
         subtotal += total;
 
         let validMenuItemId: string | null = null;
-        if (item.menuItemId) {
+        let validDealId: string | null = null;
+
+        if (item.dealId) {
+          const exists = await (prisma as any).deal.findUnique({ where: { id: item.dealId } });
+          if (exists) validDealId = item.dealId;
+        } else if (item.menuItemId) {
           const exists = await prisma.menuItem.findUnique({ where: { id: item.menuItemId } });
           if (exists) validMenuItemId = item.menuItemId;
         }
-        if (!validMenuItemId && item.name) {
-          const exists = await prisma.menuItem.findFirst({ where: { name: item.name, restaurantId } });
-          if (exists) validMenuItemId = exists.id;
+
+        if (!validMenuItemId && !validDealId && item.name) {
+          const dealFound = await (prisma as any).deal.findFirst({ where: { name: item.name, restaurantId } });
+          if (dealFound) {
+            validDealId = dealFound.id;
+          } else {
+            const exists = await prisma.menuItem.findFirst({ where: { name: item.name, restaurantId } });
+            if (exists) validMenuItemId = exists.id;
+          }
         }
 
         return {
           menuItemId: validMenuItemId,
+          dealId: validDealId,
           name: item.name || 'Custom Item',
           quantity: item.quantity,
           unitPrice,
@@ -158,6 +171,15 @@ export class OrderService {
         items: {
           include: {
             menuItem: true,
+            deal: {
+              include: {
+                items: {
+                  include: {
+                    menuItem: true,
+                  },
+                },
+              },
+            },
           },
         },
         server: {
@@ -175,17 +197,27 @@ export class OrderService {
     io?.to(`restaurant:${restaurantId}`).emit('order:new', order);
     io?.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:new', order);
 
-    // Auto-deduct inventory stock for all ordered items / recipe ingredients
+    // Auto-deduct inventory stock for all ordered items / deals
     for (const item of data.items) {
-      const orderReason = `Order #${orderNum}: ${item.quantity}x ${item.name || 'Menu Item'}`;
+      const orderReason = `Order #${orderNum}: ${item.quantity}x ${item.name || 'Item'}`;
       try {
-        await inventoryService.deductForMenuItem(
-          item.menuItemId || null,
-          item.name || '',
-          item.quantity,
-          orderReason,
-          restaurantId
-        );
+        if (item.dealId) {
+          await inventoryService.deductForDeal(
+            item.dealId,
+            item.name || '',
+            item.quantity,
+            orderReason,
+            restaurantId
+          );
+        } else {
+          await inventoryService.deductForMenuItem(
+            item.menuItemId || null,
+            item.name || '',
+            item.quantity,
+            orderReason,
+            restaurantId
+          );
+        }
       } catch (invErr) {
         console.error(`Failed to deduct inventory for item ${item.name}:`, invErr);
       }
@@ -201,6 +233,15 @@ export class OrderService {
         items: {
           include: {
             menuItem: true,
+            deal: {
+              include: {
+                items: {
+                  include: {
+                    menuItem: true,
+                  },
+                },
+              },
+            },
           },
         },
         server: {
@@ -268,6 +309,15 @@ export class OrderService {
           items: {
             include: {
               menuItem: true,
+              deal: {
+                include: {
+                  items: {
+                    include: {
+                      menuItem: true,
+                    },
+                  },
+                },
+              },
             },
           },
           server: {
@@ -304,6 +354,15 @@ export class OrderService {
         items: {
           include: {
             menuItem: true,
+            deal: {
+              include: {
+                items: {
+                  include: {
+                    menuItem: true,
+                  },
+                },
+              },
+            },
           },
         },
         server: {
@@ -329,6 +388,7 @@ export class OrderService {
       const orderItemsData = data.items.map((item: any) => ({
         orderId: id,
         menuItemId: item.menuItemId || null,
+        dealId: item.dealId || null,
         name: item.name || 'Custom Item',
         quantity: item.quantity,
         unitPrice: item.unitPrice || item.price || 0,
@@ -353,6 +413,15 @@ export class OrderService {
         items: {
           include: {
             menuItem: true,
+            deal: {
+              include: {
+                items: {
+                  include: {
+                    menuItem: true,
+                  },
+                },
+              },
+            },
           },
         },
         server: {
@@ -382,13 +451,24 @@ export class OrderService {
       for (const item of order.items) {
         if (item.inventoryDeducted) {
           try {
-            await inventoryService.restoreForMenuItem(
-              item.menuItemId || null,
-              item.name || '',
-              item.quantity,
-              `Order #${order.orderNumber} Deleted: Restored ${item.quantity}x ${item.name || 'Menu Item'}`,
-              order.restaurantId
-            );
+            const restoreReason = `Order #${order.orderNumber} Deleted: Restored ${item.quantity}x ${item.name || 'Item'}`;
+            if (item.dealId) {
+              await inventoryService.restoreForDeal(
+                item.dealId,
+                item.name || '',
+                item.quantity,
+                restoreReason,
+                order.restaurantId
+              );
+            } else {
+              await inventoryService.restoreForMenuItem(
+                item.menuItemId || null,
+                item.name || '',
+                item.quantity,
+                restoreReason,
+                order.restaurantId
+              );
+            }
           } catch (invErr) {
             console.error(`Failed to restore inventory on delete for item ${item.name}:`, invErr);
           }
@@ -461,6 +541,15 @@ export class OrderService {
         items: {
           include: {
             menuItem: true,
+            deal: {
+              include: {
+                items: {
+                  include: {
+                    menuItem: true,
+                  },
+                },
+              },
+            },
           },
         },
         server: {
@@ -483,6 +572,7 @@ export class OrderService {
     const orderItemsData = items.map((item) => ({
       orderId,
       menuItemId: item.menuItemId || null,
+      dealId: item.dealId || null,
       name: item.name || 'Custom Item',
       quantity: item.quantity || 1,
       unitPrice: item.unitPrice || item.price || 0,
@@ -500,15 +590,25 @@ export class OrderService {
     const targetOrder = await prisma.order.findUnique({ where: { id: orderId } });
     if (targetOrder) {
       for (const item of items) {
-        const orderReason = `Order #${targetOrder.orderNumber} (Add-on): ${item.quantity || 1}x ${item.name || 'Menu Item'}`;
+        const orderReason = `Order #${targetOrder.orderNumber} (Add-on): ${item.quantity || 1}x ${item.name || 'Item'}`;
         try {
-          await inventoryService.deductForMenuItem(
-            item.menuItemId || null,
-            item.name || '',
-            item.quantity || 1,
-            orderReason,
-            targetOrder.restaurantId
-          );
+          if (item.dealId) {
+            await inventoryService.deductForDeal(
+              item.dealId,
+              item.name || '',
+              item.quantity || 1,
+              orderReason,
+              targetOrder.restaurantId
+            );
+          } else {
+            await inventoryService.deductForMenuItem(
+              item.menuItemId || null,
+              item.name || '',
+              item.quantity || 1,
+              orderReason,
+              targetOrder.restaurantId
+            );
+          }
         } catch (invErr) {
           console.error(`Failed to deduct inventory for add-on ${item.name}:`, invErr);
         }
@@ -529,6 +629,15 @@ export class OrderService {
         items: {
           include: {
             menuItem: true,
+            deal: {
+              include: {
+                items: {
+                  include: {
+                    menuItem: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -547,15 +656,25 @@ export class OrderService {
     // Restore inventory for items where stock was deducted
     for (const item of order.items) {
       if (item.inventoryDeducted) {
-        const cancelReason = `Order #${order.orderNumber} Cancelled${reason ? ` (${reason})` : ''}: Restored ${item.quantity}x ${item.name || 'Menu Item'}`;
+        const cancelReason = `Order #${order.orderNumber} Cancelled${reason ? ` (${reason})` : ''}: Restored ${item.quantity}x ${item.name || 'Item'}`;
         try {
-          await inventoryService.restoreForMenuItem(
-            item.menuItemId || null,
-            item.name || '',
-            item.quantity,
-            cancelReason,
-            order.restaurantId
-          );
+          if (item.dealId) {
+            await inventoryService.restoreForDeal(
+              item.dealId,
+              item.name || '',
+              item.quantity,
+              cancelReason,
+              order.restaurantId
+            );
+          } else {
+            await inventoryService.restoreForMenuItem(
+              item.menuItemId || null,
+              item.name || '',
+              item.quantity,
+              cancelReason,
+              order.restaurantId
+            );
+          }
           // Mark item inventory as no longer deducted to prevent double-restock
           await prisma.orderItem.update({
             where: { id: item.id },
@@ -577,6 +696,15 @@ export class OrderService {
         items: {
           include: {
             menuItem: true,
+            deal: {
+              include: {
+                items: {
+                  include: {
+                    menuItem: true,
+                  },
+                },
+              },
+            },
           },
         },
         server: {
@@ -614,3 +742,5 @@ export class OrderService {
     };
   }
 }
+
+export const orderService = new OrderService();

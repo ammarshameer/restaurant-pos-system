@@ -8,6 +8,7 @@ interface KdsItem {
   quantity: number;
   status: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED';
   notes?: string;
+  components?: string[];
 }
 
 interface KdsOrder {
@@ -64,13 +65,19 @@ export const KitchenPage: React.FC = () => {
               serverName: o.server ? `${o.server.firstName || ''} ${o.server.lastName || ''}`.trim() || 'Staff' : 'Staff',
               createdAt: o.createdAt || new Date().toISOString(),
               status: o.status === 'ready' ? 'READY' : o.status === 'preparing' ? 'IN_PROGRESS' : 'OPEN',
-              items: (o.items || []).map((i, idx) => ({
-                id: i.id || `kds-i-${idx}`,
-                name: i.name,
-                quantity: i.quantity,
-                status: o.status === 'ready' ? 'READY' : o.status === 'preparing' ? 'PREPARING' : 'PENDING',
-                notes: i.notes,
-              })),
+              items: (o.items || []).map((i: any, idx: number) => {
+                const comps = i.deal?.dealItems
+                  ? i.deal.dealItems.map((di: any) => `${di.quantity}x ${di.menuItem?.name || 'Item'}`)
+                  : i.dealComponents;
+                return {
+                  id: i.id || `kds-i-${idx}`,
+                  name: i.deal?.name ? `🎁 ${i.deal.name}` : (i.name || i.menuItem?.name || 'Dish'),
+                  quantity: i.quantity,
+                  status: o.status === 'ready' ? 'READY' : o.status === 'preparing' ? 'PREPARING' : 'PENDING',
+                  notes: i.notes,
+                  components: comps,
+                };
+              }),
             };
           });
         setOrders(kdsOrders);
@@ -120,13 +127,19 @@ export const KitchenPage: React.FC = () => {
           createdAt: order.createdAt || new Date().toISOString(),
           status: 'OPEN',
           items:
-            order.items?.map((item: any) => ({
-              id: item.id,
-              name: item.menuItem?.name || item.name || 'Dish',
-              quantity: item.quantity,
-              status: item.status || 'PENDING',
-              notes: item.specialInstructions || item.notes,
-            })) || [],
+            order.items?.map((item: any) => {
+              const comps = item.deal?.dealItems
+                ? item.deal.dealItems.map((di: any) => `${di.quantity}x ${di.menuItem?.name || 'Item'}`)
+                : item.dealComponents;
+              return {
+                id: item.id,
+                name: item.deal?.name ? `🎁 ${item.deal.name}` : (item.name || item.menuItem?.name || 'Dish'),
+                quantity: item.quantity,
+                status: item.status || 'PENDING',
+                notes: item.specialInstructions || item.notes,
+                components: comps,
+              };
+            }) || [],
         };
         setOrders((prev) => [formatted, ...prev]);
       });
@@ -331,6 +344,13 @@ export const KitchenPage: React.FC = () => {
                           <span style={{ color: 'var(--primary)', marginRight: '6px' }}>{item.quantity}x</span>
                           {item.name}
                         </div>
+                        {item.components && item.components.length > 0 && (
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', paddingLeft: '4px' }}>
+                            {item.components.map((c, cIdx) => (
+                              <div key={cIdx}>↳ {c}</div>
+                            ))}
+                          </div>
+                        )}
                         {item.notes && (
                           <div style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 600, marginTop: '2px' }}>
                             ⚠️ {item.notes}

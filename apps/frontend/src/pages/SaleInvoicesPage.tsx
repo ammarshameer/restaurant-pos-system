@@ -153,13 +153,20 @@ export const SaleInvoicesPage: React.FC = () => {
       ]
         .filter(Boolean)
         .join(' • '),
-      items: order.items.map((i) => ({
-        name: i.name,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice || i.price,
-        total: (i.unitPrice || i.price) * i.quantity,
-        notes: i.notes,
-      })),
+      items: order.items.map((i: any) => {
+        const comps = i.deal?.dealItems
+          ? i.deal.dealItems.map((di: any) => `${di.quantity}x ${di.menuItem?.name || 'Item'}`)
+          : i.dealComponents;
+        return {
+          name: i.deal?.name ? `🎁 ${i.deal.name}` : (i.name || i.menuItem?.name || 'Item'),
+          quantity: i.quantity,
+          unitPrice: i.unitPrice || i.price,
+          total: (i.unitPrice || i.price) * i.quantity,
+          notes: i.notes,
+          isDeal: Boolean(i.dealId || i.isDeal),
+          dealComponents: comps,
+        };
+      }),
       subtotal: order.subtotal,
       serviceCharge: isDineIn ? order.serviceCharge : 0,
       deliveryCharge: isDelivery ? order.deliveryCharge : 0,

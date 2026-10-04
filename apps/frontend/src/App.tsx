@@ -19,6 +19,7 @@ import InventoryPage from './pages/InventoryPage';
 import EmployeesPage from './pages/EmployeesPage';
 import PaymentsPage from './pages/PaymentsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import DealsPage from './pages/DealsPage';
 
 export const App: React.FC = () => {
   const dispatch = useDispatch();
@@ -137,6 +138,8 @@ export const App: React.FC = () => {
         return '🍳 Kitchen Display System (KDS)';
       case '/menu':
         return '📋 Menu & Recipe Management';
+      case '/deals':
+        return '🎁 Deals & Combo Bundles Management';
       case '/payments':
         return '💵 Cash Register & Receipts';
       case '/inventory':
@@ -193,6 +196,11 @@ export const App: React.FC = () => {
           <NavLink to="/menu" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
             <span className="nav-icon">📋</span>
             <span>Menu & Recipes</span>
+          </NavLink>
+
+          <NavLink to="/deals" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            <span className="nav-icon">🎁</span>
+            <span>Deals & Combos</span>
           </NavLink>
 
           <NavLink to="/inventory" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
@@ -306,6 +314,7 @@ export const App: React.FC = () => {
             <Route path="/kitchen" element={<KitchenPage />} />
             <Route path="/tables" element={<Navigate to="/pos" replace />} />
             <Route path="/menu" element={<MenuPage />} />
+            <Route path="/deals" element={<DealsPage />} />
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/employees" element={<EmployeesPage />} />
             <Route path="/payments" element={<PaymentsPage />} />

@@ -345,6 +345,98 @@ export class InventoryService {
     }
   }
 
+  async deductForDeal(
+    dealId: string | null,
+    dealName: string,
+    dealQuantity: number,
+    orderReason: string,
+    restaurantId: string
+  ) {
+    let resolvedDealId = dealId;
+    if (!resolvedDealId && dealName) {
+      const found = await (prisma as any).deal.findFirst({
+        where: { name: dealName, restaurantId },
+      });
+      if (found) {
+        resolvedDealId = found.id;
+      }
+    }
+
+    if (!resolvedDealId) return;
+
+    const deal = await (prisma as any).deal.findUnique({
+      where: { id: resolvedDealId },
+      include: {
+        items: {
+          include: {
+            menuItem: true,
+          },
+        },
+      },
+    });
+
+    if (!deal || !deal.items || deal.items.length === 0) return;
+
+    for (const dealItem of deal.items) {
+      const totalItemQty = Number(dealItem.quantity) * Number(dealQuantity);
+      if (totalItemQty <= 0) continue;
+
+      await this.deductForMenuItem(
+        dealItem.menuItemId,
+        dealItem.menuItem?.name || '',
+        totalItemQty,
+        `${orderReason} (Bundle item: ${dealItem.menuItem?.name || 'Item'} x${dealItem.quantity})`,
+        restaurantId
+      );
+    }
+  }
+
+  async restoreForDeal(
+    dealId: string | null,
+    dealName: string,
+    dealQuantity: number,
+    orderReason: string,
+    restaurantId: string
+  ) {
+    let resolvedDealId = dealId;
+    if (!resolvedDealId && dealName) {
+      const found = await (prisma as any).deal.findFirst({
+        where: { name: dealName, restaurantId },
+      });
+      if (found) {
+        resolvedDealId = found.id;
+      }
+    }
+
+    if (!resolvedDealId) return;
+
+    const deal = await (prisma as any).deal.findUnique({
+      where: { id: resolvedDealId },
+      include: {
+        items: {
+          include: {
+            menuItem: true,
+          },
+        },
+      },
+    });
+
+    if (!deal || !deal.items || deal.items.length === 0) return;
+
+    for (const dealItem of deal.items) {
+      const totalItemQty = Number(dealItem.quantity) * Number(dealQuantity);
+      if (totalItemQty <= 0) continue;
+
+      await this.restoreForMenuItem(
+        dealItem.menuItemId,
+        dealItem.menuItem?.name || '',
+        totalItemQty,
+        `${orderReason} (Bundle item: ${dealItem.menuItem?.name || 'Item'} x${dealItem.quantity})`,
+        restaurantId
+      );
+    }
+  }
+
   async getLowStockItems(restaurantId: string) {
     const allItems = await prisma.inventoryItem.findMany({
       where: { restaurantId },

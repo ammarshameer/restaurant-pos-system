@@ -28,6 +28,7 @@ model Restaurant {
   menuItems       MenuItem[]
   categories      Category[]
   inventory       InventoryItem[]
+  deals           Deal[]
 }
 
 model FloorPlan {
@@ -147,6 +148,7 @@ model MenuItem {
   orderItems      OrderItem[]
   inventoryItems  InventoryItem[]
   ingredients     MenuItemIngredient[]
+  dealItems       DealItem[]
 }
 
 model ModifierGroup {
@@ -169,6 +171,38 @@ model Modifier {
   
   modifierGroup      ModifierGroup       @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
   orderItemModifiers OrderItemModifier[]
+}
+
+// ============================================
+// DEALS / COMBOS MANAGEMENT
+// ============================================
+
+model Deal {
+  id              String      @id @default(cuid())
+  name            String
+  description     String?
+  price           Float
+  isActive        Boolean     @default(true)
+  imageUrl        String?
+  restaurantId    String
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  restaurant      Restaurant  @relation(fields: [restaurantId], references: [id])
+  items           DealItem[]
+  orderItems      OrderItem[]
+}
+
+model DealItem {
+  id              String      @id @default(cuid())
+  dealId          String
+  menuItemId      String
+  quantity        Int         @default(1)
+  
+  deal            Deal        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  menuItem        MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId, menuItemId])
 }
 
 // ============================================
@@ -217,6 +251,7 @@ model OrderItem {
   id                  String            @id @default(cuid())
   orderId             String
   menuItemId          String?
+  dealId              String?
   name                String?
   quantity            Int               @default(1)
   unitPrice           Float             @default(0)
@@ -234,6 +269,7 @@ model OrderItem {
   
   order               Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItem            MenuItem?         @relation(fields: [menuItemId], references: [id])
+  deal                Deal?             @relation(fields: [dealId], references: [id])
   modifiers           OrderItemModifier[]
 }
 
