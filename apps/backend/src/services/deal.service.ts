@@ -22,6 +22,10 @@ export class DealService {
       isActive?: boolean;
     }
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const page = Math.max(1, Number(options?.page) || 1);
     const limit = Math.max(1, Number(options?.limit) || 50);
     const skip = (page - 1) * limit;
@@ -73,6 +77,10 @@ export class DealService {
   }
 
   async getActiveDeals(restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const deals = await prisma.deal.findMany({
       where: {
         restaurantId,
@@ -95,11 +103,15 @@ export class DealService {
     return deals.map(formatDealResponse);
   }
 
-  async getDealById(id: string, restaurantId?: string) {
+  async getDealById(id: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const deal = await prisma.deal.findFirst({
       where: {
         id,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
       include: {
         items: {
@@ -118,39 +130,36 @@ export class DealService {
   }
 
   async createDeal(data: {
-    id?: string;
     name: string;
     description?: string;
     price: number;
     isActive?: boolean;
-    imageUrl?: string;
     restaurantId: string;
-    items?: any[];
-    dealItems?: any[];
+    imageUrl?: string;
+    items?: Array<{ menuItemId: string; quantity: number }>;
+    dealItems?: Array<{ menuItemId: string; quantity: number }>;
   }) {
-    const restaurantId = data.restaurantId;
-    if (!restaurantId) {
+    if (!data.restaurantId || !data.restaurantId.trim()) {
       throw new Error('restaurantId is required to create a deal');
     }
 
-    const rawList = data.items || data.dealItems || [];
-    const validItems = rawList.filter(
-      (item: any) => item && item.menuItemId && Number(item.quantity) > 0
+    const itemsList = data.items || data.dealItems || [];
+    const validItems = itemsList.filter(
+      (item) => item && item.menuItemId && Number(item.quantity) > 0
     );
 
     const created = await prisma.deal.create({
       data: {
-        ...(data.id ? { id: data.id } : {}),
         name: (data.name || '').trim(),
         description: data.description?.trim() || null,
         price: Number(data.price),
         isActive: data.isActive !== undefined ? Boolean(data.isActive) : true,
+        restaurantId: data.restaurantId,
         imageUrl: data.imageUrl?.trim() || null,
-        restaurantId,
         items:
           validItems.length > 0
             ? {
-                create: validItems.map((item: any) => ({
+                create: validItems.map((item) => ({
                   menuItemId: item.menuItemId,
                   quantity: Number(item.quantity),
                 })),
@@ -173,11 +182,15 @@ export class DealService {
     return formatDealResponse(created);
   }
 
-  async updateDeal(id: string, data: any, restaurantId?: string) {
+  async updateDeal(id: string, data: any, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to update a deal');
+    }
+
     const existing = await prisma.deal.findFirst({
       where: {
         id,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
     });
 
@@ -234,11 +247,15 @@ export class DealService {
     });
   }
 
-  async toggleDealActive(id: string, isActive?: boolean, restaurantId?: string) {
+  async toggleDealActive(id: string, isActive: boolean | undefined, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to toggle a deal');
+    }
+
     const existing = await prisma.deal.findFirst({
       where: {
         id,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
     });
 
@@ -270,11 +287,15 @@ export class DealService {
     return formatDealResponse(updated);
   }
 
-  async deleteDeal(id: string, restaurantId?: string) {
+  async deleteDeal(id: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to delete a deal');
+    }
+
     const existing = await prisma.deal.findFirst({
       where: {
         id,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
     });
 

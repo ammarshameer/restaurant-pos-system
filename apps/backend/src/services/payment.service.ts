@@ -8,18 +8,25 @@ const prisma = new PrismaClient();
 const orderService = new OrderService();
 
 export class PaymentService {
-  async createPayment(data: {
-    orderId: string;
-    amount: number;
-    tipAmount?: number;
-    method?: PaymentMethod;
-    splitNumber?: number;
-    transactionId?: string;
-  }, restaurantId?: string) {
+  async createPayment(
+    data: {
+      orderId: string;
+      amount: number;
+      tipAmount?: number;
+      method?: PaymentMethod;
+      splitNumber?: number;
+      transactionId?: string;
+    },
+    restaurantId: string
+  ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to create a payment');
+    }
+
     const order = await prisma.order.findFirst({
       where: {
         id: data.orderId,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
       include: { payments: true },
     });
@@ -42,8 +49,8 @@ export class PaymentService {
     });
 
     // Check if order is now fully paid
-    const updatedOrder = await prisma.order.findUnique({
-      where: { id: data.orderId },
+    const updatedOrder = await prisma.order.findFirst({
+      where: { id: data.orderId, restaurantId },
       include: { payments: true },
     });
 
@@ -56,18 +63,22 @@ export class PaymentService {
 
       if (totalPaid >= orderTotal - 0.01) {
         // Complete order & deduct inventory
-        await orderService.completeOrder(updatedOrder.id, updatedOrder.restaurantId);
+        await orderService.completeOrder(updatedOrder.id, restaurantId);
       }
     }
 
     return payment;
   }
 
-  async confirmPayment(paymentId: string, restaurantId?: string) {
+  async confirmPayment(paymentId: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to confirm a payment');
+    }
+
     const existingPayment = await prisma.payment.findFirst({
       where: {
         id: paymentId,
-        ...(restaurantId ? { order: { restaurantId } } : {}),
+        order: { restaurantId },
       },
       include: { order: true },
     });
@@ -85,8 +96,8 @@ export class PaymentService {
     });
 
     // Update order status and deduct inventory if fully paid
-    const order = await prisma.order.findUnique({
-      where: { id: payment.orderId },
+    const order = await prisma.order.findFirst({
+      where: { id: payment.orderId, restaurantId },
       include: { payments: true },
     });
 
@@ -98,7 +109,7 @@ export class PaymentService {
       const orderTotal = Number(order.total);
 
       if (totalPaid >= orderTotal - 0.01) {
-        await orderService.completeOrder(order.id, order.restaurantId);
+        await orderService.completeOrder(order.id, restaurantId);
       }
     }
 
@@ -106,10 +117,14 @@ export class PaymentService {
   }
 
   async processRefund(paymentId: string, _amount?: number, restaurantId?: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to process a refund');
+    }
+
     const payment = await prisma.payment.findFirst({
       where: {
         id: paymentId,
-        ...(restaurantId ? { order: { restaurantId } } : {}),
+        order: { restaurantId },
       },
     });
 
@@ -130,12 +145,16 @@ export class PaymentService {
   async splitBill(
     orderId: string,
     splits: Array<{ amount: number; method?: PaymentMethod }>,
-    restaurantId?: string
+    restaurantId: string
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to split bill');
+    }
+
     const order = await prisma.order.findFirst({
       where: {
         id: orderId,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
       include: { items: { include: { menuItem: true } } },
     });
@@ -153,23 +172,30 @@ export class PaymentService {
 
     const payments = await Promise.all(
       splits.map((split, index) =>
-        this.createPayment({
-          orderId,
-          amount: split.amount,
-          method: split.method || 'CASH',
-          splitNumber: index + 1,
-        }, order.restaurantId)
+        this.createPayment(
+          {
+            orderId,
+            amount: split.amount,
+            method: split.method || 'CASH',
+            splitNumber: index + 1,
+          },
+          restaurantId
+        )
       )
     );
 
     return payments;
   }
 
-  async getPaymentsByOrder(orderId: string, restaurantId?: string) {
+  async getPaymentsByOrder(orderId: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to retrieve payments');
+    }
+
     const order = await prisma.order.findFirst({
       where: {
         id: orderId,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
     });
 
@@ -194,6 +220,10 @@ export class PaymentService {
       endDate?: Date;
     }
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const page = Math.max(1, Number(options?.page) || 1);
     const limit = Math.max(1, Number(options?.limit) || 50);
     const skip = (page - 1) * limit;
@@ -268,12 +298,16 @@ export class PaymentService {
   /**
    * Generates structured receipt and invoice data with restaurant profile and item breakdown
    */
-  async getReceiptData(paymentIdOrOrderId: string, restaurantId?: string) {
+  async getReceiptData(paymentIdOrOrderId: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to retrieve receipt data');
+    }
+
     // Try finding by payment ID first
     let payment = await prisma.payment.findFirst({
       where: {
         id: paymentIdOrOrderId,
-        ...(restaurantId ? { order: { restaurantId } } : {}),
+        order: { restaurantId },
       },
       include: {
         order: {
@@ -308,7 +342,7 @@ export class PaymentService {
       order = await prisma.order.findFirst({
         where: {
           id: paymentIdOrOrderId,
-          ...(restaurantId ? { restaurantId } : {}),
+          restaurantId,
         },
         include: {
           restaurant: true,
@@ -331,70 +365,77 @@ export class PaymentService {
           payments: true,
         },
       });
-      if (order && order.payments.length > 0) {
-        payment = order.payments[0] as any;
-      }
     }
 
     if (!order) {
-      throw new Error('Order or Payment not found or unauthorized');
+      throw new Error('Receipt record not found or unauthorized');
     }
 
     const restaurant = order.restaurant;
-    const subtotal = Number(order.subtotal);
-    const tax = 0; // Tax disabled
-    const total = Number(order.total);
-    const totalPaid = order.payments.reduce((sum, p) => sum + Number(p.amount), 0);
-    const tipAmount = order.payments.reduce((sum, p) => sum + Number(p.tipAmount), 0);
-    const change = Math.max(0, totalPaid - total);
+
+    const totalPaid = (order.payments || [])
+      .filter((p: any) => p.status === 'COMPLETED')
+      .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+
+    const balanceDue = Math.max(0, +(Number(order.total) - totalPaid).toFixed(2));
 
     return {
-      receiptNumber: `REC-${order.orderNumber.toString().padStart(6, '0')}`,
-      orderNumber: order.orderNumber,
-      orderId: order.id,
-      date: payment?.processedAt || order.createdAt,
       restaurant: {
         id: restaurant.id,
         name: restaurant.name,
-        address: restaurant.address,
-        phone: restaurant.phone,
-        email: restaurant.email,
+        address: restaurant.address || '123 Main Street, Suite 100',
+        phone: restaurant.phone || '+1 (555) 000-0000',
+        email: restaurant.email || 'info@restaurant.com',
       },
-      server: order.server
-        ? `${order.server.firstName} ${order.server.lastName}`
-        : 'Cashier',
-      table: order.table ? order.table.number : 'Takeout / Direct',
-      customerCount: order.customerCount,
-      orderType: order.orderType || (order as any).orderTypeLabel || 'Dine In',
-      items: order.items.map((item) => ({
+      order: {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        orderType: order.orderType,
+        orderTypeLabel: order.orderTypeLabel || order.orderType,
+        createdAt: order.createdAt,
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        dineInTag: order.dineInTag,
+        tableName: order.table?.number || null,
+        serverName: order.server ? `${order.server.firstName} ${order.server.lastName}`.trim() : null,
+        customerName: order.customerName,
+        customerPhone: order.customerPhone,
+        deliveryAddress: order.deliveryAddress,
+      },
+      items: (order.items || []).map((item: any) => ({
         id: item.id,
-        name: item.menuItem?.name || item.name || 'Dish',
+        name: item.name || item.menuItem?.name || 'Item',
         quantity: item.quantity,
-        unitPrice: Number(item.unitPrice),
-        total: Number(item.total),
-        notes: item.specialInstructions,
-        modifiers: item.modifiers?.map((m) => ({
-          name: m.modifier.name,
-          price: Number(m.price),
-        })),
+        unitPrice: Number(item.unitPrice || item.price || 0),
+        total: Number(item.total || (item.unitPrice || item.price || 0) * item.quantity),
+        notes: item.notes || item.specialInstructions || null,
       })),
-      subtotal,
-      tax,
-      tipAmount,
-      total,
-      totalPaid,
-      change,
-      paymentMethod: payment?.method || 'CASH',
-      paymentStatus: payment?.status || 'COMPLETED',
-      payments: order.payments.map((p) => ({
+      totals: {
+        subtotal: Number(order.subtotal || 0),
+        serviceCharge: Number(order.serviceCharge || 0),
+        deliveryCharge: Number(order.deliveryCharge || 0),
+        tax: Number(order.tax || 0),
+        taxRate: Number(order.taxRate || 0.05),
+        total: Number(order.total || 0),
+        totalPaid: +totalPaid.toFixed(2),
+        balanceDue,
+        change: Number(order.change || 0),
+      },
+      payments: (order.payments || []).map((p: any) => ({
         id: p.id,
         amount: Number(p.amount),
-        tipAmount: Number(p.tipAmount),
         method: p.method,
         status: p.status,
-        processedAt: p.processedAt,
         transactionId: p.transactionId,
+        processedAt: p.processedAt,
       })),
+      receiptMeta: {
+        receiptNumber: payment?.transactionId || `REC-${order.orderNumber}-${Date.now().toString().slice(-4)}`,
+        generatedAt: new Date(),
+        footerMessage: 'Thank you for dining with us! Please come again.',
+      },
     };
   }
 }
+
+export const paymentService = new PaymentService();

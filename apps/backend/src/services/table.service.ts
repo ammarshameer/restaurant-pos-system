@@ -7,11 +7,15 @@ export class TableService {
   /**
    * Get all tables for a floor plan
    */
-  async getTablesByFloorPlan(floorPlanId: string, restaurantId?: string) {
+  async getTablesByFloorPlan(floorPlanId: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     return prisma.table.findMany({
       where: {
         floorPlanId,
-        ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+        floorPlan: { restaurantId },
       },
       include: {
         orders: {
@@ -35,11 +39,15 @@ export class TableService {
   /**
    * Get a single table by ID
    */
-  async getTableById(id: string, restaurantId?: string) {
+  async getTableById(id: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const table = await prisma.table.findFirst({
       where: {
         id,
-        ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+        floorPlan: { restaurantId },
       },
       include: {
         orders: {
@@ -74,14 +82,16 @@ export class TableService {
   /**
    * Create a new table
    */
-  async createTable(data: CreateTableDto, restaurantId?: string) {
-    if (restaurantId) {
-      const plan = await prisma.floorPlan.findFirst({
-        where: { id: data.floorPlanId, restaurantId },
-      });
-      if (!plan) {
-        throw new Error('Floor plan not found or unauthorized');
-      }
+  async createTable(data: CreateTableDto, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to create a table');
+    }
+
+    const plan = await prisma.floorPlan.findFirst({
+      where: { id: data.floorPlanId, restaurantId },
+    });
+    if (!plan) {
+      throw new Error('Floor plan not found or unauthorized');
     }
 
     // Check if table number already exists in this floor plan
@@ -107,11 +117,15 @@ export class TableService {
   /**
    * Update table details (position, capacity, etc.)
    */
-  async updateTable(id: string, data: UpdateTableDto, restaurantId?: string) {
+  async updateTable(id: string, data: UpdateTableDto, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to update a table');
+    }
+
     const table = await prisma.table.findFirst({
       where: {
         id,
-        ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+        floorPlan: { restaurantId },
       },
     });
 
@@ -128,11 +142,15 @@ export class TableService {
   /**
    * Update table status
    */
-  async updateTableStatus(id: string, data: UpdateTableStatusDto, restaurantId?: string) {
+  async updateTableStatus(id: string, data: UpdateTableStatusDto, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to update table status');
+    }
+
     const table = await prisma.table.findFirst({
       where: {
         id,
-        ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+        floorPlan: { restaurantId },
       },
     });
     
@@ -161,11 +179,15 @@ export class TableService {
   /**
    * Assign table to server section
    */
-  async assignTableToSection(id: string, section: string, restaurantId?: string) {
+  async assignTableToSection(id: string, section: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to assign table section');
+    }
+
     const table = await prisma.table.findFirst({
       where: {
         id,
-        ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+        floorPlan: { restaurantId },
       },
     });
 
@@ -182,18 +204,20 @@ export class TableService {
   /**
    * Bulk update table positions (for drag-and-drop)
    */
-  async updateTablePositions(updates: Array<{ id: string; x: number; y: number }>, restaurantId?: string) {
-    if (restaurantId) {
-      const ids = updates.map((u) => u.id);
-      const matching = await prisma.table.findMany({
-        where: {
-          id: { in: ids },
-          floorPlan: { restaurantId },
-        },
-      });
-      if (matching.length !== ids.length) {
-        throw new Error('One or more tables unauthorized');
-      }
+  async updateTablePositions(updates: Array<{ id: string; x: number; y: number }>, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to update table positions');
+    }
+
+    const ids = updates.map((u) => u.id);
+    const matching = await prisma.table.findMany({
+      where: {
+        id: { in: ids },
+        floorPlan: { restaurantId },
+      },
+    });
+    if (matching.length !== ids.length) {
+      throw new Error('One or more tables unauthorized');
     }
 
     const operations = updates.map((update) =>
@@ -209,11 +233,15 @@ export class TableService {
   /**
    * Delete a table
    */
-  async deleteTable(id: string, restaurantId?: string) {
+  async deleteTable(id: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to delete a table');
+    }
+
     const table = await prisma.table.findFirst({
       where: {
         id,
-        ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+        floorPlan: { restaurantId },
       },
       include: {
         orders: {
@@ -238,12 +266,16 @@ export class TableService {
   /**
    * Get tables by status
    */
-  async getTablesByStatus(floorPlanId: string, status: TableStatus, restaurantId?: string) {
+  async getTablesByStatus(floorPlanId: string, status: TableStatus, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     return prisma.table.findMany({
       where: {
         floorPlanId,
         status,
-        ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+        floorPlan: { restaurantId },
       },
       include: {
         orders: {
@@ -256,14 +288,18 @@ export class TableService {
   /**
    * Get available tables for party size
    */
-  async getAvailableTablesForParty(floorPlanId: string, partySize: number, restaurantId?: string) {
+  async getAvailableTablesForParty(floorPlanId: string, partySize: number, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     return prisma.table.findMany({
       where: {
         floorPlanId,
         status: 'AVAILABLE',
         capacity: { gte: partySize },
         minCapacity: { lte: partySize },
-        ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+        floorPlan: { restaurantId },
       },
       orderBy: [
         { capacity: 'asc' }, // Prefer smaller tables that fit
@@ -275,11 +311,15 @@ export class TableService {
   /**
    * Get table occupancy stats
    */
-  async getOccupancyStats(floorPlanId: string, restaurantId?: string) {
+  async getOccupancyStats(floorPlanId: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const tables = await prisma.table.findMany({
       where: {
         floorPlanId,
-        ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+        floorPlan: { restaurantId },
       },
     });
 
@@ -300,14 +340,18 @@ export class TableService {
   /**
    * Calculate average turn time
    */
-  async getAverageTurnTime(floorPlanId: string, hours = 24, restaurantId?: string) {
+  async getAverageTurnTime(floorPlanId: string, hours = 24, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const since = new Date(Date.now() - hours * 60 * 60 * 1000);
     
     const orders = await prisma.order.findMany({
       where: {
         table: {
           floorPlanId,
-          ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+          floorPlan: { restaurantId },
         },
         status: 'COMPLETED',
         completedAt: {
@@ -336,7 +380,11 @@ export class TableService {
   /**
    * Combine multiple tables for larger parties
    */
-  async combineTables(tableIds: string[], restaurantId?: string) {
+  async combineTables(tableIds: string[], restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     if (tableIds.length < 2) {
       throw new Error('At least two tables are required to combine');
     }
@@ -344,7 +392,7 @@ export class TableService {
     const tables = await prisma.table.findMany({
       where: {
         id: { in: tableIds },
-        ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+        floorPlan: { restaurantId },
       },
     });
 
@@ -374,11 +422,15 @@ export class TableService {
   /**
    * Split previously combined table back to individual status
    */
-  async splitTable(tableId: string, restaurantId?: string) {
+  async splitTable(tableId: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const table = await prisma.table.findFirst({
       where: {
         id: tableId,
-        ...(restaurantId ? { floorPlan: { restaurantId } } : {}),
+        floorPlan: { restaurantId },
       },
     });
 

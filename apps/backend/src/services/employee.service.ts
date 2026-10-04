@@ -11,18 +11,22 @@ export class EmployeeService {
     options?: {
       page?: number;
       limit?: number;
-      search?: string;
       role?: string;
       isActive?: boolean;
+      search?: string;
     }
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const page = Math.max(1, Number(options?.page) || 1);
     const limit = Math.max(1, Number(options?.limit) || 50);
     const skip = (page - 1) * limit;
 
     const whereClause: any = { restaurantId };
 
-    if (options?.role && options.role !== 'All' && options.role !== 'ALL') {
+    if (options?.role && options.role !== 'ALL' && options.role !== 'All') {
       whereClause.role = options.role;
     }
 
@@ -58,12 +62,8 @@ export class EmployeeService {
           phone: true,
           createdAt: true,
           updatedAt: true,
-          timeEntries: {
-            where: { clockOut: null },
-            take: 1,
-          },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { firstName: 'asc' },
       }),
     ]);
 
@@ -78,11 +78,15 @@ export class EmployeeService {
     };
   }
 
-  async getEmployee(id: string, restaurantId?: string) {
+  async getEmployee(id: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to retrieve an employee');
+    }
+
     return prisma.employee.findFirst({
       where: {
         id,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
       select: {
         id: true,
@@ -111,7 +115,7 @@ export class EmployeeService {
     hourlyRate?: number;
     phone?: string;
   }) {
-    if (!data.restaurantId) {
+    if (!data.restaurantId || !data.restaurantId.trim()) {
       throw new Error('restaurantId is required to create an employee');
     }
 
@@ -123,21 +127,19 @@ export class EmployeeService {
       throw new Error('Employee with this email already exists');
     }
 
-    const defaultPassword = data.password || 'password123';
-    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+    const passwordHash = data.password ? await bcrypt.hash(data.password, 10) : null;
 
     const employee = await prisma.employee.create({
       data: {
         email: data.email,
-        passwordHash: hashedPassword,
+        passwordHash,
         firstName: data.firstName,
         lastName: data.lastName,
         restaurantId: data.restaurantId,
-        role: data.role || 'SERVER',
-        pin: data.pin || '1234',
-        hourlyRate: data.hourlyRate || 15.0,
-        phone: data.phone,
-        isActive: true,
+        role: data.role,
+        pin: data.pin || null,
+        hourlyRate: data.hourlyRate || null,
+        phone: data.phone || null,
       },
       select: {
         id: true,
@@ -156,11 +158,15 @@ export class EmployeeService {
     return employee;
   }
 
-  async updateEmployee(id: string, data: any, restaurantId?: string) {
+  async updateEmployee(id: string, data: any, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to update an employee');
+    }
+
     const existing = await prisma.employee.findFirst({
       where: {
         id,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
     });
 
@@ -193,11 +199,15 @@ export class EmployeeService {
     });
   }
 
-  async deactivateEmployee(id: string, restaurantId?: string) {
+  async deactivateEmployee(id: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to deactivate an employee');
+    }
+
     const existing = await prisma.employee.findFirst({
       where: {
         id,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
     });
 
@@ -211,11 +221,15 @@ export class EmployeeService {
     });
   }
 
-  async clockIn(employeeId: string, restaurantId?: string) {
+  async clockIn(employeeId: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to clock in');
+    }
+
     const emp = await prisma.employee.findFirst({
       where: {
         id: employeeId,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
     });
 
@@ -252,11 +266,15 @@ export class EmployeeService {
     });
   }
 
-  async clockOut(employeeId: string, restaurantId?: string) {
+  async clockOut(employeeId: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to clock out');
+    }
+
     const emp = await prisma.employee.findFirst({
       where: {
         id: employeeId,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
     });
 
@@ -300,14 +318,16 @@ export class EmployeeService {
     });
   }
 
-  async getEmployeeShifts(employeeId: string, startDate?: Date, endDate?: Date, restaurantId?: string) {
-    if (restaurantId) {
-      const emp = await prisma.employee.findFirst({
-        where: { id: employeeId, restaurantId },
-      });
-      if (!emp) {
-        throw new Error('Employee not found or unauthorized');
-      }
+  async getEmployeeShifts(employeeId: string, startDate: Date | undefined, endDate: Date | undefined, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to get employee shifts');
+    }
+
+    const emp = await prisma.employee.findFirst({
+      where: { id: employeeId, restaurantId },
+    });
+    if (!emp) {
+      throw new Error('Employee not found or unauthorized');
     }
 
     const where: any = { employeeId };
@@ -334,6 +354,10 @@ export class EmployeeService {
   }
 
   async getActiveShifts(restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to get active shifts');
+    }
+
     return prisma.timeEntry.findMany({
       where: {
         employee: { restaurantId },
@@ -354,3 +378,5 @@ export class EmployeeService {
     });
   }
 }
+
+export const employeeService = new EmployeeService();

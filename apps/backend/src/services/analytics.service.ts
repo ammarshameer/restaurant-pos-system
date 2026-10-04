@@ -4,6 +4,10 @@ const prisma = new PrismaClient();
 
 export class AnalyticsService {
   async getSalesAnalytics(restaurantId: string, startDate: Date, endDate: Date) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const orders = await prisma.order.findMany({
       where: {
         restaurantId,
@@ -64,6 +68,7 @@ export class AnalyticsService {
         const price = Number(item.unitPrice || item.price || item.deal?.price || item.menuItem?.price || 0);
         const rev = price * itemQty;
         itemsSold += itemQty;
+
         if (item.dealId || item.deal) {
           dealsSold += itemQty;
           dealRevenue += rev;
@@ -76,22 +81,21 @@ export class AnalyticsService {
 
     return {
       totalRevenue: +totalRevenue.toFixed(2),
-      dealRevenue: +dealRevenue.toFixed(2),
-      standaloneRevenue: +standaloneRevenue.toFixed(2),
       totalOrders,
       averageOrderValue,
       itemsSold,
       dealsSold,
       standaloneItemsSold,
-      orders,
+      dealRevenue: +dealRevenue.toFixed(2),
+      standaloneRevenue: +standaloneRevenue.toFixed(2),
     };
   }
 
   /**
-   * 1. SALES / REVENUE BREAKDOWN (Commercial Sales View):
-   * Each sold Deal appears as its own line item at the deal's bundled price.
-   * Deals are NOT split into components here.
-   * Standalone (non-deal) menu items show at their regular prices.
+   * 1. SALES/REVENUE BREAKDOWN (Daily / Period Sales Breakdown):
+   * Shows distinct sale line items for what was sold:
+   *  - Each Deal sold appears as its own line item named by the Deal (e.g. "Pizza + Drink Combo")
+   *  - Regular standalone menu items appear as their own line items
    */
   async getProductRevenueBreakdown(
     restaurantId: string,
@@ -99,6 +103,10 @@ export class AnalyticsService {
     endDateParam?: Date | string,
     optionsParam?: { page?: number; limit?: number } | number
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     let startDate: Date;
     let endDate: Date;
     let page = 1;
@@ -130,7 +138,7 @@ export class AnalyticsService {
     const dealsByName = new Map<string, any>();
     allDeals.forEach((d: any) => {
       dealsById.set(d.id, d);
-      dealsByName.set((d.name || '').trim().toLowerCase(), d);
+      dealsByName.set(d.name.toLowerCase().trim(), d);
     });
 
     const orders = await prisma.order.findMany({
@@ -156,7 +164,7 @@ export class AnalyticsService {
       },
     });
 
-    const productStats = new Map<
+    const breakdownMap = new Map<
       string,
       {
         id: string;
@@ -164,105 +172,88 @@ export class AnalyticsService {
         type: 'DEAL' | 'MENU_ITEM';
         category: string;
         quantity: number;
-        unitPrice: number;
         revenue: number;
-        dealId?: string | null;
-        menuItemId?: string | null;
+        unitPrice: number;
       }
     >();
 
     orders.forEach((order) => {
       order.items.forEach((item) => {
         const itemQty = Number(item.quantity) || 1;
-        const normalizedName = (item.name || '').trim().toLowerCase();
-        const matchedDeal = item.deal || (item.dealId ? dealsById.get(item.dealId) : null) || dealsByName.get(normalizedName);
+        const matchedDeal =
+          item.deal ||
+          (item.dealId ? dealsById.get(item.dealId) : null) ||
+          (item.name ? dealsByName.get(item.name.toLowerCase().trim()) : null);
 
-        if (item.dealId || matchedDeal) {
-          // It's a Deal sale
-          const dealId = item.dealId || matchedDeal?.id || item.name;
-          const dealName = matchedDeal?.name || item.name || 'Combo Deal';
-          const unitPrice = Number(item.unitPrice || item.price || matchedDeal?.price || 0);
-          const revenue = unitPrice * itemQty;
-          const key = `deal:${dealId}`;
+        const isDeal = Boolean(item.dealId || matchedDeal);
 
-          const existing = productStats.get(key);
+        if (isDeal) {
+          const dealName = matchedDeal?.name || item.name || 'Deal';
+          const dealId = matchedDeal?.id || item.dealId || `deal-${dealName}`;
+          const key = `deal_${dealId}`;
+          const dealPrice = Number(item.unitPrice || item.price || matchedDeal?.price || 0);
+          const rev = dealPrice * itemQty;
+
+          const existing = breakdownMap.get(key);
           if (existing) {
             existing.quantity += itemQty;
-            existing.revenue += revenue;
-            existing.unitPrice = existing.quantity > 0 ? +(existing.revenue / existing.quantity).toFixed(2) : unitPrice;
+            existing.revenue += rev;
           } else {
-            productStats.set(key, {
+            breakdownMap.set(key, {
               id: dealId,
-              dealId: matchedDeal?.id || item.dealId || null,
-              menuItemId: null,
               name: dealName,
               type: 'DEAL',
-              category: 'Combo Deals',
+              category: 'Deals & Combos',
               quantity: itemQty,
-              unitPrice: +unitPrice.toFixed(2),
-              revenue,
+              revenue: rev,
+              unitPrice: dealPrice,
             });
           }
         } else {
-          // Regular Menu Item sale
-          const menuItem = item.menuItem;
-          const mId = item.menuItemId || menuItem?.id || item.name;
-          const mName = menuItem?.name || item.name || 'Dish';
-          const catName = menuItem?.category?.name || 'General';
-          const unitPrice = Number(item.unitPrice || item.price || menuItem?.price || 0);
-          const revenue = unitPrice * itemQty;
-          const key = `menu:${mId}`;
+          const itemName = item.menuItem?.name || item.name || 'Menu Item';
+          const itemId = item.menuItemId || `item-${itemName}`;
+          const key = `item_${itemId}`;
+          const itemPrice = Number(item.unitPrice || item.price || item.menuItem?.price || 0);
+          const rev = itemPrice * itemQty;
+          const categoryName = item.menuItem?.category?.name || 'General';
 
-          const existing = productStats.get(key);
+          const existing = breakdownMap.get(key);
           if (existing) {
             existing.quantity += itemQty;
-            existing.revenue += revenue;
-            existing.unitPrice = existing.quantity > 0 ? +(existing.revenue / existing.quantity).toFixed(2) : unitPrice;
-            if (menuItem?.name) existing.name = menuItem.name;
-            if (catName !== 'General') existing.category = catName;
+            existing.revenue += rev;
           } else {
-            productStats.set(key, {
-              id: mId,
-              dealId: null,
-              menuItemId: menuItem?.id || item.menuItemId || null,
-              name: mName,
+            breakdownMap.set(key, {
+              id: itemId,
+              name: itemName,
               type: 'MENU_ITEM',
-              category: catName,
+              category: categoryName,
               quantity: itemQty,
-              unitPrice: +unitPrice.toFixed(2),
-              revenue,
+              revenue: rev,
+              unitPrice: itemPrice,
             });
           }
         }
       });
     });
 
-    const allSortedProducts = Array.from(productStats.values())
-      .map((item) => ({
-        ...item,
-        revenue: +item.revenue.toFixed(2),
+    const allRecords = Array.from(breakdownMap.values())
+      .map((r) => ({
+        ...r,
+        revenue: +r.revenue.toFixed(2),
+        unitPrice: +r.unitPrice.toFixed(2),
       }))
-      .sort((a, b) => b.revenue - a.revenue || b.quantity - a.quantity)
-      .map((item, idx) => ({
-        ...item,
-        rank: idx + 1,
-      }));
+      .sort((a, b) => b.revenue - a.revenue);
 
-    const totalCount = allSortedProducts.length;
-    const pagedItems = allSortedProducts.slice(skip, skip + limit);
+    const totalCount = allRecords.length;
+    const pagedRecords = allRecords.slice(skip, skip + limit);
     const hasMore = page * limit < totalCount;
 
-    const totalRevenue = allSortedProducts.reduce((sum, item) => sum + item.revenue, 0);
-    const totalQuantity = allSortedProducts.reduce((sum, item) => sum + item.quantity, 0);
-
     return {
-      data: pagedItems,
+      data: pagedRecords,
       page,
       limit,
       totalCount,
       hasMore,
-      totalRevenue: +totalRevenue.toFixed(2),
-      totalQuantity,
     };
   }
 
@@ -278,6 +269,10 @@ export class AnalyticsService {
     endDateParam?: Date | string,
     optionsParam?: { page?: number; limit?: number } | number
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     let startDate: Date;
     let endDate: Date;
     let page = 1;
@@ -321,7 +316,7 @@ export class AnalyticsService {
     const dealsByName = new Map<string, any>();
     allDeals.forEach((d: any) => {
       dealsById.set(d.id, d);
-      dealsByName.set((d.name || '').trim().toLowerCase(), d);
+      dealsByName.set(d.name.toLowerCase().trim(), d);
     });
 
     const orders = await prisma.order.findMany({
@@ -359,15 +354,15 @@ export class AnalyticsService {
       },
     });
 
-    const itemStats = new Map<
+    const popularityMap = new Map<
       string,
       {
-        id: string;
+        menuItemId: string;
         name: string;
         category: string;
-        directQuantity: number;
-        comboQuantity: number;
-        quantity: number; // total consumed = directQuantity + comboQuantity
+        standaloneQuantity: number;
+        dealQuantity: number;
+        totalQuantity: number;
         revenue: number;
       }
     >();
@@ -375,86 +370,77 @@ export class AnalyticsService {
     orders.forEach((order) => {
       order.items.forEach((item) => {
         const itemQty = Number(item.quantity) || 1;
-        const normalizedName = (item.name || '').trim().toLowerCase();
-        const matchedDeal = item.deal || (item.dealId ? dealsById.get(item.dealId) : null) || dealsByName.get(normalizedName);
+        const matchedDeal =
+          item.deal ||
+          (item.dealId ? dealsById.get(item.dealId) : null) ||
+          (item.name ? dealsByName.get(item.name.toLowerCase().trim()) : null);
 
-        if (item.dealId || matchedDeal) {
-          // DEAL SALE: Expand into component menu items (DealItems)
-          const dealComponents = matchedDeal?.items || item.deal?.items || [];
-          dealComponents.forEach((dealItem: any) => {
-            const menuItem = dealItem.menuItem;
-            const mId = dealItem.menuItemId || menuItem?.id;
-            if (!mId) return;
+        const isDeal = Boolean(item.dealId || matchedDeal);
 
-            const componentMultiplier = Number(dealItem.quantity) || 1;
-            const expandedComboQty = componentMultiplier * itemQty;
-            const mName = menuItem?.name || 'Dish';
-            const catName = menuItem?.category?.name || 'General';
+        if (isDeal && matchedDeal && matchedDeal.items && matchedDeal.items.length > 0) {
+          // Expand each deal component item
+          matchedDeal.items.forEach((dItem: any) => {
+            const componentMenuItem = dItem.menuItem;
+            if (!componentMenuItem) return;
 
-            const existing = itemStats.get(mId);
+            const mId = componentMenuItem.id;
+            const mName = componentMenuItem.name;
+            const mCategory = componentMenuItem.category?.name || 'General';
+            const componentUnits = (Number(dItem.quantity) || 1) * itemQty;
+
+            const existing = popularityMap.get(mId);
             if (existing) {
-              existing.comboQuantity += expandedComboQty;
-              existing.quantity += expandedComboQty;
-              if (menuItem?.name) existing.name = menuItem.name;
-              if (catName !== 'General') existing.category = catName;
+              existing.dealQuantity += componentUnits;
+              existing.totalQuantity += componentUnits;
             } else {
-              itemStats.set(mId, {
-                id: mId,
+              popularityMap.set(mId, {
+                menuItemId: mId,
                 name: mName,
-                category: catName,
-                directQuantity: 0,
-                comboQuantity: expandedComboQty,
-                quantity: expandedComboQty,
+                category: mCategory,
+                standaloneQuantity: 0,
+                dealQuantity: componentUnits,
+                totalQuantity: componentUnits,
                 revenue: 0,
               });
             }
           });
-        } else {
-          // STANDALONE MENU ITEM SALE
-          const menuItem = item.menuItem;
-          const mId = item.menuItemId || menuItem?.id || item.name;
-          if (!mId) return;
+        } else if (!isDeal) {
+          // Standalone menu item
+          const mId = item.menuItemId || item.menuItem?.id || item.name;
+          const mName = item.menuItem?.name || item.name || 'Menu Item';
+          const mCategory = item.menuItem?.category?.name || 'General';
+          const itemPrice = Number(item.unitPrice || item.price || item.menuItem?.price || 0);
+          const rev = itemPrice * itemQty;
 
-          const mName = menuItem?.name || item.name || 'Dish';
-          const catName = menuItem?.category?.name || 'General';
-          const price = Number(item.unitPrice || item.price || menuItem?.price || 0);
-          const revenue = price * itemQty;
-
-          const existing = itemStats.get(mId);
+          const existing = popularityMap.get(mId);
           if (existing) {
-            existing.directQuantity += itemQty;
-            existing.quantity += itemQty;
-            existing.revenue += revenue;
-            if (menuItem?.name) existing.name = menuItem.name;
-            if (catName !== 'General') existing.category = catName;
+            existing.standaloneQuantity += itemQty;
+            existing.totalQuantity += itemQty;
+            existing.revenue += rev;
           } else {
-            itemStats.set(mId, {
-              id: mId,
+            popularityMap.set(mId, {
+              menuItemId: mId,
               name: mName,
-              category: catName,
-              directQuantity: itemQty,
-              comboQuantity: 0,
-              quantity: itemQty,
-              revenue,
+              category: mCategory,
+              standaloneQuantity: itemQty,
+              dealQuantity: 0,
+              totalQuantity: itemQty,
+              revenue: rev,
             });
           }
         }
       });
     });
 
-    const allSortedItems = Array.from(itemStats.values())
+    const allItems = Array.from(popularityMap.values())
       .map((item) => ({
         ...item,
         revenue: +item.revenue.toFixed(2),
       }))
-      .sort((a, b) => b.quantity - a.quantity || b.revenue - a.revenue)
-      .map((item, idx) => ({
-        ...item,
-        rank: idx + 1,
-      }));
+      .sort((a, b) => b.totalQuantity - a.totalQuantity);
 
-    const totalCount = allSortedItems.length;
-    const pagedItems = allSortedItems.slice(skip, skip + limit);
+    const totalCount = allItems.length;
+    const pagedItems = allItems.slice(skip, skip + limit);
     const hasMore = page * limit < totalCount;
 
     return {
@@ -467,6 +453,10 @@ export class AnalyticsService {
   }
 
   async getRevenueByHour(restaurantId: string, date: Date) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
@@ -508,6 +498,10 @@ export class AnalyticsService {
   }
 
   async getTablePerformance(restaurantId: string, startDate: Date, endDate: Date) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const tables = await prisma.table.findMany({
       where: {
         floorPlan: {
@@ -555,6 +549,10 @@ export class AnalyticsService {
   }
 
   async getEmployeePerformance(restaurantId: string, startDate: Date, endDate: Date) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const timeEntries = await prisma.timeEntry.findMany({
       where: {
         employee: {
@@ -615,6 +613,10 @@ export class AnalyticsService {
   }
 
   async getDashboardSummary(restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);

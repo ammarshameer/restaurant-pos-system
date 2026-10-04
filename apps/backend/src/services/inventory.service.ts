@@ -13,6 +13,10 @@ export class InventoryService {
       category?: string;
     }
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const page = Math.max(1, Number(options?.page) || 1);
     const limit = Math.max(1, Number(options?.limit) || 50);
     const skip = (page - 1) * limit;
@@ -28,7 +32,6 @@ export class InventoryService {
       whereClause.OR = [
         { name: { contains: q } },
         { sku: { contains: q } },
-        { category: { contains: q } },
       ];
     }
 
@@ -39,13 +42,7 @@ export class InventoryService {
         skip,
         take: limit,
         include: {
-          menuItem: {
-            select: {
-              id: true,
-              name: true,
-              price: true,
-            },
-          },
+          menuItem: true,
         },
         orderBy: { name: 'asc' },
       }),
@@ -62,11 +59,15 @@ export class InventoryService {
     };
   }
 
-  async getInventoryItem(id: string, restaurantId?: string) {
+  async getInventoryItem(id: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     return prisma.inventoryItem.findFirst({
       where: {
         id,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
       include: {
         menuItem: true,
@@ -89,7 +90,7 @@ export class InventoryService {
     category?: string;
     menuItemId?: string;
   }) {
-    if (!data.restaurantId) {
+    if (!data.restaurantId || !data.restaurantId.trim()) {
       throw new Error('restaurantId is required to create an inventory item');
     }
 
@@ -127,11 +128,15 @@ export class InventoryService {
     return item;
   }
 
-  async updateInventoryItem(id: string, data: any, restaurantId?: string) {
+  async updateInventoryItem(id: string, data: any, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to update an inventory item');
+    }
+
     const existing = await prisma.inventoryItem.findFirst({
       where: {
         id,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
     });
 
@@ -160,10 +165,14 @@ export class InventoryService {
     reason?: string,
     restaurantId?: string
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to adjust stock');
+    }
+
     const item = await prisma.inventoryItem.findFirst({
       where: {
         id,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
     });
 
@@ -171,27 +180,25 @@ export class InventoryService {
       throw new Error('Inventory item not found or unauthorized');
     }
 
-    const newQuantity = Number(item.quantity) + adjustmentQuantity;
+    const currentQty = Number(item.quantity);
+    const newQty = Math.max(0, +(currentQty + adjustmentQuantity).toFixed(3));
 
     const [updatedItem] = await prisma.$transaction([
       prisma.inventoryItem.update({
         where: { id },
-        data: {
-          quantity: newQuantity,
-          lastRestocked: adjustmentQuantity > 0 ? new Date() : item.lastRestocked,
-        },
+        data: { quantity: newQty },
       }),
       prisma.inventoryTransaction.create({
         data: {
           inventoryItemId: id,
-          quantity: Math.abs(adjustmentQuantity),
+          quantity: adjustmentQuantity,
           type,
           reason: reason || `Manual adjustment: ${adjustmentQuantity > 0 ? '+' : ''}${adjustmentQuantity} ${item.unit}`,
         },
       }),
     ]);
 
-    // Check if stock is low
+    // Check if stock is low after adjustment
     if (Number(updatedItem.quantity) <= Number(updatedItem.reorderPoint)) {
       this.emitLowStockAlert(updatedItem);
     }
@@ -199,28 +206,33 @@ export class InventoryService {
     return updatedItem;
   }
 
+  /**
+   * Automatically deduct inventory ingredients when a menu item is ordered
+   */
   async deductForMenuItem(
     menuItemId: string | null,
-    itemName: string,
-    itemQuantity: number,
-    orderReason: string,
-    restaurantId: string
+    name: string,
+    quantitySold: number,
+    reason?: string,
+    restaurantId?: string
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to deduct for menu item');
+    }
+
     let resolvedMenuItemId = menuItemId;
-    if (!resolvedMenuItemId && itemName) {
+
+    if (!resolvedMenuItemId && name) {
       const found = await prisma.menuItem.findFirst({
-        where: { name: itemName, restaurantId },
+        where: { name: name.trim(), restaurantId },
       });
       if (found) {
         resolvedMenuItemId = found.id;
       }
     }
 
-    if (!resolvedMenuItemId) {
-      return;
-    }
+    if (!resolvedMenuItemId) return;
 
-    // 1. Fetch menu item details with explicit MenuItemIngredient relations
     const menuItem = await prisma.menuItem.findFirst({
       where: { id: resolvedMenuItemId, restaurantId },
       include: {
@@ -229,84 +241,94 @@ export class InventoryService {
             inventoryItem: true,
           },
         },
+        inventoryItems: true,
       },
     });
 
-    // 2. If item has zero linked ingredients, that is valid (e.g. bottled drink with no recipe breakdown)
-    if (!menuItem || !menuItem.ingredients || menuItem.ingredients.length === 0) {
-      return;
-    }
+    if (!menuItem) return;
 
-    // 3. Deduct inventory for each linked ingredient
-    for (const recipeIng of menuItem.ingredients) {
-      const invItem = recipeIng.inventoryItem;
-      if (!invItem) continue;
+    // Deduct explicit recipe ingredients
+    if (menuItem.ingredients && menuItem.ingredients.length > 0) {
+      for (const recipeItem of menuItem.ingredients) {
+        const qtyToDeduct = Number(recipeItem.quantityUsed) * quantitySold;
+        const currentQty = Number(recipeItem.inventoryItem.quantity);
+        const newQty = Math.max(0, +(currentQty - qtyToDeduct).toFixed(3));
 
-      const qtyPerUnit = Number(recipeIng.quantityUsed);
-      if (qtyPerUnit <= 0) continue;
+        const [updated] = await prisma.$transaction([
+          prisma.inventoryItem.update({
+            where: { id: recipeItem.inventoryItemId },
+            data: { quantity: newQty },
+          }),
+          prisma.inventoryTransaction.create({
+            data: {
+              inventoryItemId: recipeItem.inventoryItemId,
+              quantity: -qtyToDeduct,
+              type: 'USAGE',
+              reason: reason || `Order deduction: ${quantitySold}x ${menuItem.name} (${recipeItem.inventoryItem.name})`,
+            },
+          }),
+        ]);
 
-      const totalDeduction = qtyPerUnit * itemQuantity;
-      const newQty = Math.max(0, Number(invItem.quantity) - totalDeduction);
+        if (Number(updated.quantity) <= Number(updated.reorderPoint)) {
+          this.emitLowStockAlert(updated);
+        }
+      }
+    } else if (menuItem.inventoryItems && menuItem.inventoryItems.length > 0) {
+      // Deduct 1:1 linked inventory items
+      for (const invItem of menuItem.inventoryItems) {
+        const qtyToDeduct = quantitySold;
+        const currentQty = Number(invItem.quantity);
+        const newQty = Math.max(0, +(currentQty - qtyToDeduct).toFixed(3));
 
-      const [updated] = await prisma.$transaction([
-        prisma.inventoryItem.update({
-          where: { id: invItem.id },
-          data: {
-            quantity: newQty,
-          },
-        }),
-        prisma.inventoryTransaction.create({
-          data: {
-            inventoryItemId: invItem.id,
-            quantity: totalDeduction,
-            type: 'USAGE',
-            reason: orderReason,
-          },
-        }),
-      ]);
+        const [updated] = await prisma.$transaction([
+          prisma.inventoryItem.update({
+            where: { id: invItem.id },
+            data: { quantity: newQty },
+          }),
+          prisma.inventoryTransaction.create({
+            data: {
+              inventoryItemId: invItem.id,
+              quantity: -qtyToDeduct,
+              type: 'USAGE',
+              reason: reason || `Order deduction: ${quantitySold}x ${menuItem.name}`,
+            },
+          }),
+        ]);
 
-      console.log(
-        `✓ [Inventory] Deducted ${totalDeduction} ${invItem.unit} for "${invItem.name}" (Stock: ${invItem.quantity} -> ${newQty}) [${orderReason}]`
-      );
-
-      // Emit real-time inventory update
-      const io = getIO();
-      io?.to(`restaurant:${restaurantId}`).emit('inventory:updated', {
-        id: updated.id,
-        quantity: Number(updated.quantity),
-        name: updated.name,
-        unit: updated.unit,
-        reorderPoint: Number(updated.reorderPoint),
-      });
-
-      if (Number(updated.quantity) <= Number(updated.reorderPoint)) {
-        this.emitLowStockAlert(updated);
+        if (Number(updated.quantity) <= Number(updated.reorderPoint)) {
+          this.emitLowStockAlert(updated);
+        }
       }
     }
   }
 
+  /**
+   * Automatically restore inventory ingredients when an order or item is cancelled/restocked
+   */
   async restoreForMenuItem(
     menuItemId: string | null,
-    itemName: string,
-    itemQuantity: number,
-    orderReason: string,
-    restaurantId: string
+    name: string,
+    quantityRestored: number,
+    reason?: string,
+    restaurantId?: string
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to restore menu item stock');
+    }
+
     let resolvedMenuItemId = menuItemId;
-    if (!resolvedMenuItemId && itemName) {
+
+    if (!resolvedMenuItemId && name) {
       const found = await prisma.menuItem.findFirst({
-        where: { name: itemName, restaurantId },
+        where: { name: name.trim(), restaurantId },
       });
       if (found) {
         resolvedMenuItemId = found.id;
       }
     }
 
-    if (!resolvedMenuItemId) {
-      return;
-    }
+    if (!resolvedMenuItemId) return;
 
-    // 1. Fetch menu item details with explicit MenuItemIngredient relations
     const menuItem = await prisma.menuItem.findFirst({
       where: { id: resolvedMenuItemId, restaurantId },
       include: {
@@ -315,70 +337,86 @@ export class InventoryService {
             inventoryItem: true,
           },
         },
+        inventoryItems: true,
       },
     });
 
-    // 2. If item has zero linked ingredients, nothing to restore
-    if (!menuItem || !menuItem.ingredients || menuItem.ingredients.length === 0) {
-      return;
-    }
+    if (!menuItem) return;
 
-    // 3. Restore inventory for each linked ingredient
-    for (const recipeIng of menuItem.ingredients) {
-      const invItem = recipeIng.inventoryItem;
-      if (!invItem) continue;
+    // Restore explicit recipe ingredients
+    if (menuItem.ingredients && menuItem.ingredients.length > 0) {
+      for (const recipeItem of menuItem.ingredients) {
+        const qtyToRestore = Number(recipeItem.quantityUsed) * quantityRestored;
+        const currentQty = Number(recipeItem.inventoryItem.quantity);
+        const newQty = +(currentQty + qtyToRestore).toFixed(3);
 
-      const qtyPerUnit = Number(recipeIng.quantityUsed);
-      if (qtyPerUnit <= 0) continue;
+        const [updated] = await prisma.$transaction([
+          prisma.inventoryItem.update({
+            where: { id: recipeItem.inventoryItemId },
+            data: { quantity: newQty },
+          }),
+          prisma.inventoryTransaction.create({
+            data: {
+              inventoryItemId: recipeItem.inventoryItemId,
+              quantity: qtyToRestore,
+              type: 'RESTOCK',
+              reason: reason || `Restock/Cancellation: ${quantityRestored}x ${menuItem.name} (${recipeItem.inventoryItem.name})`,
+            },
+          }),
+        ]);
 
-      const totalRestoration = qtyPerUnit * itemQuantity;
-      const newQty = Number(invItem.quantity) + totalRestoration;
+        if (Number(updated.quantity) <= Number(updated.reorderPoint)) {
+          this.emitLowStockAlert(updated);
+        }
+      }
+    } else if (menuItem.inventoryItems && menuItem.inventoryItems.length > 0) {
+      // Restore 1:1 linked inventory items
+      for (const invItem of menuItem.inventoryItems) {
+        const qtyToRestore = quantityRestored;
+        const currentQty = Number(invItem.quantity);
+        const newQty = +(currentQty + qtyToRestore).toFixed(3);
 
-      const [updated] = await prisma.$transaction([
-        prisma.inventoryItem.update({
-          where: { id: invItem.id },
-          data: {
-            quantity: newQty,
-            lastRestocked: new Date(),
-          },
-        }),
-        prisma.inventoryTransaction.create({
-          data: {
-            inventoryItemId: invItem.id,
-            quantity: totalRestoration,
-            type: 'RESTOCK',
-            reason: orderReason,
-          },
-        }),
-      ]);
+        const [updated] = await prisma.$transaction([
+          prisma.inventoryItem.update({
+            where: { id: invItem.id },
+            data: { quantity: newQty },
+          }),
+          prisma.inventoryTransaction.create({
+            data: {
+              inventoryItemId: invItem.id,
+              quantity: qtyToRestore,
+              type: 'RESTOCK',
+              reason: reason || `Restock/Cancellation: ${quantityRestored}x ${menuItem.name}`,
+            },
+          }),
+        ]);
 
-      console.log(
-        `✓ [Inventory] Restored ${totalRestoration} ${invItem.unit} for "${invItem.name}" (Stock: ${invItem.quantity} -> ${newQty}) [${orderReason}]`
-      );
-
-      // Emit real-time inventory update
-      const io = getIO();
-      io?.to(`restaurant:${restaurantId}`).emit('inventory:updated', {
-        id: updated.id,
-        quantity: Number(updated.quantity),
-        name: updated.name,
-        unit: updated.unit,
-        reorderPoint: Number(updated.reorderPoint),
-      });
+        if (Number(updated.quantity) <= Number(updated.reorderPoint)) {
+          this.emitLowStockAlert(updated);
+        }
+      }
     }
   }
 
+  /**
+   * Automatically deduct inventory for Deal items
+   */
   async deductForDeal(
     dealId: string | null,
     dealName: string,
-    dealQuantity: number,
-    orderReason: string,
-    restaurantId: string
+    quantitySold: number,
+    reason?: string,
+    restaurantId?: string
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to deduct for deal');
+    }
+
     let resolvedDealId = dealId;
+
     if (!resolvedDealId && dealName) {
       const found = await (prisma as any).deal.findFirst({
-        where: { name: dealName, restaurantId },
+        where: { name: dealName.trim(), restaurantId },
       });
       if (found) {
         resolvedDealId = found.id;
@@ -398,33 +436,36 @@ export class InventoryService {
       },
     });
 
-    if (!deal || !deal.items || deal.items.length === 0) return;
+    if (!deal || !deal.items) return;
 
-    for (const dealItem of deal.items) {
-      const totalItemQty = Number(dealItem.quantity) * Number(dealQuantity);
-      if (totalItemQty <= 0) continue;
-
-      await this.deductForMenuItem(
-        dealItem.menuItemId,
-        dealItem.menuItem?.name || '',
-        totalItemQty,
-        `${orderReason} (Bundle item: ${dealItem.menuItem?.name || 'Item'} x${dealItem.quantity})`,
-        restaurantId
-      );
+    for (const dItem of deal.items) {
+      const itemQty = Number(dItem.quantity) * quantitySold;
+      const subReason = reason
+        ? `${reason} (Deal: ${deal.name})`
+        : `Deal deduction: ${quantitySold}x ${deal.name} -> ${itemQty}x ${dItem.menuItem?.name || 'Item'}`;
+      await this.deductForMenuItem(dItem.menuItemId, dItem.menuItem?.name || '', itemQty, subReason, restaurantId);
     }
   }
 
+  /**
+   * Automatically restore inventory for Deal items
+   */
   async restoreForDeal(
     dealId: string | null,
     dealName: string,
-    dealQuantity: number,
-    orderReason: string,
-    restaurantId: string
+    quantityRestored: number,
+    reason?: string,
+    restaurantId?: string
   ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to restore deal stock');
+    }
+
     let resolvedDealId = dealId;
+
     if (!resolvedDealId && dealName) {
       const found = await (prisma as any).deal.findFirst({
-        where: { name: dealName, restaurantId },
+        where: { name: dealName.trim(), restaurantId },
       });
       if (found) {
         resolvedDealId = found.id;
@@ -444,23 +485,22 @@ export class InventoryService {
       },
     });
 
-    if (!deal || !deal.items || deal.items.length === 0) return;
+    if (!deal || !deal.items) return;
 
-    for (const dealItem of deal.items) {
-      const totalItemQty = Number(dealItem.quantity) * Number(dealQuantity);
-      if (totalItemQty <= 0) continue;
-
-      await this.restoreForMenuItem(
-        dealItem.menuItemId,
-        dealItem.menuItem?.name || '',
-        totalItemQty,
-        `${orderReason} (Bundle item: ${dealItem.menuItem?.name || 'Item'} x${dealItem.quantity})`,
-        restaurantId
-      );
+    for (const dItem of deal.items) {
+      const itemQty = Number(dItem.quantity) * quantityRestored;
+      const subReason = reason
+        ? `${reason} (Deal: ${deal.name})`
+        : `Deal restock: ${quantityRestored}x ${deal.name} -> ${itemQty}x ${dItem.menuItem?.name || 'Item'}`;
+      await this.restoreForMenuItem(dItem.menuItemId, dItem.menuItem?.name || '', itemQty, subReason, restaurantId);
     }
   }
 
   async getLowStockItems(restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
     const allItems = await prisma.inventoryItem.findMany({
       where: { restaurantId },
       orderBy: { quantity: 'asc' },
@@ -473,18 +513,19 @@ export class InventoryService {
 
   async getInventoryTransactions(
     itemIdOrOptions?: string | {
-      restaurantId?: string;
+      restaurantId: string;
       page?: number;
       limit?: number;
     },
     options?: {
-      restaurantId?: string;
+      restaurantId: string;
       page?: number;
       limit?: number;
-    }
+    },
+    explicitRestaurantId?: string
   ) {
     let itemId: string | undefined;
-    let opts = options;
+    let opts: any = options;
     if (typeof itemIdOrOptions === 'string') {
       itemId = itemIdOrOptions;
     } else if (itemIdOrOptions && typeof itemIdOrOptions === 'object') {
@@ -492,16 +533,20 @@ export class InventoryService {
       itemId = undefined;
     }
 
+    const restaurantId = explicitRestaurantId || opts?.restaurantId;
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to retrieve inventory transactions');
+    }
+
     const page = Math.max(1, Number(opts?.page) || 1);
     const limit = Math.max(1, Number(opts?.limit) || 50);
     const skip = (page - 1) * limit;
 
-    const whereClause: any = {};
+    const whereClause: any = {
+      inventoryItem: { restaurantId },
+    };
     if (itemId && itemId !== 'all') {
       whereClause.inventoryItemId = itemId;
-    }
-    if (opts?.restaurantId) {
-      whereClause.inventoryItem = { restaurantId: opts.restaurantId };
     }
 
     const [totalCount, transactions] = await Promise.all([
@@ -528,11 +573,15 @@ export class InventoryService {
     };
   }
 
-  async deleteInventoryItem(id: string, restaurantId?: string) {
+  async deleteInventoryItem(id: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to delete an inventory item');
+    }
+
     const existing = await prisma.inventoryItem.findFirst({
       where: {
         id,
-        ...(restaurantId ? { restaurantId } : {}),
+        restaurantId,
       },
     });
 
