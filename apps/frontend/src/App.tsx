@@ -4,10 +4,12 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from './store/store';
 import { logout, loginSuccess } from './store/slices/authSlice';
 import { setMenuItems } from './store/slices/menuSlice';
-import { setOrders } from './store/slices/orderSlice';
+import { setOrders, updateOrder } from './store/slices/orderSlice';
 import { menuApi } from './api/menu.api';
-import { orderApi } from './api/order.api';
+import { orderApi, mapOrderRecord } from './api/order.api';
 import { socketClient } from './lib/socket';
+import { syncEngine } from './lib/offline/syncEngine';
+import SyncStatusIndicator from './components/SyncStatusIndicator';
 
 // Page Imports
 import LoginPage from './pages/LoginPage';
@@ -57,6 +59,17 @@ export const App: React.FC = () => {
       }
     }
   }, [dispatch, isAuthenticated]);
+
+  // Start the offline sync engine and reconcile server-authoritative orders
+  // back into Redux whenever a queued or direct write lands on the server.
+  useEffect(() => {
+    void syncEngine.init();
+    const unsubscribe = syncEngine.onServerOrder(({ serverOrder }) => {
+      if (!serverOrder) return;
+      dispatch(updateOrder(mapOrderRecord(serverOrder)));
+    });
+    return () => unsubscribe();
+  }, [dispatch]);
 
   // Hydrate Menu Items & Orders ONLY when authenticated
   useEffect(() => {
@@ -285,22 +298,7 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                background: 'rgba(16, 185, 129, 0.12)',
-                color: '#10b981',
-                padding: '6px 12px',
-                borderRadius: '9999px',
-                fontSize: '12px',
-                fontWeight: 600,
-              }}
-            >
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} />
-              <span>Offline POS Active</span>
-            </div>
+            <SyncStatusIndicator />
           </div>
         </header>
 

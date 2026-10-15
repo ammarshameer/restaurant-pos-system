@@ -11,8 +11,27 @@ import { orderApi } from '../api/order.api';
 import { dealApi } from '../api/deal.api';
 import { Deal } from '../types/deal.types';
 import { getCategoryVisual } from '../utils/image';
+import { uuid } from '../lib/offline/id';
 
 export type OrderType = 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY';
+
+/**
+ * Generates a locally-unique, human-friendly order number. A persistent
+ * counter keeps numbers from colliding between consecutive offline orders on
+ * the same terminal; the server remains authoritative and will reassign if
+ * two terminals happen to produce the same number.
+ */
+function nextLocalOrderNumber(): number {
+  try {
+    const key = 'pos_order_seq';
+    const current = parseInt(localStorage.getItem(key) || '0', 10) || 0;
+    const next = current + 1;
+    localStorage.setItem(key, String(next));
+    return 100 + (next % 900);
+  } catch {
+    return Math.floor(Math.random() * 900) + 100;
+  }
+}
 
 interface CartItem {
   id: string;
@@ -258,12 +277,13 @@ export const PosPage: React.FC = () => {
   const handleSubmitOrder = (autoPrintBoth = true) => {
     if (cart.length === 0) return;
 
-    const orderNum = Math.floor(Math.random() * 900) + 100;
-    const orderId = `ORD-${Date.now().toString().slice(-5)}`;
+    const orderNum = nextLocalOrderNumber();
+    const orderId = uuid();
     const orderRef = getOrderReferenceString();
 
     const newOrder: any = {
       id: orderId,
+      clientId: orderId,
       orderNumber: orderNum,
       orderType,
       orderTypeLabel: getOrderTypeLabel(orderType),
@@ -373,11 +393,12 @@ export const PosPage: React.FC = () => {
 
   const handleCompleteCashPayment = (tendered: number) => {
     const change = Math.max(0, tendered - total);
-    const orderNum = Math.floor(Math.random() * 900) + 100;
-    const orderId = `ORD-${Date.now().toString().slice(-5)}`;
+    const orderNum = nextLocalOrderNumber();
+    const orderId = uuid();
 
     const newOrder: any = {
       id: orderId,
+      clientId: orderId,
       orderNumber: orderNum,
       orderType,
       orderTypeLabel: getOrderTypeLabel(orderType),

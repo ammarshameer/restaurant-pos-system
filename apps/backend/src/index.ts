@@ -17,6 +17,7 @@ import analyticsRoutes from './routes/analytics.routes';
 import paymentRoutes from './routes/payment.routes';
 import backupRoutes from './routes/backup.routes';
 import dealRoutes from './routes/deal.routes';
+import syncRoutes from './routes/sync.routes';
 import { backupService } from './services/backup.service';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/auth';
@@ -156,6 +157,7 @@ app.use('/api/analytics', authenticate, analyticsRoutes);
 app.use('/api/payments', authenticate, paymentRoutes);
 app.use('/api/backups', authenticate, backupRoutes);
 app.use('/api/deals', authenticate, dealRoutes);
+app.use('/api/sync', authenticate, syncRoutes);
 
 // WebSocket setup
 setupWebSocket(io);

@@ -75,9 +75,10 @@ jobs:
           npm run build
           cd ../..
           
-          # Run database migrations
+          # Sync database schema (adds offline-sync columns idempotently) & run migrations
           cd apps/backend
           npx prisma generate
+          npx prisma db push --skip-generate
           npx prisma migrate deploy
           cd ../..
           

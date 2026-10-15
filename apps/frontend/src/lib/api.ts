@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
+import { network, isNetworkError } from './offline/network';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
@@ -8,6 +9,9 @@ class ApiClient {
   constructor() {
     this.client = axios.create({
       baseURL: API_URL,
+      // Keep requests short so the POS can fall back to offline mode quickly
+      // when the server is unreachable.
+      timeout: 15000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -25,10 +29,18 @@ class ApiClient {
       (error) => Promise.reject(error)
     );
 
-    // Response interceptor for error handling
+    // Response interceptor for error handling + connectivity detection
     this.client.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        // Any successful round-trip means we have a working connection.
+        network.set(true);
+        return response;
+      },
       (error: AxiosError) => {
+        // A request that never reached the server means we are offline.
+        if (isNetworkError(error)) {
+          network.set(false);
+        }
         if (error.response?.status === 401) {
           const hadToken = Boolean(localStorage.getItem('auth_token'));
           localStorage.removeItem('auth_token');

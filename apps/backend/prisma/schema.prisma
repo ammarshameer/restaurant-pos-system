@@ -211,6 +211,9 @@ model DealItem {
 
 model Order {
   id              String        @id @default(cuid())
+  // Client-generated idempotency key for offline-first sync. Replaying a
+  // queued offline order never creates duplicates (deduped in the service).
+  clientId        String?
   orderNumber     Int
   orderType       String        @default("DINE_IN") // DINE_IN, TAKE_AWAY, DELIVERY
   orderTypeLabel  String        @default("Dine In")
@@ -247,6 +250,7 @@ model Order {
   modifications   OrderModification[]
 
   @@unique([restaurantId, orderNumber])
+  @@index([clientId])
 }
 
 model OrderItem {
@@ -292,6 +296,8 @@ model OrderItemModifier {
 
 model Payment {
   id              String        @id @default(cuid())
+  // Client-generated idempotency key for offline-first sync.
+  clientId        String?
   orderId         String
   amount          Float
   tipAmount       Float         @default(0)
@@ -303,6 +309,8 @@ model Payment {
   createdAt       DateTime      @default(now())
   
   order           Order         @relation(fields: [orderId], references: [id])
+  
+  @@index([clientId])
 }
 
 // ============================================

@@ -6,8 +6,35 @@ const prisma = new PrismaClient();
 const inventoryService = new InventoryService();
 
 export class OrderService {
+  // Shared include used when returning orders and for idempotency lookups.
+  private orderInclude = {
+    items: {
+      include: {
+        menuItem: true,
+        deal: {
+          include: {
+            items: {
+              include: {
+                menuItem: true,
+              },
+            },
+          },
+        },
+      },
+    },
+    server: {
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+      },
+    },
+    payments: true,
+  };
+
   async createOrder(data: {
     id?: string;
+    clientId?: string;
     orderNumber?: number;
     orderType?: string;
     orderTypeLabel?: string;
@@ -31,6 +58,8 @@ export class OrderService {
     status?: string;
     paymentStatus?: string;
     paymentMethod?: string;
+    paymentClientId?: string;
+    createdAt?: string | Date;
     items: Array<{
       menuItemId?: string;
       dealId?: string;
@@ -39,6 +68,7 @@ export class OrderService {
       price?: number;
       unitPrice?: number;
       notes?: string;
+      status?: string;
     }>;
     notes?: string;
   }) {
@@ -55,12 +85,49 @@ export class OrderService {
       throw new Error(`Restaurant '${restaurantId}' not found.`);
     }
 
-    // Generate order number scoped strictly to this restaurant
-    let orderNum = data.orderNumber;
-    if (!orderNum) {
+    // Idempotency guard for offline-first sync: if this order was already
+    // created (matched by client idempotency key or client-supplied id),
+    // return the existing record instead of inserting a duplicate.
+    if (data.clientId || data.id) {
+      const existing = await prisma.order.findFirst({
+        where: {
+          restaurantId,
+          OR: [
+            ...(data.clientId ? [{ clientId: data.clientId }] : []),
+            ...(data.id ? [{ id: data.id }] : []),
+          ],
+        },
+        include: this.orderInclude,
+      });
+      if (existing) {
+        return existing;
+      }
+    }
+
+    // Resolve the order number scoped strictly to this restaurant. If the
+    // client supplied one that already exists (offline collision), reassign
+    // to the next available number so the server stays authoritative.
+    let orderNum: number;
+    if (data.orderNumber && Number.isFinite(Number(data.orderNumber))) {
+      const clash = await prisma.order.findFirst({
+        where: { restaurantId, orderNumber: Number(data.orderNumber) },
+        select: { id: true },
+      });
+      if (!clash) {
+        orderNum = Number(data.orderNumber);
+      } else {
+        const maxOrder = await prisma.order.findFirst({
+          where: { restaurantId },
+          orderBy: { orderNumber: 'desc' },
+          select: { orderNumber: true },
+        });
+        orderNum = (maxOrder ? maxOrder.orderNumber : 100) + 1;
+      }
+    } else {
       const maxOrder = await prisma.order.findFirst({
         where: { restaurantId },
         orderBy: { orderNumber: 'desc' },
+        select: { orderNumber: true },
       });
       orderNum = maxOrder ? maxOrder.orderNumber + 1 : 101;
     }
@@ -129,7 +196,7 @@ export class OrderService {
           total,
           specialInstructions: item.notes || null,
           notes: item.notes || null,
-          status: 'PENDING',
+          status: item.status || 'PENDING',
           inventoryDeducted: true,
         };
       })
@@ -157,6 +224,8 @@ export class OrderService {
     const order = await prisma.order.create({
       data: {
         ...(data.id ? { id: data.id } : {}),
+        ...(data.clientId ? { clientId: data.clientId } : {}),
+        ...(data.createdAt ? { createdAt: new Date(data.createdAt) } : {}),
         orderNumber: orderNum,
         orderType: (data.orderType || 'DINE_IN').toUpperCase(),
         orderTypeLabel: data.orderTypeLabel || data.orderType || 'Dine In',
@@ -188,6 +257,7 @@ export class OrderService {
           ? {
               payments: {
                 create: {
+                  ...(data.paymentClientId ? { clientId: data.paymentClientId } : {}),
                   amount: data.totalPaid,
                   method: data.paymentMethod || 'CASH',
                   status: 'COMPLETED',
@@ -198,30 +268,7 @@ export class OrderService {
             }
           : {}),
       },
-      include: {
-        items: {
-          include: {
-            menuItem: true,
-            deal: {
-              include: {
-                items: {
-                  include: {
-                    menuItem: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-        server: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-        payments: true,
-      },
+      include: this.orderInclude,
     });
 
     // Notify connected kitchen & client WebSockets

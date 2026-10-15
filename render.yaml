@@ -6,7 +6,8 @@ services:
     rootDir: apps/backend
     # TEMP: switch back to "starter" before going live — free tier spins down after inactivity
     plan: free
-    buildCommand: npm install && npm run build:postgres
+    # db push keeps the cloud Postgres schema in sync (adds offline-sync columns)
+    buildCommand: npm install && npm run build:postgres && npx prisma db push --skip-generate
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true

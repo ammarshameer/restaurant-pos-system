@@ -9,11 +9,13 @@ import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { orderApi } from '../api/order.api';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
+import { useSyncStatus } from '../hooks/useSyncStatus';
 
 export const SaleInvoicesPage: React.FC = () => {
   const dispatch = useDispatch();
   const queryClient = useQueryClient();
   const menuItems = useSelector((state: RootState) => state.menu.items);
+  const { online, pending, failed } = useSyncStatus();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrderType, setSelectedOrderType] = useState<'ALL' | 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY'>('ALL');
@@ -358,12 +360,20 @@ export const SaleInvoicesPage: React.FC = () => {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <h2 style={{ fontSize: '24px', fontWeight: 800 }}>🧾 Sale Invoices & Order History</h2>
-            <span style={{ fontSize: '11px', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '2px 8px', borderRadius: '9999px', fontWeight: 700 }}>
-              ⚡ Database Connected
-            </span>
+            {online && pending === 0 && failed === 0 ? (
+              <span style={{ fontSize: '11px', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '2px 8px', borderRadius: '9999px', fontWeight: 700 }}>
+                ⚡ Synced with server
+              </span>
+            ) : (
+              <span style={{ fontSize: '11px', background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '2px 8px', borderRadius: '9999px', fontWeight: 700 }}>
+                {online ? `⏳ ${pending + failed} pending sync` : `📴 Offline — ${pending + failed} queued`}
+              </span>
+            )}
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-            All invoices and live modifications are synchronized and stored directly into the backend database
+            {online
+              ? 'All invoices and live modifications are synchronized and stored directly into the backend database'
+              : 'Working offline — new orders are saved locally and will sync automatically when the connection returns'}
           </p>
         </div>
       </div>
@@ -522,6 +532,25 @@ export const SaleInvoicesPage: React.FC = () => {
                       <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '14px' }}>
                         #{order.orderNumber}
                       </span>
+                      {(order.pending || order.syncStatus === 'PENDING') && (
+                        <div style={{ marginTop: '4px' }}>
+                          <span
+                            title="Saved on this device — waiting to sync to the server"
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              background: 'rgba(245, 158, 11, 0.18)',
+                              color: '#fbbf24',
+                              border: '1px solid rgba(245, 158, 11, 0.35)',
+                              padding: '1px 7px',
+                              borderRadius: '9999px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            ⏳ Pending sync
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{formattedDate}</td>
                     <td>{getOrderTypeBadge(order.orderType)}</td>
