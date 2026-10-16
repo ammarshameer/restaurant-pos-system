@@ -72,10 +72,12 @@ export class PosOfflineDB extends Dexie {
   constructor() {
     super('restaurant-pos-offline');
 
-    this.version(1).stores({
-      outbox: '++seq, opId, type, entityId, status, createdAt',
-      orders: 'id, restaurantId, syncStatus, pending, createdAt',
-      kv: 'key',
+    this.version(2).stores({
+      outbox: '++seq, opId, type, entityId, status, createdAt, updatedAt',
+      orders: 'id, restaurantId, syncStatus, pending, createdAt, updatedAt',
+      kv: 'key, updatedAt',
+    }).upgrade((tx) => {
+      // Best-effort migration - no-op if fields don't exist in old version
     });
   }
 }

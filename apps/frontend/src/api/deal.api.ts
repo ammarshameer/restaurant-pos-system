@@ -3,8 +3,10 @@ import { Deal } from '../types/deal.types';
 import { PaginatedResponse } from '../types/pagination';
 import { offlineDB } from '../lib/offline/db';
 import { isNetworkError } from '../lib/offline/network';
+import { getCurrentRestaurantId } from '../lib/session';
 
-const DEFAULT_RESTAURANT_ID = 'rest-default-1';
+/** Resolve the tenant id: explicit → session user → demo fallback. */
+const DEFAULT_RESTAURANT_ID = (): string => getCurrentRestaurantId() || 'rest-default-1';
 const DEALS_CACHE_KEY = (restaurantId: string) => `deals:${restaurantId}`;
 
 function mapDeal(item: any): Deal {
@@ -49,7 +51,7 @@ export const dealApi = {
     restaurantId?: string;
   }): Promise<PaginatedResponse<Deal>> => {
     try {
-      const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID;
+      const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID();
       const res: any = await api.get(`/deals/restaurant/${restaurantId}`, {
         page: params?.page || 1,
         limit: params?.limit || 50,
@@ -90,7 +92,7 @@ export const dealApi = {
   },
 
   // Fetch active deals for restaurant (cached locally for offline POS use)
-  getActiveDeals: async (restaurantId = DEFAULT_RESTAURANT_ID): Promise<Deal[]> => {
+  getActiveDeals: async (restaurantId = DEFAULT_RESTAURANT_ID()): Promise<Deal[]> => {
     try {
       const res: any = await api.get(`/deals/restaurant/${restaurantId}/active`);
       if (Array.isArray(res)) {
@@ -127,7 +129,7 @@ export const dealApi = {
   },
 
   // Create deal
-  createDeal: async (deal: Partial<Deal>, restaurantId = DEFAULT_RESTAURANT_ID): Promise<Deal | null> => {
+  createDeal: async (deal: Partial<Deal>, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<Deal | null> => {
     try {
       const res: any = await api.post('/deals', {
         id: deal.id,
@@ -200,7 +202,7 @@ export const dealApi = {
 };
 
 /** Read the last cached active deals for offline use. */
-export async function getCachedDeals(restaurantId = DEFAULT_RESTAURANT_ID): Promise<Deal[]> {
+export async function getCachedDeals(restaurantId = DEFAULT_RESTAURANT_ID()): Promise<Deal[]> {
   try {
     const entry = await offlineDB.kv.get(DEALS_CACHE_KEY(restaurantId));
     return Array.isArray(entry?.value) ? (entry.value as Deal[]) : [];

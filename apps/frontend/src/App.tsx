@@ -9,6 +9,8 @@ import { menuApi } from './api/menu.api';
 import { orderApi, mapOrderRecord } from './api/order.api';
 import { socketClient } from './lib/socket';
 import { syncEngine } from './lib/offline/syncEngine';
+import { clearSession, getRefreshToken } from './lib/session';
+import { api } from './lib/api';
 import SyncStatusIndicator from './components/SyncStatusIndicator';
 
 // Page Imports
@@ -54,8 +56,7 @@ export const App: React.FC = () => {
         const parsedUser = JSON.parse(storedUser);
         dispatch(loginSuccess({ user: parsedUser, token: storedToken }));
       } catch (e) {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('auth_user');
+        clearSession();
       }
     }
   }, [dispatch, isAuthenticated]);
@@ -121,8 +122,12 @@ export const App: React.FC = () => {
 
   const handleLogout = () => {
     socketClient.disconnect();
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_user');
+    const refreshToken = getRefreshToken();
+    if (refreshToken) {
+      // Best-effort server-side revocation; ignore failures (e.g. offline).
+      void api.post('/auth/logout', { refreshToken }).catch(() => undefined);
+    }
+    clearSession();
     dispatch(logout());
     navigate('/login', { replace: true });
   };

@@ -30,6 +30,8 @@ export interface ServerOrderEvent {
 const MAX_ATTEMPTS = 10;
 const BATCH_SIZE = 50;
 const FLUSH_INTERVAL_MS = 20_000;
+/** How long fully-synced orders are kept in the local IndexedDB cache. */
+const PRUNE_RETENTION_DAYS = 90;
 
 const LAST_SYNCED_KEY = 'sync:lastSyncedAt';
 
@@ -56,6 +58,9 @@ class SyncEngine {
   private started = false;
   private flushing = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private backoffMs = FLUSH_INTERVAL_MS; // starts at 20s, increases on repeated failures
+  private lastPrunedAt = 0;
+  private static PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000; // prune at most once/day
 
   async init(): Promise<void> {
     if (this.started) return;
@@ -71,22 +76,40 @@ class SyncEngine {
 
     network.subscribe((online) => {
       this.patch({ online });
-      if (online) this.scheduleFlush(0);
+      if (online) {
+        this.backoffMs = FLUSH_INTERVAL_MS;
+        this.scheduleFlush(0);
+      }
     });
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('online', () => this.scheduleFlush(0));
+      window.addEventListener('online', () => {
+        this.backoffMs = FLUSH_INTERVAL_MS;
+        this.scheduleFlush(0);
+      });
       window.addEventListener('focus', () => this.scheduleFlush(0));
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') this.scheduleFlush(0);
       });
     }
 
-    this.retryTimer = setInterval(() => {
-      if (network.isOnline() && this.status.pending > 0) this.flush();
-    }, FLUSH_INTERVAL_MS);
+    this.scheduleRetryLoop();
 
     if (this.status.pending > 0 && network.isOnline()) this.scheduleFlush(500);
+  }
+
+  /**
+   * Safety-net loop that keeps retrying queued operations (respecting the
+   * current exponential backoff) even if no connectivity event fires.
+   */
+  private scheduleRetryLoop(): void {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = setTimeout(() => {
+      if (network.isOnline() && this.status.pending > 0) {
+        void this.flush();
+      }
+      this.scheduleRetryLoop();
+    }, this.backoffMs);
   }
 
   getStatus(): SyncStatus {
@@ -190,12 +213,27 @@ class SyncEngine {
       const now = Date.now();
       await offlineDB.kv.put({ key: LAST_SYNCED_KEY, value: now, updatedAt: now });
       this.patch({ lastSyncedAt: now, lastError: null });
+      this.backoffMs = FLUSH_INTERVAL_MS; // reset backoff on success
+
+      // Periodically clean up old fully-synced orders so IndexedDB stays small.
+      if (now - this.lastPrunedAt > SyncEngine.PRUNE_INTERVAL_MS) {
+        this.lastPrunedAt = now;
+        void this.pruneSyncedOrders(PRUNE_RETENTION_DAYS);
+      }
     } catch (error: any) {
+      const status = error?.response?.status || error?.status;
+      if (status === 401) {
+        // Don't mark ops as failed, pause syncing until auth handled
+        this.patch({ syncing: false, lastError: 'Authentication expired. Please login again.' });
+        return;
+      }
       if (isNetworkError(error)) {
         network.set(false);
         this.patch({ online: false, lastError: error?.message || 'Network unreachable' });
       } else {
+        this.backoffMs = Math.min(this.backoffMs * 1.5, 5 * 60 * 1000); // exponential backoff up to 5min
         this.patch({ lastError: error?.message || 'Sync failed' });
+        this.scheduleFlush(this.backoffMs);
       }
     } finally {
       this.flushing = false;
@@ -214,31 +252,36 @@ class SyncEngine {
       createdAt: new Date(op.createdAt).toISOString(),
     }));
 
-    const response: any = await api.post('/sync/push', { operations });
-    const results: any[] = Array.isArray(response?.results) ? response.results : [];
+    try {
+      const response: any = await api.post('/sync/push', { operations });
+      const results: any[] = Array.isArray(response?.results) ? response.results : [];
 
-    for (const op of batch) {
-      const result = results.find((r) => r.opId === op.opId);
+      for (const op of batch) {
+        const result = results.find((r) => r.opId === op.opId);
 
-      if (!result) {
-        // Server did not acknowledge this op; keep it queued for the next flush.
-        continue;
-      }
-
-      if (result.status === 'ok') {
-        await offlineDB.outbox.where('opId').equals(op.opId).delete();
-        if (result.order) {
-          await this.reconcileOrder(op, result.order);
+        if (!result) {
+          // Server did not acknowledge this op; keep it queued for the next flush.
+          continue;
         }
-      } else {
-        const attempts = op.attempts + 1;
-        await offlineDB.outbox.update(op.seq!, {
-          attempts,
-          status: attempts >= MAX_ATTEMPTS ? 'FAILED' : 'PENDING',
-          lastError: result.error || 'Sync operation rejected',
-          updatedAt: Date.now(),
-        });
+
+        if (result.status === 'ok') {
+          await offlineDB.outbox.where('opId').equals(op.opId).delete();
+          if (result.order) {
+            await this.reconcileOrder(op, result.order);
+          }
+        } else {
+          const attempts = op.attempts + 1;
+          await offlineDB.outbox.update(op.seq!, {
+            attempts,
+            status: attempts >= MAX_ATTEMPTS ? 'FAILED' : 'PENDING',
+            lastError: result.error || 'Sync operation rejected',
+            updatedAt: Date.now(),
+          });
+        }
       }
+    } catch (error: any) {
+      // Re-throw so flush() can classify (401 / network / backoff) consistently.
+      throw error;
     }
   }
 
@@ -325,6 +368,28 @@ class SyncEngine {
     return rows
       .sort((a, b) => b.createdAt - a.createdAt)
       .map((row) => ({ ...row.order, __syncStatus: row.syncStatus, __pending: row.pending === 1 }));
+  }
+
+  /**
+   * Purge fully-synced orders older than the retention window so the local
+   * IndexedDB store does not grow without bound on long-lived terminals.
+   * Pending/failed orders are never touched.
+   */
+  async pruneSyncedOrders(retentionDays = 90): Promise<void> {
+    try {
+      const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+      const stale = await offlineDB.orders
+        .where('updatedAt')
+        .below(cutoff)
+        .and((row) => row.pending !== 1 && row.syncStatus === 'SYNCED')
+        .primaryKeys();
+      if (stale.length > 0) {
+        await offlineDB.orders.bulkDelete(stale);
+        console.info(`[sync] pruned ${stale.length} synced orders older than ${retentionDays} days`);
+      }
+    } catch (e) {
+      // Best-effort cleanup.
+    }
   }
 
   // -------------------------------------------------------------- internals

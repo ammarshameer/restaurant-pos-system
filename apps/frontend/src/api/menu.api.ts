@@ -3,8 +3,10 @@ import { MenuItem } from '../store/slices/menuSlice';
 import { PaginatedResponse } from '../types/pagination';
 import { offlineDB } from '../lib/offline/db';
 import { isNetworkError } from '../lib/offline/network';
+import { getCurrentRestaurantId } from '../lib/session';
 
-const DEFAULT_RESTAURANT_ID = 'rest-default-1';
+/** Resolve the tenant id: explicit → session user → demo fallback. */
+const DEFAULT_RESTAURANT_ID = (): string => getCurrentRestaurantId() || 'rest-default-1';
 const MENU_CACHE_KEY = (restaurantId: string) => `menu:${restaurantId}`;
 
 function mapMenuItem(item: any): MenuItem {
@@ -49,7 +51,7 @@ export const menuApi = {
     restaurantId?: string;
   }): Promise<PaginatedResponse<MenuItem>> => {
     try {
-      const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID;
+      const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID();
       const res: any = await api.get(`/menu/restaurant/${restaurantId}/items`, {
         page: params?.page || 1,
         limit: params?.limit || 50,
@@ -91,7 +93,7 @@ export const menuApi = {
   },
 
   // Fetch full restaurant menu from DB (cached locally for offline POS use)
-  getMenu: async (restaurantId = DEFAULT_RESTAURANT_ID): Promise<MenuItem[]> => {
+  getMenu: async (restaurantId = DEFAULT_RESTAURANT_ID()): Promise<MenuItem[]> => {
     try {
       const categories: any = await api.get(`/menu/restaurant/${restaurantId}`);
       if (Array.isArray(categories)) {
@@ -125,7 +127,7 @@ export const menuApi = {
   },
 
   // Create menu item in DB
-  createMenuItem: async (item: Partial<MenuItem>, restaurantId = DEFAULT_RESTAURANT_ID): Promise<any> => {
+  createMenuItem: async (item: Partial<MenuItem>, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<any> => {
     try {
       // First ensure category exists or fetch categories
       const categories: any = await api.get(`/menu/restaurant/${restaurantId}`);
@@ -196,7 +198,7 @@ export const menuApi = {
 };
 
 /** Read the last cached menu for offline use. */
-export async function getCachedMenu(restaurantId = DEFAULT_RESTAURANT_ID): Promise<MenuItem[]> {
+export async function getCachedMenu(restaurantId = DEFAULT_RESTAURANT_ID()): Promise<MenuItem[]> {
   try {
     const entry = await offlineDB.kv.get(MENU_CACHE_KEY(restaurantId));
     return Array.isArray(entry?.value) ? (entry.value as MenuItem[]) : [];

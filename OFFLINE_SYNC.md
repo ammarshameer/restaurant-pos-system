@@ -125,3 +125,47 @@ online PostgreSQL database stays in sync automatically.
 You can also queue several orders offline, reload the page (the outbox is
 persisted in IndexedDB), and confirm they still sync when the connection
 returns.
+
+---
+
+## App shell (the POS loads while offline)
+
+The frontend registers a service worker (`apps/frontend/public/sw.js`) that
+precaches the built app shell (`index.html` + its JS/CSS assets) on first load.
+This means that once a terminal has opened the POS online at least once, the
+app **cold-boots without internet** — no more browser “no connection” page.
+Only static assets are cached; `/api`, `/socket.io` and `/health` are never
+intercepted so the sync engine still sees real network failures.
+
+Registration is production-only and silently skipped where unsupported
+(Electron `file://`, insecure contexts).
+
+---
+
+## Session resilience
+
+Turning off the internet should not log staff out. Two mechanisms help:
+
+- **Silent token refresh** (`apps/frontend/src/lib/api.ts`): the refresh token
+  returned by `/auth/login` and `/auth/pin-login` is now persisted. When a
+  request gets a `401`, the client exchanges the refresh token for a new access
+  token (single-flight, then replays the original request). If the refresh
+  fails because the device is offline, the session and the queued outbox are
+  preserved; only a genuinely invalid refresh token triggers a re-login.
+- **Offline login** (`apps/frontend/src/lib/offline/authCache.ts`): after a
+  successful online login, a salted **PBKDF2** verifier (never the raw
+  password/PIN) is stored in IndexedDB. If the device is offline and the user
+  signs in with credentials verified on this device before, they are let in and
+  the POS keeps working. A device that has never gone online can't be unlocked
+  offline — that is intentional.
+
+---
+
+## Housekeeping
+
+Fully-synced orders older than 90 days are periodically pruned from the local
+IndexedDB cache (pending/failed orders are never touched) so terminals that
+run for months don't accumulate storage. Retries use exponential backoff (up
+to 5 minutes) after repeated failures, and the top-bar badge now surfaces the
+last sync error in its tooltip.
+

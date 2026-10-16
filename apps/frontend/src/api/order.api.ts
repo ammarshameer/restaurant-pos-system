@@ -4,8 +4,10 @@ import { PaginatedResponse } from '../types/pagination';
 import { syncEngine } from '../lib/offline/syncEngine';
 import { network, isNetworkError } from '../lib/offline/network';
 import { uuid } from '../lib/offline/id';
+import { getCurrentRestaurantId } from '../lib/session';
 
-const DEFAULT_RESTAURANT_ID = 'rest-default-1';
+/** Resolve the tenant id: explicit → session user → demo fallback. */
+const DEFAULT_RESTAURANT_ID = (): string => getCurrentRestaurantId() || 'rest-default-1';
 
 export function mapOrderRecord(o: any): Order {
   return {
@@ -128,7 +130,7 @@ export const orderApi = {
     status?: string;
     restaurantId?: string;
   }): Promise<PaginatedResponse<Order>> => {
-    const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID;
+    const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID();
     try {
       const res: any = await api.get(`/orders/restaurant/${restaurantId}`, {
         page: params?.page || 1,
@@ -177,7 +179,7 @@ export const orderApi = {
   },
 
   // Fetch all orders/invoices from DB (legacy support)
-  getAllOrders: async (restaurantId = DEFAULT_RESTAURANT_ID): Promise<Order[]> => {
+  getAllOrders: async (restaurantId = DEFAULT_RESTAURANT_ID()): Promise<Order[]> => {
     try {
       const res: any = await api.get(`/orders/restaurant/${restaurantId}`, { page: 1, limit: 100 });
       const list = res?.data && Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
@@ -194,7 +196,7 @@ export const orderApi = {
   },
 
   // Create order/invoice in DB — queues locally when offline
-  createOrder: async (order: Partial<Order>, restaurantId = DEFAULT_RESTAURANT_ID): Promise<any> => {
+  createOrder: async (order: Partial<Order>, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<any> => {
     const clientId = (order as any).clientId || uuid();
     const id = order.id || clientId;
     const payload = buildOrderPayload(order, restaurantId, id, clientId);
@@ -234,7 +236,7 @@ export const orderApi = {
   },
 
   // Update order/invoice in DB — queues locally when offline
-  updateOrder: async (id: string, data: Partial<Order>, restaurantId = DEFAULT_RESTAURANT_ID): Promise<any> => {
+  updateOrder: async (id: string, data: Partial<Order>, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<any> => {
     const payload = {
       orderType: data.orderType,
       orderTypeLabel: data.orderTypeLabel,
@@ -295,7 +297,7 @@ export const orderApi = {
   },
 
   // Delete/void order in DB — queues locally when offline
-  deleteOrder: async (id: string, restaurantId = DEFAULT_RESTAURANT_ID): Promise<any> => {
+  deleteOrder: async (id: string, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<any> => {
     const queueDelete = async () => {
       await syncEngine.removeLocalOrder(id);
       await syncEngine.enqueue({
@@ -321,7 +323,7 @@ export const orderApi = {
   },
 
   // Update order status (KDS / workflow) — queues locally when offline
-  updateOrderStatus: async (id: string, status: string, restaurantId = DEFAULT_RESTAURANT_ID): Promise<any> => {
+  updateOrderStatus: async (id: string, status: string, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<any> => {
     const queueStatus = async () => {
       await syncEngine.patchLocalOrder(id, { status });
       await syncEngine.enqueue({
@@ -353,7 +355,7 @@ export const orderApi = {
     paymentMethod = 'CASH',
     totalPaid?: number,
     change?: number,
-    restaurantId = DEFAULT_RESTAURANT_ID
+    restaurantId = DEFAULT_RESTAURANT_ID()
   ): Promise<any> => {
     const queuePayment = async () => {
       await syncEngine.patchLocalOrder(id, {

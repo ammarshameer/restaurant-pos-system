@@ -4,6 +4,14 @@ import { useNavigate } from 'react-router-dom';
 import { loginSuccess, loginFailure, clearError } from '../store/slices/authSlice';
 import { RootState } from '../store/store';
 import { api } from '../lib/api';
+import { storeSession, getAccessToken, getStoredUser } from '../lib/session';
+import { isNetworkError } from '../lib/offline/network';
+import {
+  cachePasswordCredential,
+  cachePinCredential,
+  verifyOfflinePassword,
+  verifyOfflinePin,
+} from '../lib/offline/authCache';
 
 export const LoginPage: React.FC = () => {
   const dispatch = useDispatch();
@@ -15,55 +23,82 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('password123');
   const [pin, setPin] = useState('');
 
+  /**
+   * Enter the POS using a locally cached user while offline. The previously
+   * stored token is reused only when it belongs to the same user so a
+   * different cashier cannot inherit someone else's session.
+   */
+  const enterOfflineSession = (cachedUser: any) => {
+    const existingUser = getStoredUser();
+    const reusableToken =
+      existingUser && cachedUser?.id && existingUser.id === cachedUser.id ? getAccessToken() : null;
+    const token = reusableToken || 'offline';
+    storeSession({ accessToken: token, user: cachedUser });
+    dispatch(loginSuccess({ user: cachedUser, token }));
+    navigate('/pos');
+  };
+
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     dispatch(clearError());
     try {
       const data: any = await api.post('/auth/login', { email, password });
-      localStorage.setItem('auth_token', data.accessToken);
-      localStorage.setItem('auth_user', JSON.stringify(data.user));
+      storeSession({
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        user: data.user,
+      });
+      void cachePasswordCredential(data.user, password);
       dispatch(loginSuccess({ user: data.user, token: data.accessToken }));
       navigate('/pos');
     } catch (err: any) {
-      // Fallback for offline demo mode
-      const fallbackUser = {
-        id: 'emp-1',
-        email,
-        firstName: 'Alex',
-        lastName: 'Morgan',
-        role: 'MANAGER',
-      };
-      const token = 'mock-jwt-token';
-      localStorage.setItem('auth_token', token);
-      localStorage.setItem('auth_user', JSON.stringify(fallbackUser));
-      dispatch(loginSuccess({ user: fallbackUser, token }));
-      navigate('/pos');
+      if (isNetworkError(err)) {
+        // Offline: allow unlock only if this device verified these creds before.
+        const cachedUser = await verifyOfflinePassword(email, password);
+        if (cachedUser) {
+          enterOfflineSession(cachedUser);
+          return;
+        }
+        dispatch(
+          loginFailure(
+            'No internet connection. Sign in once while online to enable offline access on this device.'
+          )
+        );
+        return;
+      }
+      dispatch(loginFailure(err?.response?.data?.error || 'Invalid email or password.'));
     }
   };
 
   const handlePinLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pin) return;
+    dispatch(clearError());
     try {
       const data: any = await api.post('/auth/pin-login', { pin });
-      localStorage.setItem('auth_token', data.accessToken);
-      localStorage.setItem('auth_user', JSON.stringify(data.user));
+      storeSession({
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        user: data.user,
+      });
+      void cachePinCredential(data.user, pin);
       dispatch(loginSuccess({ user: data.user, token: data.accessToken }));
       navigate('/pos');
     } catch (err: any) {
-      // Fallback demo user
-      const fallbackUser = {
-        id: 'emp-2',
-        email: 'server@restaurant.com',
-        firstName: 'Sam',
-        lastName: 'Rivera',
-        role: 'SERVER',
-      };
-      const token = 'mock-jwt-token';
-      localStorage.setItem('auth_token', token);
-      localStorage.setItem('auth_user', JSON.stringify(fallbackUser));
-      dispatch(loginSuccess({ user: fallbackUser, token }));
-      navigate('/pos');
+      if (isNetworkError(err)) {
+        const cachedUser = await verifyOfflinePin(pin);
+        if (cachedUser) {
+          enterOfflineSession(cachedUser);
+          return;
+        }
+        dispatch(
+          loginFailure(
+            'No internet connection. Sign in once while online to enable offline access on this device.'
+          )
+        );
+        return;
+      }
+      dispatch(loginFailure(err?.response?.data?.error || 'Invalid PIN.'));
     }
   };
 

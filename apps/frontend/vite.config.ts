@@ -10,6 +10,17 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'redux-vendor': ['@reduxjs/toolkit', 'react-redux'],
+          'data-vendor': ['@tanstack/react-query', 'axios', 'dexie', 'socket.io-client'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

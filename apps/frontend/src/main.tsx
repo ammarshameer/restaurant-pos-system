@@ -7,6 +7,16 @@ import { store } from './store/store';
 import App from './App';
 import './index.css';
 
+// Register the app-shell service worker so the POS can load while offline.
+// Silently skipped where unsupported (e.g. Electron file://, insecure context).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // Offline shell caching is best-effort.
+    });
+  });
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

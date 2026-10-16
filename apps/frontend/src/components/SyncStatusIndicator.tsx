@@ -18,7 +18,7 @@ function formatTime(ts: number | null): string {
  * - Blue: actively syncing.
  */
 export const SyncStatusIndicator: React.FC = () => {
-  const { online, syncing, pending, failed, lastSyncedAt } = useSyncStatus();
+  const { online, syncing, pending, failed, lastSyncedAt, lastError } = useSyncStatus();
   const [busy, setBusy] = useState(false);
 
   const handleSyncNow = async () => {
@@ -47,19 +47,30 @@ export const SyncStatusIndicator: React.FC = () => {
     bg = 'rgba(56, 189, 248, 0.15)';
     fg = '#38bdf8';
     label = 'Syncing…';
+  } else if (failed > 0) {
+    dotColor = '#ef4444';
+    bg = 'rgba(239, 68, 68, 0.15)';
+    fg = '#f87171';
+    label = pending > 0 ? `${pending} pending • ${failed} failed` : `${failed} failed`;
   } else if (queued > 0) {
     dotColor = '#f59e0b';
     bg = 'rgba(245, 158, 11, 0.15)';
     fg = '#fbbf24';
-    label = pending > 0 ? `${pending} pending sync` : `${failed} failed`;
+    label = `${pending} pending sync`;
   }
 
   const showSyncButton = online && queued > 0 && !syncing;
+  const tooltip = [
+    `Last synced: ${formatTime(lastSyncedAt)}`,
+    lastError ? `Last error: ${lastError}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
       <div
-        title={`Last synced: ${formatTime(lastSyncedAt)}`}
+        title={tooltip}
         style={{
           display: 'flex',
           alignItems: 'center',
