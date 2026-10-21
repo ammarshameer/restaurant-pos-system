@@ -553,6 +553,7 @@ export const PosPage: React.FC = () => {
                       setOrderType(opt.type);
                     }}
                     style={{
+                      position: 'relative',
                       flex: 1,
                       display: 'flex',
                       flexDirection: 'column',
@@ -560,18 +561,58 @@ export const PosPage: React.FC = () => {
                       justifyContent: 'center',
                       padding: '10px 14px',
                       borderRadius: 'var(--radius-md)',
-                      border: `2px solid ${isActive ? 'var(--primary)' : 'var(--border-color)'}`,
+                      border: isActive
+                        ? '2px solid var(--primary)'
+                        : '1px solid var(--border-color)',
                       background: isActive
-                        ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(59, 130, 246, 0.15))'
-                        : 'rgba(0, 0, 0, 0.2)',
-                      color: isActive ? '#fff' : 'var(--text-secondary)',
+                        ? 'linear-gradient(135deg, #4338ca, #4f46e5)'
+                        : 'var(--bg-tertiary)',
+                      color: isActive ? '#000' : 'var(--text-secondary)',
                       cursor: 'pointer',
                       transition: 'all 0.15s ease',
-                      boxShadow: isActive ? '0 0 16px rgba(99, 102, 241, 0.3)' : 'none',
+                      boxShadow: isActive ? '0 6px 18px rgba(67, 56, 202, 0.45)' : 'none',
+                      transform: isActive ? 'translateY(-1px)' : 'none',
+                      opacity: isActive ? 1 : 0.9,
                     }}
                   >
+                    {isActive && (
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: '6px',
+                          right: '8px',
+                          fontSize: '12px',
+                          color: '#000',
+                          lineHeight: 1,
+                        }}
+                        aria-hidden="true"
+                      >
+                        ✓
+                      </span>
+                    )}
                     <span style={{ fontSize: '20px', marginBottom: '2px' }}>{opt.icon}</span>
-                    <span style={{ fontWeight: 800, fontSize: '13px' }}>{opt.label}</span>
+                    <span
+                      style={{
+                        fontWeight: isActive ? 900 : 600,
+                        fontSize: '13px',
+                        color: isActive ? '#000' : 'var(--text-secondary)',
+                        letterSpacing: isActive ? '0.01em' : 0,
+                      }}
+                    >
+                      {opt.label}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        marginTop: '2px',
+                        fontWeight: 600,
+                        color: isActive ? 'rgba(255, 255, 255, 0.82)' : 'var(--text-muted)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      {opt.desc}
+                    </span>
                   </button>
                 );
               })}
