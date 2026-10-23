@@ -1,6 +1,6 @@
 import { Table, TableStatus } from '../types/table.types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
 const getHeaders = (extraHeaders?: Record<string, string>) => {
   const token = localStorage.getItem('auth_token');
@@ -13,7 +13,7 @@ const getHeaders = (extraHeaders?: Record<string, string>) => {
 
 export const tableApi = {
   async getTables(floorPlanId: string): Promise<Table[]> {
-    const response = await fetch(`${API_BASE_URL}/api/tables?floorPlanId=${floorPlanId}`, {
+    const response = await fetch(`${API_BASE_URL}/tables?floorPlanId=${floorPlanId}`, {
       headers: getHeaders(),
     });
     if (!response.ok) throw new Error('Failed to fetch tables');
@@ -21,7 +21,7 @@ export const tableApi = {
   },
 
   async getTable(id: string): Promise<Table> {
-    const response = await fetch(`${API_BASE_URL}/api/tables/${id}`, {
+    const response = await fetch(`${API_BASE_URL}/tables/${id}`, {
       headers: getHeaders(),
     });
     if (!response.ok) throw new Error('Failed to fetch table');
@@ -29,7 +29,7 @@ export const tableApi = {
   },
 
   async createTable(data: Partial<Table>): Promise<Table> {
-    const response = await fetch(`${API_BASE_URL}/api/tables`, {
+    const response = await fetch(`${API_BASE_URL}/tables`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(data),
@@ -39,7 +39,7 @@ export const tableApi = {
   },
 
   async updateTable(id: string, data: Partial<Table>): Promise<Table> {
-    const response = await fetch(`${API_BASE_URL}/api/tables/${id}`, {
+    const response = await fetch(`${API_BASE_URL}/tables/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(data),
@@ -49,7 +49,7 @@ export const tableApi = {
   },
 
   async updateTableStatus(id: string, status: TableStatus): Promise<Table> {
-    const response = await fetch(`${API_BASE_URL}/api/tables/${id}/status`, {
+    const response = await fetch(`${API_BASE_URL}/tables/${id}/status`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({ status }),
@@ -59,7 +59,7 @@ export const tableApi = {
   },
 
   async deleteTable(id: string): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/api/tables/${id}`, {
+    const response = await fetch(`${API_BASE_URL}/tables/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
     });
@@ -67,7 +67,7 @@ export const tableApi = {
   },
 
   async updateTablePosition(id: string, x: number, y: number): Promise<Table> {
-    const response = await fetch(`${API_BASE_URL}/api/tables/${id}/position`, {
+    const response = await fetch(`${API_BASE_URL}/tables/${id}/position`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({ x, y }),
@@ -77,7 +77,7 @@ export const tableApi = {
   },
 
   async updateTableRotation(id: string, rotation: number): Promise<Table> {
-    const response = await fetch(`${API_BASE_URL}/api/tables/${id}/rotation`, {
+    const response = await fetch(`${API_BASE_URL}/tables/${id}/rotation`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({ rotation }),
@@ -87,7 +87,7 @@ export const tableApi = {
   },
 
   async bulkUpdateTables(updates: Array<{ id: string; data: Partial<Table> }>): Promise<Table[]> {
-    const response = await fetch(`${API_BASE_URL}/api/tables/bulk`, {
+    const response = await fetch(`${API_BASE_URL}/tables/bulk`, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify({ updates }),
@@ -97,7 +97,7 @@ export const tableApi = {
   },
 
   async assignOrder(tableId: string, orderId: string): Promise<Table> {
-    const response = await fetch(`${API_BASE_URL}/api/tables/${tableId}/order`, {
+    const response = await fetch(`${API_BASE_URL}/tables/${tableId}/order`, {
       method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({ orderId }),
@@ -107,7 +107,7 @@ export const tableApi = {
   },
 
   async unassignOrder(tableId: string): Promise<Table> {
-    const response = await fetch(`${API_BASE_URL}/api/tables/${tableId}/order`, {
+    const response = await fetch(`${API_BASE_URL}/tables/${tableId}/order`, {
       method: 'DELETE',
       headers: getHeaders(),
     });

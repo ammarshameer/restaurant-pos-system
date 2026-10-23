@@ -26,8 +26,16 @@ import { setupWebSocket } from './websocket';
 const app = express();
 const httpServer = createServer(app);
 
+// Frontend origins allowed by CORS.
+// FRONTEND_URL may hold a single origin or a comma-separated list, e.g.
+// FRONTEND_URL="https://dimlight-cafe.vercel.app,https://posbe.gsmpilot.com"
+const envOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 const allowedOrigins = [
-  process.env.FRONTEND_URL,
+  ...envOrigins,
   'http://localhost:5173',
   'http://localhost:3000',
   'http://127.0.0.1:5173',
