@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { formatPKR } from '../utils/format';
 
 export interface ReceiptItem {
@@ -82,7 +83,9 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   const orderNumStr = String(receiptData.orderNumber || receiptData.orderId?.slice(0, 6) || '101');
   const typeDisplay = receiptData.orderType || 'Dine In';
 
-  return (
+  // Portal the modal directly to <body> so print CSS can hide the rest of the
+  // app (body > *) without hiding the slips themselves.
+  const modalPortal = (
     <div className="modal-overlay no-print-bg" onClick={onClose}>
       <div
         className="modal-content"
@@ -431,6 +434,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
       </div>
     </div>
   );
+
+  return createPortal(modalPortal, document.body);
 };
 
 export default ReceiptModal;

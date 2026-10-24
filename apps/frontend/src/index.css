@@ -1412,22 +1412,91 @@ select.form-input option,
   margin-top: 10px;
 }
 
-/* Hide Everything Else During Browser Print & Support 80mm Roll / Page Break */
+/* ============================================
+   THERMAL PRINT STYLES (80mm roll)
+   - 80mm wide pages: matches standard thermal receipt paper.
+     (Chrome does NOT accept `size: 80mm auto`, it silently ignores it,
+     so the page is sliced as 80mm x 297mm — receipts longer than 297mm
+     continue onto a second 80mm page instead of being cut off.)
+   - margin: 0 stops Chrome from drawing its date/title/URL header
+     & footer lines (they only fit in the page margin area).
+   ============================================ */
+@page {
+  size: 80mm 297mm;
+  margin: 0;
+}
+
 @media print {
-  body * {
-    visibility: hidden;
+  html,
+  body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
   }
 
-  .print-slips-container,
-  .print-slips-container * {
-    visibility: visible;
+  /* Hide the whole application (the receipt modal is portaled to <body>)
+     so the app never creates blank pages in the print output. */
+  body > *:not(.modal-overlay) {
+    display: none !important;
+  }
+
+  /* Flatten the modal shell so only the slips are laid out */
+  .modal-overlay {
+    position: static !important;
+    display: block !important;
+    inset: auto !important;
+    width: auto !important;
+    height: auto !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    z-index: auto !important;
+    animation: none !important;
+    opacity: 1 !important;
+  }
+
+  .modal-content {
+    position: static !important;
+    display: block !important;
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    animation: none !important;
+    padding: 0 !important;
+  }
+
+  /* Overrides the inline maxHeight/overflow styles on the modal body,
+     which would otherwise clip long receipts. */
+  .modal-body {
+    padding: 0 !important;
+    margin: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   .print-slips-container {
-    position: absolute;
-    left: 0;
-    top: 0;
+    display: block;
+    position: static;
     width: 80mm;
+    max-width: 80mm;
     margin: 0;
     padding: 0;
     gap: 0;
@@ -1436,12 +1505,16 @@ select.form-input option,
   .receipt-paper,
   .kot-paper {
     position: relative;
+    display: block;
     width: 80mm;
     max-width: 80mm;
-    padding: 8mm 5mm;
+    padding: 6mm 4mm;
+    margin: 0;
     box-shadow: none;
     border-radius: 0;
-    margin: 0;
+    /* keep badges/chips backgrounds (e.g. KOT black highlight) on paper */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .slip-page-break {
@@ -1454,9 +1527,13 @@ select.form-input option,
     display: none !important;
   }
 
-  .no-print,
-  .no-print-bg {
+  .no-print {
     display: none !important;
+  }
+
+  .no-print-bg {
     background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 }
