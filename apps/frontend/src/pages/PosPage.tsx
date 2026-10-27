@@ -532,7 +532,7 @@ export const PosPage: React.FC = () => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: '', letterSpacing: '0.05em' }}>
               Order Type:
             </span>
 
