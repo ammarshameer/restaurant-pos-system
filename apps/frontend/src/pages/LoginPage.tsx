@@ -13,7 +13,7 @@ import {
   verifyOfflinePin,
 } from '../lib/offline/authCache';
 
-export const LoginPage: React.FC = () => {
+export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { error, loading } = useSelector((state: RootState) => state.auth);
@@ -167,6 +167,9 @@ export const LoginPage: React.FC = () => {
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '4px' }}>
             Point of Sale & Restaurant Management Terminal
+          </p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '8px' }}>
+            Version {appVersion}
           </p>
         </div>
 

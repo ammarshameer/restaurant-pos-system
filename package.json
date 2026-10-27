@@ -1,6 +1,6 @@
 {
   "name": "restaurant-pos",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Full-stack Restaurant POS and Management System",
   "main": "electron/main.js",

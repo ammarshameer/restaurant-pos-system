@@ -260,6 +260,13 @@ body {
   flex-shrink: 0;
 }
 
+.app-version {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: center;
+}
+
 .user-badge {
   display: flex;
   align-items: center;

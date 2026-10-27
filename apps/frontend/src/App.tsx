@@ -32,6 +32,7 @@ export const App: React.FC = () => {
   const { user, isAuthenticated } = useSelector((state: RootState) => state.auth);
 
   const [liveAlert, setLiveAlert] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState(__APP_VERSION__);
 
   // Light and Dark Theme state
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -42,6 +43,13 @@ export const App: React.FC = () => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('pos_theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    const getVersion = window.electronAPI?.getVersion;
+    if (getVersion) {
+      void getVersion().then(setAppVersion).catch(() => undefined);
+    }
+  }, []);
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
@@ -138,7 +146,7 @@ export const App: React.FC = () => {
   if (location.pathname === '/login' || (!isAuthenticated && !hasToken)) {
     return (
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={<LoginPage appVersion={appVersion} />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
@@ -258,6 +266,7 @@ export const App: React.FC = () => {
           >
             🔒 Switch User / Logout
           </button>
+          <div className="app-version">Version {appVersion}</div>
         </div>
       </aside>
 
