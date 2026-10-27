@@ -94,7 +94,8 @@ app.use(
 const isOriginAllowed = (origin: string | undefined): boolean => {
   if (!origin) return true; // Electron, mobile apps, local file://, curl, server-to-server
   if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) return true;
-  if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) return true;
+  // Allow any local dev server, including IPv6 localhost and HTTPS dev servers.
+  if (/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?$/.test(origin)) return true;
   if (process.env.NODE_ENV !== 'production') return true;
   return false;
 };

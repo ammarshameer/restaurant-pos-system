@@ -125,7 +125,7 @@ FRONTEND_URL=https://dimlight-cafe.vercel.app
 **Create `/var/www/restaurant-pos/apps/frontend/.env`:**
 
 ```ini
-VITE_API_URL=https://posbe.gsmpilot.com/api
+VITE_API_URL=https://pos.gsmpilot.com/api
 ```
 
 > ⚠️ The frontend env var is baked in at **build time** — it must be set before `npm run build`.
@@ -147,7 +147,7 @@ npx tsx prisma/seed.ts
 # Frontend
 cd /var/www/restaurant-pos/apps/frontend
 npm install
-VITE_API_URL=https://posbe.gsmpilot.com/api npm run build
+VITE_API_URL=https://pos.gsmpilot.com/api npm run build
 ```
 
 > ⚠️ **Important:** there is NO `prisma/migrations/` folder in the repo, so
