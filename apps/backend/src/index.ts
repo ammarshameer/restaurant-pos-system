@@ -28,7 +28,7 @@ const httpServer = createServer(app);
 
 // Frontend origins allowed by CORS.
 // FRONTEND_URL may hold a single origin or a comma-separated list, e.g.
-// FRONTEND_URL="https://dimlight-cafe.vercel.app,https://posbe.gsmpilot.com"
+// FRONTEND_URL="https://dimlight-cafe.vercel.app,https://pos.gsmpilot.com"
 const envOrigins = (process.env.FRONTEND_URL || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -58,7 +58,8 @@ const io = new Server(httpServer, {
 // Dynamic Prisma initialization with support for app.getPath('userData') database location
 const dbUrl = process.env.DATABASE_URL;
 if (dbUrl) {
-  console.log(`📦 Prisma connecting to: ${dbUrl}`);
+  const safeDbUrl = dbUrl.replace(/:\/\/([^:]+):[^@]*@/, '://$1:***@');
+  console.log(`📦 Prisma connecting to: ${safeDbUrl}`);
 }
 export const prisma = new PrismaClient(
   dbUrl

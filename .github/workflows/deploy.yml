@@ -1,73 +1,75 @@
-name: Deploy Restaurant POS to Server
+name: Deploy Restaurant POS to VPS
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: restaurant-pos-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    name: Build & deploy on Contabo VPS
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Deploy to Server
-        uses: appleboy/ssh-action@v1.0.0
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
-          password: ${{ secrets.SERVER_PASSWORD }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ vars.SERVER_PORT || 22 }}
+          command_timeout: 30m
+          script_stop: true
           script: |
-            set -e
+            set -euo pipefail
 
-            APP_DIR="/var/www/eats"
-            REPO_URL="https://github.com/ammarshameer/restaurant-pos-system.git"
+            APP_DIR="/var/www/restaurant-pos"
+            NODE20_BIN="/home/mujeeb/.nvm/versions/node/v20.20.2/bin"
+            PM2_BIN="/home/mujeeb/.nvm/versions/node/v24.15.0/bin/pm2"
+            export PATH="${NODE20_BIN}:/home/mujeeb/.nvm/versions/node/v24.15.0/bin:${PATH}"
 
-            echo "Starting deployment..."
+            cd "$APP_DIR"
 
-            if [ -d "$APP_DIR/.git" ]; then
-              echo "Updating repository remote..."
-              cd "$APP_DIR"
-              git remote set-url origin "$REPO_URL"
-              git fetch origin main
-              git reset --hard origin/main
+            echo "==> Fetching origin/main"
+            git fetch --prune origin main
+            git reset --hard origin/main
+
+            echo "==> Backend: install, generate PostgreSQL client, build"
+            cd "$APP_DIR/apps/backend"
+            DATABASE_PROVIDER=postgresql npm ci
+            DATABASE_PROVIDER=postgresql npm run build:postgres
+
+            echo "==> Database: sync schema (db push, no migrations folder)"
+            DATABASE_PROVIDER=postgresql npx prisma db push --skip-generate
+
+            echo "==> Frontend: install and build (VITE_API_URL from apps/frontend/.env)"
+            cd "$APP_DIR/apps/frontend"
+            npm ci
+            npm run build
+
+            echo "==> Restarting PM2 process"
+            if "$PM2_BIN" describe restaurant-pos >/dev/null 2>&1; then
+              "$PM2_BIN" restart restaurant-pos --update-env
             else
-              echo "Initial clone..."
-              git clone "$REPO_URL" "$APP_DIR"
-              cd "$APP_DIR"
+              cd "$APP_DIR/apps/backend"
+              "$PM2_BIN" start dist/index.js --name restaurant-pos \
+                --interpreter "${NODE20_BIN}/node"
             fi
+            "$PM2_BIN" save
 
-            echo "Installing dependencies..."
+            echo "==> Health check"
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:3146/health; then
+                echo
+                echo "Deployment complete."
+                exit 0
+              fi
+              sleep 2
+            done
 
-            cd "$APP_DIR/apps/backend"
-            npm ci
-
-            cd "$APP_DIR/apps/frontend"
-            npm ci
-
-            cd "$APP_DIR"
-
-            echo "Building frontend..."
-            cd "$APP_DIR/apps/frontend"
-            npm run build
-
-            echo "Building backend..."
-            cd "$APP_DIR/apps/backend"
-            npx prisma generate
-            npm run build
-
-            cd "$APP_DIR"
-
-            echo "Preserving .env — creating only if missing..."
-            if [ ! -f apps/backend/.env ]; then
-              echo "PORT=3146" > apps/backend/.env
-              echo "NODE_ENV=production" >> apps/backend/.env
-            fi
-
-            echo "Restarting service..."
-            sudo systemctl restart restaurant-pos
-
-            echo "Deployment complete!"
-            sudo systemctl status restaurant-pos --no-pager
+            echo "Health check failed. Recent logs:" >&2
+            "$PM2_BIN" logs restaurant-pos --nostream --lines 60 || true
+            exit 1

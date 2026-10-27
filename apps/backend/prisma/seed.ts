@@ -602,8 +602,8 @@ async function main() {
   ];
 
   for (const o of ordersToSeed) {
-    const existingOrder = await prisma.order.findUnique({
-      where: { orderNumber: o.orderNumber },
+    const existingOrder = await prisma.order.findFirst({
+      where: { orderNumber: o.orderNumber, restaurantId: restaurant.id },
     });
 
     if (!existingOrder) {
