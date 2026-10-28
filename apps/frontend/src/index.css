@@ -1421,16 +1421,17 @@ select.form-input option,
 
 /* ============================================
    THERMAL PRINT STYLES (80mm roll)
-   - 80mm wide pages: matches standard thermal receipt paper.
-     (Chrome does NOT accept `size: 80mm auto`, it silently ignores it.)
    - margin: 0 stops Chrome from drawing its date/title/URL header
      & footer lines (they only fit in the page margin area).
-   - This 297mm height is only a FALLBACK (e.g. for plain Ctrl+P):
-     ReceiptModal.applyExactPageSize() injects an @page rule sized to the
-     exact slip content before printing, so no blank roll is wasted.
+   - NO paper size is declared here, on purpose: on Windows, driver-backed
+     printers (and "Microsoft Print to PDF") take the paper size from the
+     printer DRIVER, not from CSS. Declaring `size: 80mm ...` makes Chrome
+     render an 80mm-wide page box and stamp it centered onto the driver's
+     paper (e.g. Letter), producing a tiny centred strip in the preview.
+     The 80mm width comes from the slip elements below; the paper is
+     whatever the print dialog / printer driver is set to (80mm roll).
    ============================================ */
 @page {
-  size: 80mm 297mm;
   margin: 0;
 }
 

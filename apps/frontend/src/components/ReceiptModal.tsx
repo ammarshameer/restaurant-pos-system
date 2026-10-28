@@ -1,163 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { formatPKR } from '../utils/format';
-
-const THERMAL_PAGE_STYLE_ID = 'thermal-exact-page-size';
-const THERMAL_PROBE_STYLE_ID = 'thermal-measure-probe-style';
-const SLIP_FONT = 'JetBrains Mono';
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * The slip is laid out in JetBrains Mono (loaded from Google Fonts with
- * display=swap). Measuring before it finishes swapping gives a height that is
- * ~10mm off, which would split the receipt across pages — and
- * `document.fonts.ready` / `fonts.check()` can report ready before the
- * faces registered via @import actually affect layout. So load the font
- * explicitly, poll until every weight the slip uses is available, and then
- * confirm the height has stopped changing (measureStableSlipsMm).
- */
-const waitForSlipFonts = async (timeoutMs = 3000) => {
-  try {
-    await Promise.all([
-      document.fonts.load(`400 13px "${SLIP_FONT}"`),
-      document.fonts.load(`600 13px "${SLIP_FONT}"`),
-      document.fonts.load(`700 17px "${SLIP_FONT}"`),
-    ]);
-  } catch {
-    // fall through to polling
-  }
-  const deadline = Date.now() + timeoutMs;
-  // The slip renders in weight 400 and 600 (700-900 are synthesized from 600).
-  const requiredSpecs = ['400 13px', '600 13px'];
-  while (Date.now() < deadline) {
-    try {
-      // NOTE: fonts.check() is true when no matching face is registered yet,
-      // so the family must be registered as well before measuring.
-      const registered = Array.from(document.fonts).some((f) => f.family.includes(SLIP_FONT));
-      const allLoaded = requiredSpecs.every((spec) => document.fonts.check(`${spec} "${SLIP_FONT}"`));
-      if (registered && allLoaded) return;
-    } catch {
-      return; // no CSS Font Loading API - measure with whatever font is used
-    }
-    await sleep(50);
-  }
-};
-
-// Invisible clones of the slips are laid out at exact print width/padding so
-// we measure what the printer will really produce without touching the modal.
-const PROBE_CSS = `
-  .thermal-probe-host {
-    position: fixed;
-    left: -10000px;
-    top: 0;
-    visibility: hidden;
-    pointer-events: none;
-  }
-  .thermal-probe-host .receipt-paper,
-  .thermal-probe-host .kot-paper {
-    width: 80mm;
-    max-width: 80mm;
-    padding: 6mm 4mm;
-    margin: 0;
-    box-shadow: none;
-    border-radius: 0;
-  }
-  .thermal-probe-host .receipt-badge,
-  .thermal-probe-host .kot-badge {
-    display: none;
-  }
-`;
-
-const measureSlipsMm = () => {
-  let probeStyle = document.getElementById(THERMAL_PROBE_STYLE_ID);
-  if (!probeStyle) {
-    probeStyle = document.createElement('style');
-    probeStyle.id = THERMAL_PROBE_STYLE_ID;
-    probeStyle.textContent = PROBE_CSS;
-    document.head.appendChild(probeStyle);
-  }
-
-  const host = document.createElement('div');
-  host.className = 'thermal-probe-host';
-  document.body.appendChild(host);
-
-  const measureOne = (el: HTMLElement | null) => {
-    if (!el) return 0;
-    const clone = el.cloneNode(true) as HTMLElement;
-    clone.removeAttribute('id');
-    host.appendChild(clone);
-    const px = clone.getBoundingClientRect().height;
-    clone.remove();
-    // px -> mm at 96dpi, rounded up + 1mm safety so content never overflows
-    // onto an extra page (a few blank millimetres beat a split receipt).
-    return Math.ceil((px * 25.4) / 96) + 1;
-  };
-
-  const customerMm = measureOne(document.getElementById('customer-receipt'));
-  const kotMm = measureOne(document.getElementById('kitchen-ticket'));
-  host.remove();
-  return { customerMm, kotMm };
-};
-
-/**
- * Measures until two consecutive reads agree, so a font still swapping in
- * can never lock in a too-short page height.
- */
-const measureStableSlipsMm = async () => {
-  const deadline = Date.now() + 3000;
-  let previous = { customerMm: -1, kotMm: -1 };
-  let current = previous;
-  let stableReads = 0;
-  while (Date.now() < deadline && stableReads < 2) {
-    current = measureSlipsMm();
-    stableReads =
-      current.customerMm === previous.customerMm && current.kotMm === previous.kotMm
-        ? stableReads + 1
-        : 0;
-    previous = current;
-    if (stableReads < 2) await sleep(100);
-  }
-  return current;
-};
-
-/**
- * Chrome rejects `@page { size: 80mm auto }` (it silently falls back to
- * A4/Letter), and a fixed 297mm page feeds blank thermal roll after short
- * receipts. So before printing we measure each slip exactly as it will be
- * laid out on 80mm paper and inject an @page rule whose height equals the
- * invoice content — the printed page is only as long as the slip.
- */
-const applyExactPageSize = async () => {
-  if (!document.getElementById('customer-receipt') && !document.getElementById('kitchen-ticket')) {
-    return;
-  }
-
-  await waitForSlipFonts();
-  const { customerMm, kotMm } = await measureStableSlipsMm();
-
-  let css = '';
-  if (customerMm && kotMm) {
-    // "Print Both": first page = customer slip, second page = KOT.
-    css = `@page :first { size: 80mm ${customerMm}mm; margin: 0; }\n@page { size: 80mm ${kotMm}mm; margin: 0; }`;
-  } else if (customerMm) {
-    css = `@page { size: 80mm ${customerMm}mm; margin: 0; }`;
-  } else if (kotMm) {
-    css = `@page { size: 80mm ${kotMm}mm; margin: 0; }`;
-  } else {
-    return;
-  }
-
-  let style = document.getElementById(THERMAL_PAGE_STYLE_ID) as HTMLStyleElement | null;
-  if (!style) {
-    style = document.createElement('style');
-    style.id = THERMAL_PAGE_STYLE_ID;
-    document.head.appendChild(style);
-  }
-  // Appended after index.css, so this overrides the static 80mm x 297mm
-  // fallback @page rule.
-  style.textContent = css;
-};
 
 export interface ReceiptItem {
   id?: string;
@@ -214,25 +57,15 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'BOTH' | 'CUSTOMER' | 'KITCHEN'>(defaultTab);
 
-  // Drop the measured page size when the modal closes so a later Ctrl+P
-  // can never reuse a stale height from a different slip.
-  useEffect(() => {
-    if (!isOpen) {
-      document.getElementById(THERMAL_PAGE_STYLE_ID)?.remove();
-      document.getElementById(THERMAL_PROBE_STYLE_ID)?.remove();
-    }
-  }, [isOpen]);
-
   if (!isOpen || !receiptData) return null;
 
   const handlePrint = (tabToPrint?: 'BOTH' | 'CUSTOMER' | 'KITCHEN') => {
     if (tabToPrint) setActiveTab(tabToPrint);
-    // Wait for the requested tab's slips to render, then size the page to the
-    // content (waiting for the slip web font + a stable measurement first).
-    setTimeout(async () => {
-      await applyExactPageSize();
-      window.print();
-    }, 50);
+    // Give React one tick to render the requested tab's slips, then print.
+    // (No @page paper size is injected: Windows printer drivers pick the
+    // paper themselves, and a CSS size only makes Chrome mis-place the slip
+    // on the driver's paper — see the @page note in index.css.)
+    setTimeout(() => window.print(), 50);
   };
 
   const formattedDate = receiptData.date
@@ -301,6 +134,27 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           >
             🍳 Kitchen Ticket (KOT)
           </button>
+        </div>
+
+        {/* Printer setup guide (screen only - never printed) */}
+        <div
+          className="no-print"
+          style={{
+            padding: '10px 20px',
+            fontSize: '11px',
+            lineHeight: 1.6,
+            color: 'var(--text-muted)',
+            background: 'rgba(99, 102, 241, 0.06)',
+            borderBottom: '1px solid var(--border-color)',
+          }}
+        >
+          <strong style={{ color: 'var(--text-secondary)' }}> thermal printer setup:</strong>
+          In the print dialog press <strong>More settings</strong> → set{' '}
+          <strong>Paper size = 80mm</strong> (roll) and uncheck <strong>Headers and footers</strong>.
+          If blank paper feeds after the receipt, open the printer&apos;s own{' '}
+          <strong>Printing Preferences</strong> in Windows and enable its{' '}
+          <em>&quot;cut / remove blank space after print&quot;</em> (or continuous-roll) option — the
+          printer driver, not the website, controls the roll length.
         </div>
 
         <div className="modal-body" style={{ padding: '20px', overflowY: 'auto', maxHeight: '65vh' }}>
