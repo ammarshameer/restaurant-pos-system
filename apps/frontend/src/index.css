@@ -1420,7 +1420,7 @@ select.form-input option,
 }
 
 /* ============================================
-   THERMAL PRINT STYLES (80mm roll)
+   THERMAL PRINT STYLES (80mm roll, 72mm printable area)
    - margin: 0 stops Chrome from drawing its date/title/URL header
      & footer lines (they only fit in the page margin area).
    - NO paper size is declared here, on purpose: on Windows, driver-backed
@@ -1428,8 +1428,9 @@ select.form-input option,
      printer DRIVER, not from CSS. Declaring `size: 80mm ...` makes Chrome
      render an 80mm-wide page box and stamp it centered onto the driver's
      paper (e.g. Letter), producing a tiny centred strip in the preview.
-     The 80mm width comes from the slip elements below; the paper is
-     whatever the print dialog / printer driver is set to (80mm roll).
+     The paper size is whatever the print dialog / printer driver is set
+     to (80mm roll). The slip uses the common 72mm printable area of an
+     80mm thermal roll to avoid browser downscaling or clipping.
    ============================================ */
 @page {
   margin: 0;
@@ -1504,8 +1505,8 @@ select.form-input option,
   .print-slips-container {
     display: block;
     position: static;
-    width: 80mm;
-    max-width: 80mm;
+    width: 72mm;
+    max-width: 72mm;
     margin: 0;
     padding: 0;
     gap: 0;
@@ -1515,9 +1516,9 @@ select.form-input option,
   .kot-paper {
     position: relative;
     display: block;
-    width: 80mm;
-    max-width: 80mm;
-    padding: 6mm 4mm;
+    width: 72mm;
+    max-width: 72mm;
+    padding: 3mm 3mm 2mm;
     margin: 0;
     box-shadow: none;
     border-radius: 0;

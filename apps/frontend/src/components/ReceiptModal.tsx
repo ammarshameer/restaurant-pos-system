@@ -148,10 +148,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             borderBottom: '1px solid var(--border-color)',
           }}
         >
-          <strong style={{ color: 'var(--text-secondary)' }}> thermal printer setup:</strong>
-          In the print dialog press <strong>More settings</strong> → set{' '}
-          <strong>Paper size = 80mm</strong> (roll) and uncheck <strong>Headers and footers</strong>.
-          If blank paper feeds after the receipt, open the printer&apos;s own{' '}
+          <strong style={{ color: 'var(--text-secondary)' }}> Thermal printer setup:</strong>{' '}
+          In the print dialog, select the thermal printer itself (not Save to PDF), then open{' '}
+          <strong>More settings</strong> and choose its <strong>80mm Receipt/Roll</strong> paper.
+          Set <strong>Margins = None</strong>, <strong>Scale = 100%</strong>, and uncheck{' '}
+          <strong>Headers and footers</strong>. A4/Letter paper creates the large blank page shown
+          here. If blank paper feeds after the receipt, open the printer&apos;s own{' '}
           <strong>Printing Preferences</strong> in Windows and enable its{' '}
           <em>&quot;cut / remove blank space after print&quot;</em> (or continuous-roll) option — the
           printer driver, not the website, controls the roll length.
