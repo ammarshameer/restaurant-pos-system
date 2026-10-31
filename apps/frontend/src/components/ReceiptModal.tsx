@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { formatPKR } from '../utils/format';
 
@@ -49,6 +49,16 @@ interface ReceiptModalProps {
   defaultTab?: 'BOTH' | 'CUSTOMER' | 'KITCHEN';
 }
 
+const PRINT_AGENT_URL =
+  (import.meta.env.VITE_PRINT_AGENT_URL as string | undefined) || 'http://127.0.0.1:3001/print';
+const PRINTERS_URL = PRINT_AGENT_URL.replace(/\/print$/, '/printers');
+const PRINTER_STORAGE_KEY = 'pos.thermalPrinter';
+
+interface AgentPrinter {
+  name: string;
+  default: boolean;
+}
+
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   isOpen,
   onClose,
@@ -57,36 +67,74 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'BOTH' | 'CUSTOMER' | 'KITCHEN'>(defaultTab);
 
+  const [printers, setPrinters] = useState<AgentPrinter[]>([]);
+  const [agentOnline, setAgentOnline] = useState<boolean | null>(null);
+  const [selectedPrinter, setSelectedPrinter] = useState<string>(
+    () => localStorage.getItem(PRINTER_STORAGE_KEY) || ''
+  );
+
+  const loadPrinters = useCallback(async () => {
+    try {
+      const res = await fetch(PRINTERS_URL);
+      const data = await res.json();
+      const list: AgentPrinter[] = data.printers || [];
+      setPrinters(list);
+      setAgentOnline(true);
+      setSelectedPrinter((current) => {
+        if (current && list.some((p) => p.name === current)) return current;
+        return list.find((p) => p.default)?.name || list[0]?.name || '';
+      });
+    } catch {
+      setPrinters([]);
+      setAgentOnline(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) loadPrinters();
+  }, [isOpen, loadPrinters]);
+
+  const handleSelectPrinter = (name: string) => {
+    setSelectedPrinter(name);
+    localStorage.setItem(PRINTER_STORAGE_KEY, name);
+  };
+
+  const [printStatus, setPrintStatus] = useState<{ ok: boolean; text: string } | null>(null);
+
   if (!isOpen || !receiptData) return null;
 
   const handlePrint = async (tabToPrint?: 'BOTH' | 'CUSTOMER' | 'KITCHEN') => {
     const mode = tabToPrint || activeTab;
     if (tabToPrint) setActiveTab(tabToPrint);
+    setPrintStatus({ ok: true, text: 'Sending to printer…' });
 
     try {
-      const response = await fetch('http://127.0.0.1:3001/print', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          receiptData,
-          mode,
-        }),
-      });
+      let response: Response;
+      try {
+        response = await fetch(PRINT_AGENT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ receiptData, mode, printer: selectedPrinter || undefined }),
+        });
+      } catch {
+        // Agent not running: fall back to the browser print dialog (no auto-cut).
+        setPrintStatus({ ok: false, text: 'Print agent not reachable — using browser print dialog.' });
+        window.print();
+        return;
+      }
 
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
 
       if (!response.ok || !result.success) {
         throw new Error(result.error || 'Printing failed');
       }
+      setPrintStatus({ ok: true, text: `✓ Sent to ${result.printer}` });
     } catch (error) {
       console.error('Receipt printing error:', error);
-      window.alert(
-        error instanceof Error
-          ? `Printing failed: ${error.message}`
-          : 'Could not connect to the local receipt printer. Make sure the BC88AC printing service is running.'
-      );
+      setPrintStatus({
+        ok: false,
+        text: error instanceof Error ? `Printing failed: ${error.message}` : 'Printing failed',
+      });
     }
   };
 
@@ -158,6 +206,42 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           </button>
         </div>
 
+        {/* Printer selection (screen only) */}
+        <div
+          className="no-print"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 20px',
+            borderBottom: '1px solid var(--border-color)',
+          }}
+        >
+          <label htmlFor="printer-select" style={{ fontSize: '12px', fontWeight: 600 }}>
+            🖨️ Printer:
+          </label>
+          <select
+            id="printer-select"
+            className="form-input"
+            style={{ flex: 1 }}
+            value={selectedPrinter}
+            onChange={(e) => handleSelectPrinter(e.target.value)}
+            disabled={!agentOnline || printers.length === 0}
+          >
+            {agentOnline === false && <option value="">Print agent not running</option>}
+            {agentOnline && printers.length === 0 && <option value="">No printers found</option>}
+            {printers.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.name}
+                {p.default ? ' (default)' : ''}
+              </option>
+            ))}
+          </select>
+          <button className="btn btn-secondary btn-sm" onClick={loadPrinters} title="Refresh printers">
+            ↻
+          </button>
+        </div>
+
         {/* Printer setup guide (screen only - never printed) */}
         <div
           className="no-print"
@@ -171,7 +255,9 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           }}
         >
           <strong style={{ color: 'var(--text-secondary)' }}> Thermal printer setup:</strong>{' '}
-          In the print dialog, select the thermal printer itself (not Save to PDF), then open{' '}
+          Start the local print agent (<code>apps/print-agent</code>) on this machine for direct
+          printing with auto-cut. Without it, the browser print dialog is used: select the thermal
+          printer itself (not Save to PDF), then open{' '}
           <strong>More settings</strong> and choose its <strong>80mm Receipt/Roll</strong> paper.
           Set <strong>Margins = None</strong>, <strong>Scale = 100%</strong>, and uncheck{' '}
           <strong>Headers and footers</strong>. A4/Letter paper creates the large blank page shown
@@ -449,6 +535,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           <button className="btn btn-secondary" onClick={onClose}>
             Close
           </button>
+          {printStatus && (
+            <span style={{ flex: 1, fontSize: '12px', color: printStatus.ok ? '#22c55e' : '#f87171' }}>
+              {printStatus.text}
+            </span>
+          )}
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button
