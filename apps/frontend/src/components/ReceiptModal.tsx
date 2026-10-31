@@ -59,13 +59,35 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
   if (!isOpen || !receiptData) return null;
 
-  const handlePrint = (tabToPrint?: 'BOTH' | 'CUSTOMER' | 'KITCHEN') => {
+  const handlePrint = async (tabToPrint?: 'BOTH' | 'CUSTOMER' | 'KITCHEN') => {
+    const mode = tabToPrint || activeTab;
     if (tabToPrint) setActiveTab(tabToPrint);
-    // Give React one tick to render the requested tab's slips, then print.
-    // (No @page paper size is injected: Windows printer drivers pick the
-    // paper themselves, and a CSS size only makes Chrome mis-place the slip
-    // on the driver's paper — see the @page note in index.css.)
-    setTimeout(() => window.print(), 50);
+
+    try {
+      const response = await fetch('http://127.0.0.1:3001/print', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          receiptData,
+          mode,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Printing failed');
+      }
+    } catch (error) {
+      console.error('Receipt printing error:', error);
+      window.alert(
+        error instanceof Error
+          ? `Printing failed: ${error.message}`
+          : 'Could not connect to the local receipt printer. Make sure the BC88AC printing service is running.'
+      );
+    }
   };
 
   const formattedDate = receiptData.date
