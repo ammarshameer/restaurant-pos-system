@@ -1,0 +1,49 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.restaurantpos.printhelper",
+  "productName": "Restaurant POS Print Helper",
+  "copyright": "Copyright © 2026 Restaurant POS",
+  "directories": {
+    "output": "release/print-helper"
+  },
+  "files": [
+    "electron/print-helper/**/*",
+    "electron/printing/**/*",
+    "package.json"
+  ],
+  "asarUnpack": [
+    "electron/printing/powershell/**/*"
+  ],
+  "extraMetadata": {
+    "main": "electron/print-helper/main.js"
+  },
+  "win": {
+    "icon": "electron/print-helper/resources/icon.ico",
+    "signAndEditExecutable": false,
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      },
+      {
+        "target": "zip",
+        "arch": [
+          "x64"
+        ]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": false,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Restaurant POS Print Helper",
+    "runAfterFinish": true,
+    "installerIcon": "electron/print-helper/resources/icon.ico",
+    "uninstallerIcon": "electron/print-helper/resources/icon.ico",
+    "installerHeaderIcon": "electron/print-helper/resources/icon.ico"
+  }
+}

@@ -20,7 +20,11 @@
     "electron:start": "electron .",
     "electron:dev": "npm run build:offline && electron .",
     "electron:pack": "npm run build:offline && electron-builder --dir --config electron-builder.json",
-    "dist:win": "npm run build:offline && electron-builder --win --config electron-builder.json"
+    "dist:win": "npm run build:offline && electron-builder --win --config electron-builder.json",
+    "print-helper:start": "electron electron/print-helper",
+    "print-helper:pack": "electron-builder --dir --config electron-builder.print-helper.json",
+    "dist:print-helper": "electron-builder --win --config electron-builder.print-helper.json",
+    "test:print-helper": "node electron/printing/selftest.js"
   },
   "keywords": [
     "pos",

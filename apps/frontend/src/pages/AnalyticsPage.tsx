@@ -8,7 +8,13 @@ import { analyticsApi, TopSellingItem, ProductRevenueItem } from '../api/analyti
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR, formatNumber } from '../utils/format';
 
-type DateRange = 'today' | 'yesterday' | 'week' | 'month';
+type DateRange = 'today' | 'yesterday' | 'week' | 'month' | 'custom';
+
+function toInputDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate()
+  ).padStart(2, '0')}`;
+}
 
 interface HourlyData {
   hour: string;
@@ -32,6 +38,7 @@ export const AnalyticsPage: React.FC = () => {
   const deals = useSelector((state: RootState) => state.deal.deals);
 
   const [dateRange, setDateRange] = useState<DateRange>('today');
+  const [selectedDate, setSelectedDate] = useState<string>(() => toInputDate(new Date()));
   const [loading, setLoading] = useState(false);
 
   // Fetch latest orders directly from backend database on mount
@@ -73,10 +80,38 @@ export const AnalyticsPage: React.FC = () => {
       return { start: startOfWeek, end: endOfToday };
     }
 
+    if (dateRange === 'custom') {
+      const parsed = new Date(`${selectedDate}T00:00:00`);
+      const base = Number.isNaN(parsed.getTime()) ? now : parsed;
+      return {
+        start: new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0),
+        end: new Date(base.getFullYear(), base.getMonth(), base.getDate(), 23, 59, 59, 999),
+      };
+    }
+
     // month
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
     return { start: startOfMonth, end: endOfToday };
-  }, [dateRange]);
+  }, [dateRange, selectedDate]);
+
+  const dateRangeLabel = useMemo(() => {
+    if (dateRange === 'custom') {
+      const parsed = new Date(`${selectedDate}T00:00:00`);
+      if (Number.isNaN(parsed.getTime())) return 'Selected date';
+      return parsed.toLocaleDateString('en-PK', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+    }
+    const labels: Record<Exclude<DateRange, 'custom'>, string> = {
+      today: 'Today',
+      yesterday: 'Yesterday',
+      week: 'Last 7 Days',
+      month: 'This Month',
+    };
+    return labels[dateRange];
+  }, [dateRange, selectedDate]);
 
   // Filter orders matching current date range
   const filteredOrders = useMemo(() => {
@@ -431,7 +466,7 @@ export const AnalyticsPage: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           {[
             { id: 'today', label: 'Today' },
             { id: 'yesterday', label: 'Yesterday' },
@@ -446,6 +481,33 @@ export const AnalyticsPage: React.FC = () => {
               {tab.label}
             </button>
           ))}
+
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '4px 10px',
+              borderRadius: 'var(--radius-md)',
+              border: `1px solid ${dateRange === 'custom' ? 'var(--primary)' : 'var(--border-color)'}`,
+              background: dateRange === 'custom' ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+            }}
+          >
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              📅 Pick a date
+            </span>
+            <input
+              type="date"
+              className="form-input"
+              value={selectedDate}
+              max={toInputDate(new Date())}
+              onChange={(e) => {
+                setSelectedDate(e.target.value);
+                setDateRange('custom');
+              }}
+              style={{ fontSize: '12px', padding: '5px 8px', width: '150px' }}
+            />
+          </label>
         </div>
       </div>
 
@@ -654,7 +716,7 @@ export const AnalyticsPage: React.FC = () => {
             📈 Hourly Sales & Rush Hour Throughput (PKR)
           </h3>
           <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-            Showing activity for selected period ({dateRange})
+            Showing activity for selected period ({dateRangeLabel})
           </span>
         </div>
 

@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self' data:"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Restaurant POS Print Helper</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f172a;
+        --panel: #1e293b;
+        --panel-2: #273449;
+        --border: #334155;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #38bdf8;
+        --accent-strong: #0ea5e9;
+        --ok: #4ade80;
+        --warn: #facc15;
+        --error: #f87171;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+      }
+
+      body {
+        background: radial-gradient(circle at top, #16233c 0%, var(--bg) 55%);
+        color: var(--text);
+        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .page {
+        max-width: 660px;
+        margin: 0 auto;
+        padding: 28px 24px 36px;
+      }
+
+      header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+
+      .subtitle {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--muted);
+        box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
+      }
+
+      .badge[data-state="ready"] {
+        color: var(--ok);
+        border-color: rgba(74, 222, 128, 0.35);
+      }
+      .badge[data-state="ready"] .dot {
+        background: var(--ok);
+        box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.18);
+      }
+
+      .badge[data-state="warning"] {
+        color: var(--warn);
+        border-color: rgba(250, 204, 21, 0.35);
+      }
+      .badge[data-state="warning"] .dot {
+        background: var(--warn);
+        box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.18);
+      }
+
+      .badge[data-state="error"] {
+        color: var(--error);
+        border-color: rgba(248, 113, 113, 0.35);
+      }
+      .badge[data-state="error"] .dot {
+        background: var(--error);
+        box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.18);
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 20px;
+        margin-bottom: 16px;
+        box-shadow: 0 16px 40px rgba(2, 6, 23, 0.28);
+      }
+
+      .card h2 {
+        margin: 0 0 4px;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .card p.hint {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+
+      .field {
+        margin-bottom: 16px;
+      }
+
+      .field:last-child {
+        margin-bottom: 0;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 600;
+        font-size: 13px;
+      }
+
+      label .optional {
+        font-weight: 400;
+        color: var(--muted);
+      }
+
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: stretch;
+      }
+
+      select,
+      input {
+        width: 100%;
+        min-width: 0;
+        padding: 10px 12px;
+        border-radius: 9px;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--text);
+        font-family: inherit;
+        font-size: 14px;
+        outline: none;
+        transition: border-color 120ms ease, box-shadow 120ms ease;
+      }
+
+      select:focus,
+      input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
+      }
+
+      input[readonly] {
+        color: var(--muted);
+      }
+
+      .help {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 4px;
+      }
+
+      button {
+        appearance: none;
+        border: 1px solid transparent;
+        border-radius: 9px;
+        padding: 10px 18px;
+        font-family: inherit;
+        font-size: 13.5px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 80ms ease, background 120ms ease, border-color 120ms ease;
+      }
+
+      button:active:not(:disabled) {
+        transform: translateY(1px);
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .btn-primary {
+        background: var(--accent-strong);
+        color: #06202f;
+      }
+
+      .btn-primary:hover:not(:disabled) {
+        background: var(--accent);
+      }
+
+      .btn-secondary {
+        background: transparent;
+        border-color: var(--border);
+        color: var(--text);
+      }
+
+      .btn-secondary:hover:not(:disabled) {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .status-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+
+      .status-line strong {
+        color: var(--text);
+      }
+
+      .notice {
+        display: none;
+        margin-top: 14px;
+        padding: 10px 12px;
+        border-radius: 9px;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        font-size: 13px;
+      }
+
+      .notice[data-kind="success"] {
+        display: block;
+        color: var(--ok);
+        border-color: rgba(74, 222, 128, 0.35);
+      }
+
+      .notice[data-kind="error"] {
+        display: block;
+        color: var(--error);
+        border-color: rgba(248, 113, 113, 0.35);
+      }
+
+      .notice[data-kind="info"] {
+        display: block;
+        color: var(--accent);
+        border-color: rgba(56, 189, 248, 0.35);
+      }
+
+      .origins {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .origin {
+        padding: 4px 9px;
+        border-radius: 7px;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--muted);
+        font-family: "Consolas", "SFMono-Regular", monospace;
+        font-size: 12px;
+      }
+
+      footer {
+        margin-top: 22px;
+        color: var(--muted);
+        font-size: 11.5px;
+        text-align: center;
+      }
+
+      footer code {
+        font-family: "Consolas", "SFMono-Regular", monospace;
+        color: var(--text);
+      }
+
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <div>
+          <h1>Restaurant POS Print Helper</h1>
+          <p class="subtitle">Direct ESC/POS printing to your installed Windows printer.</p>
+        </div>
+        <span class="badge" id="status-badge" data-state="warning">
+          <span class="dot"></span>
+          <span id="status-badge-text">Checking…</span>
+        </span>
+      </header>
+
+      <section class="card">
+        <h2>Printer</h2>
+        <p class="hint">
+          Select the receipt printer exactly as it appears in Windows. Any installed printer
+          (thermal roll or otherwise) can be used.
+        </p>
+
+        <div class="field">
+          <label for="printer-select">Installed printer</label>
+          <div class="row">
+            <select id="printer-select">
+              <option value="">Loading printers…</option>
+            </select>
+            <button type="button" class="btn-secondary" id="refresh-printers">Refresh</button>
+          </div>
+          <div class="help" id="printer-help">
+            If your printer is missing, install it in Windows first, then press Refresh.
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="printer-name">Printer name <span class="optional">(manual entry)</span></label>
+          <input
+            id="printer-name"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="e.g. Black Copper BC-88AC"
+          />
+          <div class="help">
+            Use this if the printer is not listed. The name must match Windows exactly.
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="columns">Characters per line</label>
+          <input id="columns" type="number" min="24" max="80" step="1" value="48" />
+          <div class="help">
+            48 is typical for an 80 mm roll with Font A. Use 32 for a 58 mm roll.
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn-primary" id="save-settings">Save settings</button>
+          <button type="button" class="btn-secondary" id="test-print">Test print</button>
+        </div>
+
+        <div class="notice" id="notice" role="status" aria-live="polite"></div>
+      </section>
+
+      <section class="card">
+        <h2>Connection</h2>
+        <div class="status-line">
+          <span>Service: <strong id="transport-label">Checking…</strong></span>
+          <span>Port: <strong id="port-label">—</strong></span>
+        </div>
+        <div class="help" id="version-label"></div>
+
+        <div class="field" id="token-field" style="margin-top: 16px">
+          <label for="token">Shared token</label>
+          <input id="token" type="password" spellcheck="false" autocomplete="off" />
+          <div class="help">
+            Must match the token configured in the POS website. Leave unchanged unless you are
+            rotating it deliberately.
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Allowed website origin</label>
+          <div class="origins" id="origins"></div>
+          <div class="help">
+            Only this exact origin may call the helper. All other origins are rejected.
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        Keep this app running in the notification area while using the POS.
+        <br />
+        Status endpoint: <code id="endpoint-label">http://127.0.0.1:17777</code>
+      </footer>
+    </div>
+
+    <script src="settings.js"></script>
+  </body>
+</html>

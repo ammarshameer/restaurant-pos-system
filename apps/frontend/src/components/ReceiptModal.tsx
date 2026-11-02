@@ -1,62 +1,23 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { formatPKR } from '../utils/format';
+import type { ReceiptData } from '../types/receipt.types';
+import { CustomerSlip, KitchenSlip } from './receipt/ReceiptSlips';
+import type { ReceiptPrintMode } from './receipt/ReceiptSlips';
+import { printReceiptInBrowser } from '../lib/print/browserPrint';
+import {
+  checkPrintHelper,
+  openPrintHelperSettings,
+  printReceiptDirect,
+} from '../lib/print/printClient';
+import type { PrintHelperStatus } from '../lib/print/printClient';
 
-export interface ReceiptItem {
-  id?: string;
-  name: string;
-  quantity: number;
-  unitPrice: number;
-  total: number;
-  notes?: string;
-  isDeal?: boolean;
-  dealComponents?: string[];
-}
-
-export interface ReceiptData {
-  receiptNumber?: string;
-  orderNumber?: number | string;
-  orderId?: string;
-  date?: string | Date;
-  restaurant?: {
-    name: string;
-    address: string;
-    phone: string;
-    email: string;
-  };
-  server?: string;
-  orderType?: string;
-  table?: string;
-  notes?: string;
-  items: ReceiptItem[];
-  subtotal: number;
-  serviceCharge?: number;
-  serviceChargeRate?: number;
-  deliveryCharge?: number;
-  tax?: number;
-  taxRate?: number;
-  tipAmount?: number;
-  total: number;
-  totalPaid?: number;
-  change?: number;
-  paymentMethod?: string;
-}
+export type { ReceiptData, ReceiptItem } from '../types/receipt.types';
 
 interface ReceiptModalProps {
   isOpen: boolean;
   onClose: () => void;
   receiptData: ReceiptData | null;
-  defaultTab?: 'BOTH' | 'CUSTOMER' | 'KITCHEN';
-}
-
-const PRINT_AGENT_URL =
-  (import.meta.env.VITE_PRINT_AGENT_URL as string | undefined) || 'http://127.0.0.1:3001/print';
-const PRINTERS_URL = PRINT_AGENT_URL.replace(/\/print$/, '/printers');
-const PRINTER_STORAGE_KEY = 'pos.thermalPrinter';
-
-interface AgentPrinter {
-  name: string;
-  default: boolean;
+  defaultTab?: ReceiptPrintMode;
 }
 
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({
@@ -65,94 +26,100 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   receiptData,
   defaultTab = 'BOTH',
 }) => {
-  const [activeTab, setActiveTab] = useState<'BOTH' | 'CUSTOMER' | 'KITCHEN'>(defaultTab);
-
-  const [printers, setPrinters] = useState<AgentPrinter[]>([]);
-  const [agentOnline, setAgentOnline] = useState<boolean | null>(null);
-  const [selectedPrinter, setSelectedPrinter] = useState<string>(
-    () => localStorage.getItem(PRINTER_STORAGE_KEY) || ''
-  );
-
-  const loadPrinters = useCallback(async () => {
-    try {
-      const res = await fetch(PRINTERS_URL);
-      const data = await res.json();
-      const list: AgentPrinter[] = data.printers || [];
-      setPrinters(list);
-      setAgentOnline(true);
-      setSelectedPrinter((current) => {
-        if (current && list.some((p) => p.name === current)) return current;
-        return list.find((p) => p.default)?.name || list[0]?.name || '';
-      });
-    } catch {
-      setPrinters([]);
-      setAgentOnline(false);
-    }
-  }, []);
+  const [activeTab, setActiveTab] = useState<ReceiptPrintMode>(defaultTab);
+  const [helperStatus, setHelperStatus] = useState<PrintHelperStatus | null>(null);
+  const [checkingHelper, setCheckingHelper] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const [openDrawer, setOpenDrawer] = useState(false);
+  const [printNotice, setPrintNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen) loadPrinters();
-  }, [isOpen, loadPrinters]);
+    if (!isOpen) return;
 
-  const handleSelectPrinter = (name: string) => {
-    setSelectedPrinter(name);
-    localStorage.setItem(PRINTER_STORAGE_KEY, name);
-  };
+    let cancelled = false;
+    setCheckingHelper(true);
+    checkPrintHelper()
+      .then((status) => {
+        if (!cancelled) setHelperStatus(status);
+      })
+      .catch(() => {
+        if (!cancelled) setHelperStatus(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingHelper(false);
+      });
 
-  const [printStatus, setPrintStatus] = useState<{ ok: boolean; text: string } | null>(null);
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   if (!isOpen || !receiptData) return null;
 
-  const handlePrint = async (tabToPrint?: 'BOTH' | 'CUSTOMER' | 'KITCHEN') => {
-    const mode = tabToPrint || activeTab;
-    if (tabToPrint) setActiveTab(tabToPrint);
-    setPrintStatus({ ok: true, text: 'Sending to printer…' });
-
+  const refreshHelperStatus = async () => {
+    setCheckingHelper(true);
     try {
-      let response: Response;
-      try {
-        response = await fetch(PRINT_AGENT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ receiptData, mode, printer: selectedPrinter || undefined }),
-        });
-      } catch {
-        // Agent not running: fall back to the browser print dialog (no auto-cut).
-        setPrintStatus({ ok: false, text: 'Print agent not reachable — using browser print dialog.' });
-        window.print();
-        return;
-      }
-
-      const result = await response.json().catch(() => ({}));
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Printing failed');
-      }
-      setPrintStatus({ ok: true, text: `✓ Sent to ${result.printer}` });
-    } catch (error) {
-      console.error('Receipt printing error:', error);
-      setPrintStatus({
-        ok: false,
-        text: error instanceof Error ? `Printing failed: ${error.message}` : 'Printing failed',
-      });
+      setHelperStatus(await checkPrintHelper());
+    } finally {
+      setCheckingHelper(false);
     }
   };
 
-  const formattedDate = receiptData.date
-    ? new Date(receiptData.date).toLocaleString('en-PK', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      })
-    : new Date().toLocaleString('en-PK');
+  const handleOpenPrinterSettings = async () => {
+    const opened = await openPrintHelperSettings();
+    if (opened) {
+      window.setTimeout(refreshHelperStatus, 1000);
+    }
+  };
 
-  const restaurantName = receiptData.restaurant?.name || 'Gourmet Bistro & Grill';
-  const restaurantAddress = receiptData.restaurant?.address || 'Main Boulevard, Gulberg III, Lahore';
-  const restaurantPhone = receiptData.restaurant?.phone || '+92 (42) 3578-9000';
+  const handlePrint = async (tabToPrint?: ReceiptPrintMode) => {
+    const mode = tabToPrint || activeTab;
+    if (tabToPrint) setActiveTab(tabToPrint);
+    if (!receiptData || printing) return;
+
+    setPrinting(true);
+    setPrintNotice(null);
+
+    try {
+      // Prefer the local print helper / offline Electron print bridge.
+      try {
+        const result = await printReceiptDirect(receiptData, mode, { openDrawer });
+        if (result.ok) {
+          setPrintNotice(
+            result.via === 'electron'
+              ? '✅ Printed directly from the desktop app.'
+              : `✅ Printed directly to ${helperStatus?.printerName || 'the thermal printer'}.`
+          );
+          return;
+        }
+      } catch (directError) {
+        console.warn('[Print] Direct printing unavailable, falling back to browser print:', directError);
+      }
+
+      // Fallback: print only the receipt from a dedicated 72 mm document.
+      await printReceiptInBrowser(receiptData, mode);
+      setPrintNotice('🖨️ Opened the browser print dialog. Select your 80 mm thermal printer.');
+    } catch (error) {
+      console.error('[Print] Printing failed:', error);
+      setPrintNotice('❌ Printing failed. Please check the printer and try again.');
+    } finally {
+      setPrinting(false);
+      window.setTimeout(() => setPrintNotice(null), 8000);
+    }
+  };
+
   const orderNumStr = String(receiptData.orderNumber || receiptData.orderId?.slice(0, 6) || '101');
   const typeDisplay = receiptData.orderType || 'Dine In';
 
-  // Portal the modal directly to <body> so print CSS can hide the rest of the
-  // app (body > *) without hiding the slips themselves.
+  const helperLabel = checkingHelper
+    ? 'Checking for the direct print helper…'
+    : helperStatus
+      ? helperStatus.configured === false || !helperStatus.printerName
+        ? '🟡 Print helper connected — set a printer in the helper settings.'
+        : `✅ Direct printer ready${helperStatus.printerName ? ` — ${helperStatus.printerName}` : ''}`
+      : '⚪ Direct print helper not detected — browser printing will be used.';
+
+  // Portal the modal directly to <body> so it sits above the app shell.
   const modalPortal = (
     <div className="modal-overlay no-print-bg" onClick={onClose}>
       <div
@@ -206,43 +173,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           </button>
         </div>
 
-        {/* Printer selection (screen only) */}
-        <div
-          className="no-print"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 20px',
-            borderBottom: '1px solid var(--border-color)',
-          }}
-        >
-          <label htmlFor="printer-select" style={{ fontSize: '12px', fontWeight: 600 }}>
-            🖨️ Printer:
-          </label>
-          <select
-            id="printer-select"
-            className="form-input"
-            style={{ flex: 1 }}
-            value={selectedPrinter}
-            onChange={(e) => handleSelectPrinter(e.target.value)}
-            disabled={!agentOnline || printers.length === 0}
-          >
-            {agentOnline === false && <option value="">Print agent not running</option>}
-            {agentOnline && printers.length === 0 && <option value="">No printers found</option>}
-            {printers.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
-                {p.default ? ' (default)' : ''}
-              </option>
-            ))}
-          </select>
-          <button className="btn btn-secondary btn-sm" onClick={loadPrinters} title="Refresh printers">
-            ↻
-          </button>
-        </div>
-
-        {/* Printer setup guide (screen only - never printed) */}
+        {/* Direct-print status + fallback guide (screen only) */}
         <div
           className="no-print"
           style={{
@@ -254,177 +185,44 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             borderBottom: '1px solid var(--border-color)',
           }}
         >
-          <strong style={{ color: 'var(--text-secondary)' }}> Thermal printer setup:</strong>{' '}
-          Start the local print agent (<code>apps/print-agent</code>) on this machine for direct
-          printing with auto-cut. Without it, the browser print dialog is used: select the thermal
-          printer itself (not Save to PDF), then open{' '}
-          <strong>More settings</strong> and choose its <strong>80mm Receipt/Roll</strong> paper.
-          Set <strong>Margins = None</strong>, <strong>Scale = 100%</strong>, and uncheck{' '}
-          <strong>Headers and footers</strong>. A4/Letter paper creates the large blank page shown
-          here. If blank paper feeds after the receipt, open the printer&apos;s own{' '}
-          <strong>Printing Preferences</strong> in Windows and enable its{' '}
-          <em>&quot;cut / remove blank space after print&quot;</em> (or continuous-roll) option — the
-          printer driver, not the website, controls the roll length.
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <strong style={{ color: 'var(--text-secondary)' }}>{helperLabel}</strong>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={refreshHelperStatus}
+              disabled={checkingHelper || printing}
+            >
+              Refresh
+            </button>
+            {helperStatus?.via === 'electron' && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleOpenPrinterSettings}
+                disabled={printing}
+              >
+                Printer settings
+              </button>
+            )}
+          </div>
+          {printNotice && (
+            <div style={{ marginTop: '6px', color: 'var(--text-secondary)' }}>{printNotice}</div>
+          )}
+          {!helperStatus && (
+            <div style={{ marginTop: '6px' }}>
+              Browser fallback: in the print dialog choose the thermal printer, its{' '}
+              <strong>80 mm Receipt/Roll</strong> paper, <strong>Margins = None</strong>,{' '}
+              <strong>Scale = 100%</strong>, and uncheck <strong>Headers and footers</strong>.
+            </div>
+          )}
         </div>
 
         <div className="modal-body" style={{ padding: '20px', overflowY: 'auto', maxHeight: '65vh' }}>
           <div className="print-slips-container">
             {/* 1. CUSTOMER RECEIPT (Rendered if BOTH or CUSTOMER active) */}
             {(activeTab === 'BOTH' || activeTab === 'CUSTOMER') && (
-              <div
-                className={`receipt-paper customer-slip ${activeTab === 'BOTH' ? 'slip-page-break' : ''}`}
-                id="customer-receipt"
-              >
-                <div className="receipt-badge">CUSTOMER RECEIPT</div>
-                <div className="receipt-header">
-                  <div className="receipt-restaurant-name">{restaurantName}</div>
-                  <div style={{ fontSize: '11px', color: '#444' }}>{restaurantAddress}</div>
-                  <div style={{ fontSize: '11px', color: '#444' }}>Tel: {restaurantPhone}</div>
-                </div>
-
-                <hr className="receipt-divider" />
-
-                <div className="receipt-row" style={{ fontSize: '11px', fontWeight: 600 }}>
-                  <span>Order #: {orderNumStr}</span>
-                  <span>{formattedDate}</span>
-                </div>
-                <div className="receipt-row" style={{ fontSize: '11px', fontWeight: 700 }}>
-                  <span>TYPE: {typeDisplay.toUpperCase()}</span>
-                  <span>Cashier: {receiptData.server || 'Cashier'}</span>
-                </div>
-                {receiptData.notes && (
-                  <div style={{ fontSize: '10px', color: '#333', marginTop: '3px', background: '#f1f5f9', padding: '2px 4px', borderRadius: '2px' }}>
-                    {receiptData.notes}
-                  </div>
-                )}
-
-                <hr className="receipt-divider" />
-
-                {/* Items Table Header */}
-                <div
-                  className="receipt-row"
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    borderBottom: '1px solid #ddd',
-                    paddingBottom: '4px',
-                    marginBottom: '6px',
-                  }}
-                >
-                  <span style={{ flex: 2 }}>ITEM / QTY</span>
-                  <span style={{ flex: 1, textAlign: 'right' }}>PRICE</span>
-                  <span style={{ flex: 1.2, textAlign: 'right' }}>TOTAL</span>
-                </div>
-
-                {/* Items List with Name, Price & Qty */}
-                <div style={{ margin: '6px 0' }}>
-                  {receiptData.items.map((item, idx) => {
-                    const itemTotal = item.total || item.unitPrice * item.quantity;
-                    return (
-                      <div key={idx} style={{ marginBottom: '8px' }}>
-                        <div className="receipt-row" style={{ alignItems: 'flex-start' }}>
-                          <span style={{ flex: 2, fontWeight: 600, fontSize: '12px' }}>
-                            {item.quantity}x {item.name}
-                          </span>
-                          <span style={{ flex: 1, textAlign: 'right', fontSize: '11px', color: '#555' }}>
-                            {formatPKR(item.unitPrice)}
-                          </span>
-                          <span style={{ flex: 1.2, textAlign: 'right', fontWeight: 700, fontSize: '12px' }}>
-                            {formatPKR(itemTotal)}
-                          </span>
-                        </div>
-                        {item.dealComponents && item.dealComponents.length > 0 && (
-                          <div style={{ fontSize: '10.5px', color: '#444', paddingLeft: '14px', marginTop: '2px', lineHeight: '1.3' }}>
-                            {item.dealComponents.map((comp, cIdx) => (
-                              <div key={cIdx}>↳ {comp}</div>
-                            ))}
-                          </div>
-                        )}
-                        {item.notes && (
-                          <div style={{ fontSize: '10px', color: '#666', fontStyle: 'italic', paddingLeft: '12px', marginTop: '2px' }}>
-                            * {item.notes}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <hr className="receipt-divider" />
-
-                {/* Financial Summary */}
-                <div className="receipt-row" style={{ fontSize: '12px' }}>
-                  <span>Subtotal</span>
-                  <span style={{ fontWeight: 600 }}>{formatPKR(receiptData.subtotal)}</span>
-                </div>
-
-                {receiptData.tax !== undefined && receiptData.tax > 0 && (
-                  <div className="receipt-row" style={{ fontSize: '12px' }}>
-                    <span>Tax {receiptData.taxRate ? `(${receiptData.taxRate}%)` : ''}</span>
-                    <span style={{ fontWeight: 600 }}>{formatPKR(receiptData.tax)}</span>
-                  </div>
-                )}
-
-                {receiptData.serviceCharge !== undefined && receiptData.serviceCharge > 0 && (
-                  <div className="receipt-row" style={{ fontSize: '12px' }}>
-                    <span>
-                      Service Charges
-                      {receiptData.serviceChargeRate ? ` (${receiptData.serviceChargeRate}%)` : ''}
-                    </span>
-                    <span style={{ fontWeight: 600 }}>{formatPKR(receiptData.serviceCharge)}</span>
-                  </div>
-                )}
-
-                {receiptData.deliveryCharge !== undefined && receiptData.deliveryCharge > 0 && (
-                  <div className="receipt-row" style={{ fontSize: '12px' }}>
-                    <span>Delivery Charges</span>
-                    <span style={{ fontWeight: 600 }}>{formatPKR(receiptData.deliveryCharge)}</span>
-                  </div>
-                )}
-
-                {receiptData.tipAmount !== undefined && receiptData.tipAmount > 0 && (
-                  <div className="receipt-row" style={{ fontSize: '12px' }}>
-                    <span>Tip</span>
-                    <span style={{ fontWeight: 600 }}>{formatPKR(receiptData.tipAmount)}</span>
-                  </div>
-                )}
-
-                <hr className="receipt-double-divider" />
-
-                <div className="receipt-row receipt-total-row">
-                  <span>TOTAL AMOUNT</span>
-                  <span>{formatPKR(receiptData.total)}</span>
-                </div>
-
-                <div className="receipt-row" style={{ marginTop: '8px', fontSize: '12px' }}>
-                  <span>Payment Method</span>
-                  <span style={{ fontWeight: 700 }}>{receiptData.paymentMethod || 'CASH'}</span>
-                </div>
-
-                {receiptData.totalPaid !== undefined && receiptData.totalPaid > 0 && (
-                  <div className="receipt-row" style={{ fontSize: '12px' }}>
-                    <span>Amount Tendered</span>
-                    <span>{formatPKR(receiptData.totalPaid)}</span>
-                  </div>
-                )}
-
-                {receiptData.change !== undefined && receiptData.change > 0 && (
-                  <div className="receipt-row" style={{ fontSize: '12px', fontWeight: 700, color: '#000' }}>
-                    <span>Change Returned</span>
-                    <span>{formatPKR(receiptData.change)}</span>
-                  </div>
-                )}
-
-                <hr className="receipt-divider" />
-
-                <div className="receipt-footer">
-                  <div style={{ fontWeight: 700 }}>Thank you for ordering with us!</div>
-                  <div>Please visit again soon.</div>
-                  <div style={{ marginTop: '6px', fontSize: '9px', letterSpacing: '0.1em' }}>
-                    *** OFFICIAL CUSTOMER RECEIPT ***
-                  </div>
-                </div>
-              </div>
+              <CustomerSlip receiptData={receiptData} />
             )}
 
             {/* Visual separator between slips when previewing both */}
@@ -449,80 +247,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
             {/* 2. KITCHEN ORDER TICKET (KOT) - ONLY ITEM & QTY, NO PRICES */}
             {(activeTab === 'BOTH' || activeTab === 'KITCHEN') && (
-              <div className="kot-paper kitchen-slip" id="kitchen-ticket">
-                <div className="kot-badge">🍳 KITCHEN COPY (KOT)</div>
-                <div className="kot-header">
-                  <div className="kot-title">KITCHEN ORDER TICKET</div>
-                  <div className="kot-subtitle">*** PREPARATION COPY ***</div>
-                </div>
-
-                <hr className="kot-divider" />
-
-                <div className="kot-meta-grid">
-                  <div>
-                    <span className="kot-label">TICKET #:</span>
-                    <span className="kot-val highlight">#{orderNumStr}</span>
-                  </div>
-                  <div>
-                    <span className="kot-label">ORDER TYPE:</span>
-                    <span className="kot-val highlight">{typeDisplay.toUpperCase()}</span>
-                  </div>
-                  <div>
-                    <span className="kot-label">TIME:</span>
-                    <span className="kot-val">{formattedDate}</span>
-                  </div>
-                  <div>
-                    <span className="kot-label">SERVER:</span>
-                    <span className="kot-val">{receiptData.server || 'Server'}</span>
-                  </div>
-                </div>
-
-                {receiptData.notes && (
-                  <div className="kot-order-notes">
-                    <strong>⚠️ ORDER DETAILS / INSTRUCTIONS:</strong> {receiptData.notes}
-                  </div>
-                )}
-
-                <hr className="kot-divider" />
-
-                {/* Items list: STRICTLY ITEM NAME AND QUANTITY (NO PRICES) */}
-                <div className="kot-items-list">
-                  <div className="kot-items-header">
-                    <span>QTY</span>
-                    <span>ITEM DESCRIPTION</span>
-                  </div>
-
-                  {receiptData.items.map((item, idx) => (
-                    <div key={idx} className="kot-item-row">
-                      <div className="kot-item-qty">{item.quantity}x</div>
-                      <div className="kot-item-details">
-                        <div className="kot-item-name">{item.name}</div>
-                        {item.dealComponents && item.dealComponents.length > 0 && (
-                          <div style={{ fontSize: '11px', color: '#475569', marginLeft: '4px', marginTop: '2px', fontStyle: 'italic' }}>
-                            {item.dealComponents.map((comp, cIdx) => (
-                              <div key={cIdx}>↳ {comp}</div>
-                            ))}
-                          </div>
-                        )}
-                        {item.notes && (
-                          <div className="kot-item-note">👉 {item.notes}</div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <hr className="kot-divider" />
-
-                <div className="kot-footer">
-                  <div style={{ fontSize: '13px', fontWeight: 800 }}>
-                    TOTAL ITEMS: {receiptData.items.reduce((s, i) => s + i.quantity, 0)}
-                  </div>
-                  <div style={{ fontSize: '10px', marginTop: '4px', letterSpacing: '0.08em' }}>
-                    *** END OF KITCHEN TICKET ***
-                  </div>
-                </div>
-              </div>
+              <KitchenSlip receiptData={receiptData} />
             )}
           </div>
         </div>
@@ -532,20 +257,35 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           className="modal-footer no-print"
           style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}
         >
-          <button className="btn btn-secondary" onClick={onClose}>
+          <button className="btn btn-secondary" onClick={onClose} disabled={printing}>
             Close
           </button>
-          {printStatus && (
-            <span style={{ flex: 1, fontSize: '12px', color: printStatus.ok ? '#22c55e' : '#f87171' }}>
-              {printStatus.text}
-            </span>
-          )}
 
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '12px',
+                color: 'var(--text-secondary)',
+                cursor: helperStatus ? 'pointer' : 'not-allowed',
+              }}
+              title="Open the cash drawer after the customer slip (direct printing only)"
+            >
+              <input
+                type="checkbox"
+                checked={openDrawer}
+                onChange={(e) => setOpenDrawer(e.target.checked)}
+                disabled={!helperStatus || printing}
+              />
+              Open cash drawer
+            </label>
             <button
               className="btn btn-secondary"
               onClick={() => handlePrint('CUSTOMER')}
               title="Print Customer Slip only"
+              disabled={printing}
             >
               🧾 Customer Slip
             </button>
@@ -553,6 +293,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               className="btn btn-secondary"
               onClick={() => handlePrint('KITCHEN')}
               title="Print Kitchen Slip only"
+              disabled={printing}
             >
               🍳 Kitchen Slip (KOT)
             </button>
@@ -560,8 +301,9 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               className="btn btn-primary"
               onClick={() => handlePrint('BOTH')}
               title="Print Both Slips together"
+              disabled={printing}
             >
-              🖨️ Print Both Slips
+              {printing ? '⏳ Printing…' : '🖨️ Print Both Slips'}
             </button>
           </div>
         </div>

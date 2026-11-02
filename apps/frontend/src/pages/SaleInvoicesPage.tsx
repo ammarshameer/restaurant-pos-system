@@ -146,10 +146,10 @@ export const SaleInvoicesPage: React.FC = () => {
       date: order.createdAt,
       orderType: order.orderTypeLabel || (order.orderType === 'TAKE_AWAY' ? 'Take Away' : order.orderType === 'DELIVERY' ? 'Delivery' : 'Dine In'),
       server: typeof order.server === 'object' && order.server ? `${order.server.firstName} ${order.server.lastName}` : 'Cashier',
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
       notes: [
         order.notes ? `Note: ${order.notes}` : '',
-        order.customerName ? `Customer: ${order.customerName}` : '',
-        order.customerPhone ? `Contact: ${order.customerPhone}` : '',
         order.deliveryAddress ? `Delivery: ${order.deliveryAddress}` : '',
         order.dineInTag ? `Seat/Tag: ${order.dineInTag}` : '',
       ]

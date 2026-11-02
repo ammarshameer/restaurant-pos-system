@@ -1,0 +1,9 @@
+{
+  "name": "restaurant-pos-print-helper",
+  "productName": "Restaurant POS Print Helper",
+  "version": "1.0.0",
+  "description": "Loopback ESC/POS print helper for the Restaurant POS website",
+  "main": "main.js",
+  "author": "Restaurant POS",
+  "license": "MIT"
+}

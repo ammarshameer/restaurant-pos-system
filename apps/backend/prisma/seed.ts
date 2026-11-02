@@ -12,10 +12,10 @@ async function main() {
     update: {},
     create: {
       id: 'rest-default-1',
-      name: 'Gourmet Bistro & Grill',
+      name: 'Dimlight Cafe',
       address: 'Main Boulevard, Gulberg III, Lahore',
       phone: '+92 (42) 3578-9000',
-      email: 'contact@gourmetbistro.pk',
+      email: 'contact@dimlightcafe.pk',
       timezone: 'Asia/Karachi',
     },
   });

@@ -68,10 +68,28 @@ restaurant-pos/
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete setup and deployment instructions.
 
+## Thermal printing (Windows)
+
+For an 80 mm ESC/POS printer (for example the Black Copper BC-88AC), install the
+optional Windows print helper. It prints RAW ESC/POS from
+`https://pos.gsmpilot.com`, so the browser/driver cannot add a blank page or
+extra long slip. If the helper is not running, the POS falls back to the normal
+browser print dialog.
+
+```bash
+npm run print-helper:start   # run from source
+npm run dist:print-helper    # build the Windows installer + portable zip
+```
+
+See [electron/print-helper/README.md](./electron/print-helper/README.md) for
+setup, security details, API reference, and the Windows 10 Chrome/Edge test
+checklist.
+
 ## Documentation
 
 - [API Documentation](./API.md) - Complete REST API and WebSocket reference
 - [Deployment Guide](./DEPLOYMENT.md) - Production deployment instructions
+- [Print Helper Guide](./electron/print-helper/README.md) - Windows ESC/POS printing
 
 ## License
 

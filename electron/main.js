@@ -4,12 +4,16 @@ const fs = require('fs');
 const http = require('http');
 const { fork } = require('child_process');
 const { getBackupsDirectory, performDatabaseBackup, startDailyBackupTimer } = require('./backup');
+const { createPrinterService } = require('./printing/printerService');
+const { ALLOWED_ORIGINS } = require('./printing/constants');
 
 let mainWindow = null;
 let backendProcess = null;
 let persistentDbFilePath = null;
 let backupsDirectoryPath = null;
 let dailyBackupTimer = null;
+let printerService = null;
+let printSettingsWindow = null;
 const BACKEND_PORT = process.env.PORT || 3000;
 const SERVER_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
@@ -248,6 +252,45 @@ function createMainWindow() {
 }
 
 /**
+ * Opens the shared print-helper settings UI inside the offline POS. It uses the
+ * same HTML/preload and print service as the standalone tray helper.
+ */
+function openPrintSettingsWindow() {
+  if (printSettingsWindow && !printSettingsWindow.isDestroyed()) {
+    if (printSettingsWindow.isMinimized()) printSettingsWindow.restore();
+    printSettingsWindow.show();
+    printSettingsWindow.focus();
+    return;
+  }
+
+  printSettingsWindow = new BrowserWindow({
+    width: 720,
+    height: 780,
+    minWidth: 620,
+    minHeight: 620,
+    title: 'Printer Settings',
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#0f172a',
+    webPreferences: {
+      preload: path.join(__dirname, 'print-helper', 'settings-preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+    },
+  });
+
+  printSettingsWindow.loadFile(path.join(__dirname, 'print-helper', 'settings.html'));
+  printSettingsWindow.once('ready-to-show', () => {
+    printSettingsWindow.show();
+    printSettingsWindow.focus();
+  });
+  printSettingsWindow.on('closed', () => {
+    printSettingsWindow = null;
+  });
+}
+
+/**
  * Cleanly stops the background backend process.
  */
 function stopBackendProcess() {
@@ -285,10 +328,128 @@ ipcMain.handle('app:backup:trigger', () => {
   return false;
 });
 
+// Direct ESC/POS printing for the offline Electron POS. This uses the same
+// shared print service as the standalone Windows print helper.
+ipcMain.handle('print:status', () => {
+  if (!printerService) {
+    return { ok: false, app: 'restaurant-pos-print-helper', configured: false };
+  }
+  return printerService.getStatus();
+});
+
+ipcMain.handle('print:print', async (_event, payload) => {
+  if (!printerService) {
+    return { ok: false, error: 'The desktop print service is not ready.' };
+  }
+  try {
+    return await printerService.print(payload || {});
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle('print:test', async () => {
+  if (!printerService) {
+    return { ok: false, error: 'The desktop print service is not ready.' };
+  }
+  try {
+    return await printerService.testPrint();
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle('print:list-printers', async () => {
+  if (!printerService) return [];
+  try {
+    return await printerService.getPrinters();
+  } catch (error) {
+    console.error('[Electron] Could not list printers:', error.message);
+    return [];
+  }
+});
+
+ipcMain.handle('print:get-settings', () => {
+  return printerService ? printerService.getSettings() : {};
+});
+
+ipcMain.handle('print:save-settings', (_event, nextSettings) => {
+  if (!printerService) {
+    return { error: 'The desktop print service is not ready.' };
+  }
+  try {
+    return printerService.updateSettings(nextSettings || {});
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle('print:open-settings', () => {
+  openPrintSettingsWindow();
+  return true;
+});
+
+// The shared settings window uses these channel names in both apps.
+ipcMain.handle('print-helper:get-state', async () => {
+  let printers = [];
+  let printerError = null;
+
+  if (printerService) {
+    try {
+      printers = await printerService.getPrinters();
+    } catch (error) {
+      printerError = error.message;
+    }
+  }
+
+  return {
+    settings: printerService ? printerService.getSettings() : {},
+    status: printerService
+      ? printerService.getStatus()
+      : { ok: false, configured: false, printerName: '' },
+    printers,
+    printerError,
+    allowedOrigins: ALLOWED_ORIGINS,
+    port: null,
+    transport: 'ipc',
+  };
+});
+
+ipcMain.handle('print-helper:save-settings', (_event, nextSettings) => {
+  if (!printerService) {
+    return { error: 'The desktop print service is not ready.' };
+  }
+  const settings = printerService.updateSettings(nextSettings || {});
+  return { settings, status: printerService.getStatus() };
+});
+
+ipcMain.handle('print-helper:test-print', async () => {
+  if (!printerService) {
+    return { ok: false, error: 'The desktop print service is not ready.' };
+  }
+  try {
+    return await printerService.testPrint();
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle('print-helper:list-printers', async () => {
+  if (!printerService) {
+    return { ok: false, error: 'The desktop print service is not ready.', printers: [] };
+  }
+  try {
+    return { ok: true, printers: await printerService.getPrinters() };
+  } catch (error) {
+    return { ok: false, error: error.message, printers: [] };
+  }
+});
+
 // Electron App Lifecycle
 app.whenReady().then(async () => {
   try {
     const databaseUrl = setupPersistentDatabase();
+    printerService = createPrinterService({ userDataPath: app.getPath('userData') });
 
     // Perform automated SQLite database backup on startup & schedule daily timer
     if (persistentDbFilePath && backupsDirectoryPath) {

@@ -18,7 +18,8 @@
   "asarUnpack": [
     "**/*.node",
     "**/node_modules/@prisma/**",
-    "**/node_modules/.prisma/**"
+    "**/node_modules/.prisma/**",
+    "electron/printing/powershell/**/*"
   ],
   "extraResources": [
     {

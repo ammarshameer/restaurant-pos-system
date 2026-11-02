@@ -344,11 +344,11 @@ export const PosPage: React.FC = () => {
       date: new Date(),
       orderType: getOrderTypeLabel(orderType),
       server: authUser ? `${authUser.firstName} ${authUser.lastName}` : 'Alex Morgan',
+      customerName: customerName.trim() || undefined,
+      customerPhone: customerPhone.trim() || undefined,
       notes: [
         orderNotes ? `Kitchen Note: ${orderNotes}` : '',
         deliveryAddress ? `Delivery Address: ${deliveryAddress}` : '',
-        customerPhone ? `Contact: ${customerPhone}` : '',
-        customerName ? `Customer: ${customerName}` : '',
         dineInTag ? `Seat/Tag: ${dineInTag}` : '',
       ]
         .filter(Boolean)
@@ -452,11 +452,11 @@ export const PosPage: React.FC = () => {
       date: new Date(),
       orderType: getOrderTypeLabel(orderType),
       server: authUser ? `${authUser.firstName} ${authUser.lastName}` : 'Alex Morgan',
+      customerName: customerName.trim() || undefined,
+      customerPhone: customerPhone.trim() || undefined,
       notes: [
         orderNotes ? `Kitchen Note: ${orderNotes}` : '',
         deliveryAddress ? `Delivery Address: ${deliveryAddress}` : '',
-        customerPhone ? `Contact: ${customerPhone}` : '',
-        customerName ? `Customer: ${customerName}` : '',
         dineInTag ? `Seat/Tag: ${dineInTag}` : '',
       ]
         .filter(Boolean)
@@ -621,7 +621,25 @@ export const PosPage: React.FC = () => {
 
           {/* Contextual Order Metadata Inputs */}
           {orderType === 'DINE_IN' && (
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Customer Name (Optional)..."
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  style={{ fontSize: '13px', padding: '8px 12px' }}
+                />
+                <input
+                  type="tel"
+                  className="form-input"
+                  placeholder="Mobile Number (Optional)..."
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  style={{ fontSize: '13px', padding: '8px 12px' }}
+                />
+              </div>
               <input
                 type="text"
                 className="form-input"

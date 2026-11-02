@@ -16,6 +16,8 @@ interface OpenOrder {
   orderType: string;
   orderTypeIcon: string;
   customerRef: string;
+  customerName?: string;
+  customerPhone?: string;
   serverName: string;
   itemCount: number;
   subtotal: number;
@@ -72,6 +74,8 @@ export const PaymentsPage: React.FC = () => {
       orderType: typeStr,
       orderTypeIcon: icon,
       customerRef: `${typeStr} (${ref})`,
+      customerName: o.customerName,
+      customerPhone: o.customerPhone,
       serverName: o.server ? `${o.server.firstName || ''} ${o.server.lastName || ''}`.trim() || 'Cashier' : 'Cashier',
       itemCount: (o.items || []).reduce((sum, i) => sum + (i.quantity || 1), 0),
       subtotal: Number(o.subtotal || 0),
@@ -249,6 +253,8 @@ export const PaymentsPage: React.FC = () => {
       date: new Date().toISOString(),
       orderType: selectedOrder.orderType,
       server: selectedOrder.serverName,
+      customerName: selectedOrder.customerName,
+      customerPhone: selectedOrder.customerPhone,
       notes: selectedOrder.customerRef,
       items: selectedOrder.items,
       subtotal: selectedOrder.subtotal,
@@ -279,6 +285,8 @@ export const PaymentsPage: React.FC = () => {
       date: pay.processedAt || pay.createdAt,
       orderType: pay.orderType || rawOrder?.orderType || 'Dine In',
       server: rawOrder?.server ? `${rawOrder.server.firstName || ''} ${rawOrder.server.lastName || ''}`.trim() || 'Cashier' : 'Cashier',
+      customerName: rawOrder?.customerName,
+      customerPhone: rawOrder?.customerPhone,
       notes: pay.customerRef || 'Direct Order',
       items: Array.isArray(rawOrder?.items)
         ? rawOrder.items.map((i: any) => ({
