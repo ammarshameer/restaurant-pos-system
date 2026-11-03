@@ -19,7 +19,7 @@ const authRateLimiter = rateLimit({
 
 const onboardRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // Limit onboarding attempts per IP
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -28,9 +28,16 @@ const onboardRateLimiter = rateLimit({
   },
 });
 
-// Multi-tenant Onboarding: Create new restaurant client + admin account
+// Multi-tenant Onboarding: Disabled by default. Platform Super Admin creates businesses.
 router.post('/onboard', onboardRateLimiter, async (req, res, next) => {
   try {
+    if (process.env.ALLOW_SELF_ONBOARDING !== 'true') {
+      return res.status(403).json({
+        error: 'Public self-onboarding is disabled. Please contact the platform super administrator to create a tenant account.',
+        code: 'SELF_ONBOARDING_DISABLED',
+      });
+    }
+
     const {
       restaurantName,
       address,
@@ -75,16 +82,6 @@ router.post('/onboard', onboardRateLimiter, async (req, res, next) => {
   }
 });
 
-// Register new staff user (within an existing tenant)
-router.post('/register', authRateLimiter, async (req, res, next) => {
-  try {
-    const result = await authService.register(req.body);
-    res.status(201).json(result);
-  } catch (error) {
-    next(error);
-  }
-});
-
 // Login with email & password
 router.post('/login', authRateLimiter, async (req, res, next) => {
   try {
@@ -94,22 +91,34 @@ router.post('/login', authRateLimiter, async (req, res, next) => {
     }
     const result = await authService.login(email, password);
     res.json(result);
-  } catch (error) {
-    next(error);
+  } catch (error: any) {
+    if (error.message?.includes('suspended')) {
+      return res.status(403).json({ error: error.message, code: 'BUSINESS_SUSPENDED' });
+    }
+    res.status(401).json({ error: error.message || 'Invalid email or password' });
   }
 });
 
-// Quick PIN login (for POS terminal users)
+// Scoped PIN login (for POS terminal users within a specific tenant)
 router.post('/pin-login', authRateLimiter, async (req, res, next) => {
   try {
-    const { pin, restaurantId } = req.body;
+    const { pin, tenantSlug, restaurantId } = req.body;
     if (!pin) {
       return res.status(400).json({ error: 'PIN is required' });
     }
-    const result = await authService.loginWithPin(pin, restaurantId);
+    if (!tenantSlug && !restaurantId) {
+      return res.status(400).json({
+        error: 'Tenant identifier (tenantSlug or restaurantId) is required for PIN login',
+      });
+    }
+
+    const result = await authService.loginWithPin(pin, { tenantSlug, restaurantId });
     res.json(result);
-  } catch (error) {
-    next(error);
+  } catch (error: any) {
+    if (error.message?.includes('suspended')) {
+      return res.status(403).json({ error: error.message, code: 'BUSINESS_SUSPENDED' });
+    }
+    res.status(401).json({ error: error.message || 'Invalid PIN or tenant not found' });
   }
 });
 
@@ -117,10 +126,13 @@ router.post('/pin-login', authRateLimiter, async (req, res, next) => {
 router.post('/refresh', async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token is required' });
+    }
     const result = await authService.refreshToken(refreshToken);
     res.json(result);
-  } catch (error) {
-    next(error);
+  } catch (error: any) {
+    res.status(401).json({ error: error.message || 'Invalid refresh token' });
   }
 });
 
@@ -144,10 +156,9 @@ router.get('/verify', async (req, res, next) => {
     }
     const user = await authService.verifyToken(token);
     res.json({ user });
-  } catch (error) {
-    next(error);
+  } catch (error: any) {
+    res.status(401).json({ error: error.message || 'Invalid token' });
   }
 });
 
 export default router;
-

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './config/secrets';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -18,6 +19,10 @@ import paymentRoutes from './routes/payment.routes';
 import backupRoutes from './routes/backup.routes';
 import dealRoutes from './routes/deal.routes';
 import syncRoutes from './routes/sync.routes';
+import platformRoutes from './routes/platform.routes';
+import permissionRoutes from './routes/permission.routes';
+import roleRoutes from './routes/roles.routes';
+import settingRoutes from './routes/settings.routes';
 import { backupService } from './services/backup.service';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/auth';
@@ -157,6 +162,8 @@ app.get('/health', handleHealthCheck);
 app.get('/api/health', handleHealthCheck);
 
 // API Routes
+app.use('/api/platform', platformRoutes);
+app.use('/api/permissions', permissionRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/tables', authenticate, tableRoutes);
 app.use('/api/orders', authenticate, orderRoutes);
@@ -168,6 +175,8 @@ app.use('/api/payments', authenticate, paymentRoutes);
 app.use('/api/backups', authenticate, backupRoutes);
 app.use('/api/deals', authenticate, dealRoutes);
 app.use('/api/sync', authenticate, syncRoutes);
+app.use('/api/roles', authenticate, roleRoutes);
+app.use('/api/settings', authenticate, settingRoutes);
 
 // WebSocket setup
 setupWebSocket(io);

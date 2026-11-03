@@ -1,12 +1,16 @@
-import { Router } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { OrderService } from '../services/order.service';
-import { getAuthenticatedRestaurantId } from '../middleware/auth';
+import {
+  AuthRequest,
+  getAuthenticatedRestaurantId,
+  requirePermission,
+} from '../middleware/auth';
 
 const router = Router();
 const orderService = new OrderService();
 
 // Create new order
-router.post('/', async (req, res, next) => {
+router.post('/', requirePermission('orders.create'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const order = await orderService.createOrder({
@@ -20,7 +24,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // Get all orders with pagination support
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('orders.view'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -44,8 +48,8 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// Get all orders for restaurant with pagination
-router.get('/restaurant/:restaurantId', async (req, res, next) => {
+// Scoped orders by restaurant (scoping strictly uses JWT)
+router.get('/restaurant/:restaurantId', requirePermission('orders.view'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -70,7 +74,7 @@ router.get('/restaurant/:restaurantId', async (req, res, next) => {
 });
 
 // Get active orders for restaurant
-router.get('/restaurant/:restaurantId/active', async (req, res, next) => {
+router.get('/restaurant/:restaurantId/active', requirePermission('orders.view'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const orders = await orderService.getActiveOrders(restaurantId);
@@ -81,7 +85,7 @@ router.get('/restaurant/:restaurantId/active', async (req, res, next) => {
 });
 
 // Get order by ID
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', requirePermission('orders.view'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const order = await orderService.getOrderById(req.params.id, restaurantId);
@@ -94,29 +98,60 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-// Update order / invoice details
-router.patch('/:id', async (req, res, next) => {
-  try {
-    const restaurantId = getAuthenticatedRestaurantId(req);
-    const order = await orderService.updateOrder(req.params.id, req.body, restaurantId);
-    res.json(order);
-  } catch (error) {
-    next(error);
-  }
-});
+// Middleware to check discount permission if discount is being modified
+function checkDiscountPermission(req: AuthRequest, res: Response, next: NextFunction) {
+  const isOwner = req.user?.isOwnerRole || req.user?.role === 'OWNER';
+  if (isOwner) return next();
 
-router.put('/:id', async (req, res, next) => {
-  try {
-    const restaurantId = getAuthenticatedRestaurantId(req);
-    const order = await orderService.updateOrder(req.params.id, req.body, restaurantId);
-    res.json(order);
-  } catch (error) {
-    next(error);
+  const hasDiscountFields =
+    req.body.discount !== undefined ||
+    req.body.discountPercent !== undefined ||
+    req.body.discountAmount !== undefined;
+
+  if (hasDiscountFields) {
+    if (!req.user?.permissions?.includes('orders.discount')) {
+      return res.status(403).json({
+        error: 'Insufficient permissions: missing orders.discount to modify order discounts',
+        code: 'FORBIDDEN',
+      });
+    }
   }
-});
+  next();
+}
+
+// Update order / invoice details
+router.patch(
+  '/:id',
+  requirePermission('orders.update'),
+  checkDiscountPermission,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const restaurantId = getAuthenticatedRestaurantId(req);
+      const order = await orderService.updateOrder(req.params.id, req.body, restaurantId);
+      res.json(order);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.put(
+  '/:id',
+  requirePermission('orders.update'),
+  checkDiscountPermission,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const restaurantId = getAuthenticatedRestaurantId(req);
+      const order = await orderService.updateOrder(req.params.id, req.body, restaurantId);
+      res.json(order);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 // Delete / void order
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requirePermission('orders.cancel'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     await orderService.deleteOrder(req.params.id, restaurantId);
@@ -127,7 +162,7 @@ router.delete('/:id', async (req, res, next) => {
 });
 
 // Add items to order
-router.post('/:id/items', async (req, res, next) => {
+router.post('/:id/items', requirePermission('orders.update'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const order = await orderService.addItemsToOrder(req.params.id, req.body.items, restaurantId);
@@ -138,7 +173,7 @@ router.post('/:id/items', async (req, res, next) => {
 });
 
 // Update order item status
-router.patch('/items/:itemId/status', async (req, res, next) => {
+router.patch('/items/:itemId/status', requirePermission('orders.update'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await orderService.updateOrderItemStatus(req.params.itemId, req.body.status, restaurantId);
@@ -149,7 +184,7 @@ router.patch('/items/:itemId/status', async (req, res, next) => {
 });
 
 // Update order status
-router.patch('/:id/status', async (req, res, next) => {
+router.patch('/:id/status', requirePermission('orders.update'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const order = await orderService.updateOrderStatus(req.params.id, req.body.status, restaurantId);
@@ -160,7 +195,7 @@ router.patch('/:id/status', async (req, res, next) => {
 });
 
 // Complete order
-router.post('/:id/complete', async (req, res, next) => {
+router.post('/:id/complete', requirePermission('orders.update'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const order = await orderService.completeOrder(req.params.id, restaurantId);
@@ -171,7 +206,7 @@ router.post('/:id/complete', async (req, res, next) => {
 });
 
 // Cancel order
-router.post('/:id/cancel', async (req, res, next) => {
+router.post('/:id/cancel', requirePermission('orders.cancel'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const order = await orderService.cancelOrder(req.params.id, req.body.reason, restaurantId);
@@ -182,7 +217,7 @@ router.post('/:id/cancel', async (req, res, next) => {
 });
 
 // Get order total
-router.get('/:id/total', async (req, res, next) => {
+router.get('/:id/total', requirePermission('orders.view'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const total = await orderService.getOrderTotal(req.params.id, restaurantId);

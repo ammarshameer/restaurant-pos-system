@@ -5,8 +5,15 @@ import { offlineDB } from '../lib/offline/db';
 import { isNetworkError } from '../lib/offline/network';
 import { getCurrentRestaurantId } from '../lib/session';
 
-/** Resolve the tenant id: explicit → session user → demo fallback. */
-const DEFAULT_RESTAURANT_ID = (): string => getCurrentRestaurantId() || 'rest-default-1';
+/** Resolve tenant id strictly from session, failing safely if unavailable */
+const getTenantRestaurantId = (overrideId?: string): string => {
+  const id = overrideId || getCurrentRestaurantId();
+  if (!id) {
+    throw new Error('Tenant restaurant ID not available. Please log in.');
+  }
+  return id;
+};
+
 const MENU_CACHE_KEY = (restaurantId: string) => `menu:${restaurantId}`;
 
 function mapMenuItem(item: any): MenuItem {
@@ -51,7 +58,7 @@ export const menuApi = {
     restaurantId?: string;
   }): Promise<PaginatedResponse<MenuItem>> => {
     try {
-      const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID();
+      const restaurantId = getTenantRestaurantId(params?.restaurantId);
       const res: any = await api.get(`/menu/restaurant/${restaurantId}/items`, {
         page: params?.page || 1,
         limit: params?.limit || 50,
@@ -60,7 +67,7 @@ export const menuApi = {
         categoryId: params?.categoryId || undefined,
       });
 
-      if (res && res.data && Array.isArray(res.data)) {
+      if (res && Array.isArray(res.data)) {
         return {
           data: res.data.map(mapMenuItem),
           page: res.page || 1,
@@ -69,31 +76,39 @@ export const menuApi = {
           hasMore: Boolean(res.hasMore),
         };
       }
-
-      if (Array.isArray(res)) {
-        return {
-          data: res.map(mapMenuItem),
-          page: 1,
-          limit: res.length,
-          totalCount: res.length,
-          hasMore: false,
-        };
-      }
     } catch (e) {
-      console.warn('Failed to fetch paginated menu items:', e);
+      if (isNetworkError(e)) {
+        const restId = params?.restaurantId || getCurrentRestaurantId();
+        if (restId) {
+          const cached = await getCachedMenu(restId);
+          if (cached.length > 0) {
+            return {
+              data: cached,
+              page: 1,
+              limit: cached.length,
+              totalCount: cached.length,
+              hasMore: false,
+            };
+          }
+        }
+      }
+      console.warn('Backend paginated menu fetch error:', e);
     }
 
     return {
       data: [],
-      page: params?.page || 1,
-      limit: params?.limit || 50,
+      page: 1,
+      limit: 50,
       totalCount: 0,
       hasMore: false,
     };
   },
 
   // Fetch full restaurant menu from DB (cached locally for offline POS use)
-  getMenu: async (restaurantId = DEFAULT_RESTAURANT_ID()): Promise<MenuItem[]> => {
+  getMenu: async (paramRestaurantId?: string): Promise<MenuItem[]> => {
+    const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+    if (!restaurantId) return [];
+
     try {
       const categories: any = await api.get(`/menu/restaurant/${restaurantId}`);
       if (Array.isArray(categories)) {
@@ -105,11 +120,10 @@ export const menuApi = {
             }
           }
         }
-        // Refresh the offline cache whenever we successfully reach the server.
         try {
           await offlineDB.kv.put({ key: MENU_CACHE_KEY(restaurantId), value: flatItems, updatedAt: Date.now() });
-        } catch (cacheErr) {
-          // Cache write is best-effort.
+        } catch {
+          // Best effort
         }
         return flatItems;
       }
@@ -127,9 +141,9 @@ export const menuApi = {
   },
 
   // Create menu item in DB
-  createMenuItem: async (item: Partial<MenuItem>, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<any> => {
+  createMenuItem: async (item: Partial<MenuItem>, paramRestaurantId?: string): Promise<any> => {
+    const restaurantId = getTenantRestaurantId(paramRestaurantId);
     try {
-      // First ensure category exists or fetch categories
       const categories: any = await api.get(`/menu/restaurant/${restaurantId}`);
       let catId = '';
       if (Array.isArray(categories)) {
@@ -198,7 +212,9 @@ export const menuApi = {
 };
 
 /** Read the last cached menu for offline use. */
-export async function getCachedMenu(restaurantId = DEFAULT_RESTAURANT_ID()): Promise<MenuItem[]> {
+export async function getCachedMenu(paramRestaurantId?: string): Promise<MenuItem[]> {
+  const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+  if (!restaurantId) return [];
   try {
     const entry = await offlineDB.kv.get(MENU_CACHE_KEY(restaurantId));
     return Array.isArray(entry?.value) ? (entry.value as MenuItem[]) : [];

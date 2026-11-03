@@ -13,22 +13,29 @@ datasource db {
 // ============================================
 
 model Restaurant {
-  id              String          @id @default(cuid())
-  name            String
-  address         String
-  phone           String
-  email           String
-  timezone        String          @default("Asia/Karachi")
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  id                      String              @id @default(cuid())
+  name                    String
+  slug                    String?             @unique
+  logoUrl                 String?
+  isActive                Boolean             @default(true)
+  address                 String
+  phone                   String
+  email                   String
+  timezone                String              @default("Asia/Karachi")
+  createdByPlatformUserId String?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
   
-  floorPlans      FloorPlan[]
-  employees       Employee[]
-  orders          Order[]
-  menuItems       MenuItem[]
-  categories      Category[]
-  inventory       InventoryItem[]
-  deals           Deal[]
+  createdBy               PlatformUser?       @relation("RestaurantCreatedBy", fields: [createdByPlatformUserId], references: [id])
+  roles                   Role[]
+  platformAuditLogs       PlatformAuditLog[]
+  floorPlans              FloorPlan[]
+  employees               Employee[]
+  orders                  Order[]
+  menuItems               MenuItem[]
+  categories              Category[]
+  inventory               InventoryItem[]
+  deals                   Deal[]
 }
 
 model FloorPlan {
@@ -76,7 +83,8 @@ model Employee {
   email           String              @unique
   phone           String?
   role            String              @default("SERVER")
-  pin             String              @default("1234")
+  roleId          String?
+  pin             String
   passwordHash    String
   hourlyRate      Float?
   restaurantId    String
@@ -85,6 +93,7 @@ model Employee {
   updatedAt       DateTime            @updatedAt
   
   restaurant      Restaurant          @relation(fields: [restaurantId], references: [id])
+  roleRecord      Role?               @relation(fields: [roleId], references: [id])
   orders          Order[]             @relation("ServerOrders")
   timeEntries     TimeEntry[]
   modifications   OrderModification[]
@@ -375,4 +384,76 @@ model OrderModification {
   
   order           Order       @relation(fields: [orderId], references: [id])
   employee        Employee    @relation(fields: [employeeId], references: [id])
+}
+
+// ============================================
+// PLATFORM & MULTI-TENANT SAAS MANAGEMENT
+// ============================================
+
+model PlatformUser {
+  id                 String                 @id @default(cuid())
+  name               String
+  email              String                 @unique
+  passwordHash       String
+  role               String                 // "SUPER_ADMIN" | "SUPPORT"
+  isActive           Boolean                @default(true)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  
+  refreshTokens      PlatformRefreshToken[]
+  auditLogs          PlatformAuditLog[]
+  restaurantsCreated Restaurant[]           @relation("RestaurantCreatedBy")
+}
+
+model PlatformRefreshToken {
+  id             String       @id @default(cuid())
+  token          String       @unique
+  platformUserId String
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  
+  platformUser   PlatformUser @relation(fields: [platformUserId], references: [id], onDelete: Cascade)
+}
+
+model Role {
+  id           String           @id @default(cuid())
+  restaurantId String
+  key          String           // OWNER, MANAGER, CHEF, WAITER, CASHIER, or custom
+  name         String
+  description  String?
+  isSystem     Boolean          @default(false)
+  isOwnerRole  Boolean          @default(false)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  
+  restaurant   Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  permissions  RolePermission[]
+  employees    Employee[]
+
+  @@unique([restaurantId, key])
+  @@unique([restaurantId, name])
+}
+
+model RolePermission {
+  id         String   @id @default(cuid())
+  roleId     String
+  permission String
+  
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permission])
+}
+
+model PlatformAuditLog {
+  id             String        @id @default(cuid())
+  platformUserId String
+  restaurantId   String?
+  action         String
+  details        String?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime      @default(now())
+  
+  platformUser   PlatformUser  @relation(fields: [platformUserId], references: [id])
+  restaurant     Restaurant?   @relation(fields: [restaurantId], references: [id])
 }

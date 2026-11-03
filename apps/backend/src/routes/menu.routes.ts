@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import { MenuService } from '../services/menu.service';
-import { authorize, getAuthenticatedRestaurantId } from '../middleware/auth';
+import {
+  AuthRequest,
+  getAuthenticatedRestaurantId,
+  requirePermission,
+} from '../middleware/auth';
 
 const router = Router();
 const menuService = new MenuService();
 
 // Get all menu items with pagination
-router.get('/items', async (req, res, next) => {
+router.get('/items', requirePermission('menu.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -28,7 +32,7 @@ router.get('/items', async (req, res, next) => {
   }
 });
 
-router.get('/restaurant/:restaurantId/items', async (req, res, next) => {
+router.get('/restaurant/:restaurantId/items', requirePermission('menu.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -51,7 +55,7 @@ router.get('/restaurant/:restaurantId/items', async (req, res, next) => {
 });
 
 // Get full menu (categories with items)
-router.get('/restaurant/:restaurantId', async (req, res, next) => {
+router.get('/restaurant/:restaurantId', requirePermission('menu.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     if (req.query.page) {
@@ -79,7 +83,7 @@ router.get('/restaurant/:restaurantId', async (req, res, next) => {
 });
 
 // Get menu item
-router.get('/items/:id', async (req, res, next) => {
+router.get('/items/:id', requirePermission('menu.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await menuService.getMenuItem(req.params.id, restaurantId);
@@ -93,7 +97,7 @@ router.get('/items/:id', async (req, res, next) => {
 });
 
 // Create menu item
-router.post('/items', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.post('/items', requirePermission('menu.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await menuService.createMenuItem({
@@ -107,7 +111,7 @@ router.post('/items', authorize(['ADMIN', 'MANAGER']), async (req, res, next) =>
 });
 
 // Update menu item
-router.patch('/items/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.patch('/items/:id', requirePermission('menu.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await menuService.updateMenuItem(req.params.id, req.body, restaurantId);
@@ -118,7 +122,7 @@ router.patch('/items/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, nex
 });
 
 // Delete menu item
-router.delete('/items/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.delete('/items/:id', requirePermission('menu.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     await menuService.deleteMenuItem(req.params.id, restaurantId);
@@ -129,7 +133,7 @@ router.delete('/items/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, ne
 });
 
 // Create category
-router.post('/categories', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.post('/categories', requirePermission('menu.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const category = await menuService.createCategory({
@@ -143,7 +147,7 @@ router.post('/categories', authorize(['ADMIN', 'MANAGER']), async (req, res, nex
 });
 
 // Update category
-router.patch('/categories/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.patch('/categories/:id', requirePermission('menu.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const category = await menuService.updateCategory(req.params.id, req.body, restaurantId);
@@ -154,7 +158,7 @@ router.patch('/categories/:id', authorize(['ADMIN', 'MANAGER']), async (req, res
 });
 
 // Delete category
-router.delete('/categories/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.delete('/categories/:id', requirePermission('menu.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     await menuService.deleteCategory(req.params.id, restaurantId);

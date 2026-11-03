@@ -27,6 +27,7 @@ dist-electron/
 
 # Database / SQLite
 *.db
+*.db*
 *.db-journal
 *.sqlite
 *.sqlite3
@@ -54,3 +55,7 @@ apps/backend/prisma/migrations/
 
 # Build artifacts
 *.tsbuildinfo
+
+# Dev platform credentials
+.dev-platform-credentials.json
+*.dev-platform-credentials.json

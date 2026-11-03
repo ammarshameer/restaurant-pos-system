@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import { dealService } from '../services/deal.service';
-import { authorize, getAuthenticatedRestaurantId } from '../middleware/auth';
+import {
+  AuthRequest,
+  getAuthenticatedRestaurantId,
+  requirePermission,
+} from '../middleware/auth';
 
 const router = Router();
 
 // Get active deals directly
-router.get('/active', async (req, res, next) => {
+router.get('/active', requirePermission('deals.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const deals = await dealService.getActiveDeals(restaurantId);
@@ -16,7 +20,7 @@ router.get('/active', async (req, res, next) => {
 });
 
 // Get all deals with pagination
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('deals.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -37,7 +41,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // Get active deals for specific restaurant
-router.get('/restaurant/:restaurantId/active', async (req, res, next) => {
+router.get('/restaurant/:restaurantId/active', requirePermission('deals.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const deals = await dealService.getActiveDeals(restaurantId);
@@ -48,7 +52,7 @@ router.get('/restaurant/:restaurantId/active', async (req, res, next) => {
 });
 
 // Get all deals for specific restaurant with pagination
-router.get('/restaurant/:restaurantId', async (req, res, next) => {
+router.get('/restaurant/:restaurantId', requirePermission('deals.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -68,8 +72,8 @@ router.get('/restaurant/:restaurantId', async (req, res, next) => {
   }
 });
 
-// Get single deal by ID
-router.get('/:id', async (req, res, next) => {
+// Get deal by ID
+router.get('/:id', requirePermission('deals.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const deal = await dealService.getDealById(req.params.id, restaurantId);
@@ -83,7 +87,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // Create new deal
-router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.post('/', requirePermission('deals.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const deal = await dealService.createDeal({
@@ -96,30 +100,8 @@ router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
   }
 });
 
-// Toggle deal active status
-router.patch('/:id/toggle', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
-  try {
-    const restaurantId = getAuthenticatedRestaurantId(req);
-    const deal = await dealService.toggleDealActive(req.params.id, req.body.isActive, restaurantId);
-    res.json(deal);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Update deal (PUT)
-router.put('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
-  try {
-    const restaurantId = getAuthenticatedRestaurantId(req);
-    const deal = await dealService.updateDeal(req.params.id, req.body, restaurantId);
-    res.json(deal);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Update deal (PATCH)
-router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+// Update deal
+router.patch('/:id', requirePermission('deals.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const deal = await dealService.updateDeal(req.params.id, req.body, restaurantId);
@@ -130,7 +112,7 @@ router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => 
 });
 
 // Delete deal
-router.delete('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.delete('/:id', requirePermission('deals.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     await dealService.deleteDeal(req.params.id, restaurantId);

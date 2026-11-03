@@ -25,9 +25,15 @@ interface IngredientFormItem {
 export const MenuPage: React.FC = () => {
   const dispatch = useDispatch();
   const queryClient = useQueryClient();
+  const { user } = useSelector((state: RootState) => state.auth);
   const categories = useSelector((state: RootState) => state.menu.categories);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const canManageMenu =
+    user?.role === 'OWNER' ||
+    user?.role === 'ADMIN' ||
+    (user?.permissions || []).includes('menu.manage');
 
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -393,9 +399,11 @@ export const MenuPage: React.FC = () => {
           <button className="btn btn-secondary" onClick={handleRefreshMenu} title="Reload menu catalog from database">
             🔄 Refresh from DB
           </button>
-          <button className="btn btn-primary" onClick={openAddModal}>
-            + Add Menu Item
-          </button>
+          {canManageMenu && (
+            <button className="btn btn-primary" onClick={openAddModal}>
+              + Add Menu Item
+            </button>
+          )}
         </div>
       </div>
 
@@ -550,21 +558,27 @@ export const MenuPage: React.FC = () => {
                     <td>
                       <button
                         className={`btn btn-sm ${item.is86d ? 'btn-danger' : 'btn-success'}`}
-                        onClick={() => handleToggle86(item)}
-                        title="Click to toggle 86 status"
+                        onClick={() => canManageMenu && handleToggle86(item)}
+                        disabled={!canManageMenu}
+                        title={canManageMenu ? 'Click to toggle 86 status' : 'Requires menu.manage permission'}
+                        style={!canManageMenu ? { opacity: 0.7, cursor: 'not-allowed' } : undefined}
                       >
                         {item.is86d ? '🚫 86\'d (Out)' : '🟢 In Stock'}
                       </button>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                        <button className="btn btn-secondary btn-sm" onClick={() => openEditModal(item)}>
-                          Edit
-                        </button>
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(item)}>
-                          Delete
-                        </button>
-                      </div>
+                      {canManageMenu ? (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                          <button className="btn btn-secondary btn-sm" onClick={() => openEditModal(item)}>
+                            Edit
+                          </button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDelete(item)}>
+                            Delete
+                          </button>
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>View Only</span>
+                      )}
                     </td>
                   </tr>
                 );

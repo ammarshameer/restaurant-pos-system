@@ -1,15 +1,25 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { employeeApi, Employee as EmployeeItem, Shift as ShiftLog } from '../api/employee.api';
+import { rolesApi, RoleItem } from '../api/roles.api';
+import { RootState } from '../store/store';
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR } from '../utils/format';
 
 export const EmployeesPage: React.FC = () => {
   const queryClient = useQueryClient();
+  const { user } = useSelector((state: RootState) => state.auth);
+
+  const canManageEmployees =
+    user?.role === 'OWNER' ||
+    user?.role === 'ADMIN' ||
+    (user?.permissions || []).includes('employees.manage');
 
   const [shifts, setShifts] = useState<ShiftLog[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('All');
+  const [availableRoles, setAvailableRoles] = useState<RoleItem[]>([]);
 
   // Modals
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -21,13 +31,36 @@ export const EmployeesPage: React.FC = () => {
     firstName: '',
     lastName: '',
     email: '',
-    role: 'SERVER' as EmployeeItem['role'],
+    role: 'WAITER' as EmployeeItem['role'],
+    roleId: '',
     hourlyRate: 600,
     pin: '1234',
     phone: '',
   });
 
-  // 1. Infinite Query for Employees Directory: 50 records per page, resets on filter/search change
+  // Load dynamic roles from API
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        const data = await rolesApi.getRoles();
+        setAvailableRoles(data);
+        if (data.length > 0 && !newEmployee.roleId) {
+          // Default to first non-owner role (e.g. WAITER or CASHIER or MANAGER)
+          const defaultRole = data.find((r) => !r.isOwnerRole) || data[0];
+          setNewEmployee((prev) => ({
+            ...prev,
+            role: defaultRole.key as any,
+            roleId: defaultRole.id,
+          }));
+        }
+      } catch (e) {
+        console.warn('Failed to load roles for employee filter:', e);
+      }
+    };
+    fetchRoles();
+  }, []);
+
+  // 1. Infinite Query for Employees Directory
   const {
     data: employeesData,
     fetchNextPage,
@@ -56,8 +89,12 @@ export const EmployeesPage: React.FC = () => {
   // Active Shifts
   useEffect(() => {
     const loadShifts = async () => {
-      const shiftList = await employeeApi.getActiveShifts();
-      setShifts(shiftList);
+      try {
+        const shiftList = await employeeApi.getActiveShifts();
+        setShifts(shiftList);
+      } catch (e) {
+        console.warn('Failed to load active shifts:', e);
+      }
     };
     loadShifts();
   }, []);
@@ -65,7 +102,17 @@ export const EmployeesPage: React.FC = () => {
   const activeEmployees = employees.filter((e) => e.isClockedIn);
   const totalLaborCost = shifts.reduce((sum, s) => sum + (s.laborCost || 0), 0);
 
-  const roles = ['All', 'ADMIN', 'MANAGER', 'SERVER', 'BARTENDER', 'HOST', 'KITCHEN', 'CASHIER'];
+  const filterRoleKeys = useMemo(() => {
+    const keys = ['All'];
+    if (availableRoles.length > 0) {
+      availableRoles.forEach((r) => {
+        if (!keys.includes(r.key)) keys.push(r.key);
+      });
+    } else {
+      keys.push('OWNER', 'MANAGER', 'CHEF', 'WAITER', 'CASHIER');
+    }
+    return keys;
+  }, [availableRoles]);
 
   const handleClockToggle = async (emp: EmployeeItem) => {
     const isClockingIn = !emp.isClockedIn;
@@ -117,13 +164,35 @@ export const EmployeesPage: React.FC = () => {
         firstName: '',
         lastName: '',
         email: '',
-        role: 'SERVER',
+        role: (availableRoles.find((r) => !r.isOwnerRole)?.key || 'WAITER') as any,
+        roleId: availableRoles.find((r) => !r.isOwnerRole)?.id || '',
         hourlyRate: 600,
         pin: '1234',
         phone: '',
       });
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to create employee');
+      alert(err.response?.data?.error || err.response?.data?.message || 'Failed to create employee');
+    }
+  };
+
+  const getRoleBadgeStyle = (role: string) => {
+    switch (role) {
+      case 'OWNER':
+        return { background: 'rgba(234, 179, 8, 0.2)', color: '#eab308' };
+      case 'ADMIN':
+        return { background: 'rgba(239, 68, 68, 0.15)', color: '#f87171' };
+      case 'MANAGER':
+        return { background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc' };
+      case 'CHEF':
+      case 'KITCHEN':
+        return { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24' };
+      case 'CASHIER':
+        return { background: 'rgba(16, 185, 129, 0.15)', color: '#34d399' };
+      case 'WAITER':
+      case 'SERVER':
+        return { background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' };
+      default:
+        return { background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary)' };
     }
   };
 
@@ -132,9 +201,9 @@ export const EmployeesPage: React.FC = () => {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <h2 style={{ fontSize: '24px', fontWeight: 800 }}>👥 Staff Directory & Time Clock (PKR)</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: 800 }}>👥 Staff Directory & Time Clock</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-            Live database staff, PIN-based time punches, shifts, and labor tracking
+            Live restaurant staff, PIN-based time punches, shifts, and labor tracking
           </p>
         </div>
 
@@ -142,9 +211,11 @@ export const EmployeesPage: React.FC = () => {
           <button className="btn btn-secondary" onClick={() => setClockModalOpen(true)}>
             ⏱️ Fast PIN Punch Terminal
           </button>
-          <button className="btn btn-primary" onClick={() => setAddModalOpen(true)}>
-            + Add Staff Member
-          </button>
+          {canManageEmployees && (
+            <button className="btn btn-primary" onClick={() => setAddModalOpen(true)}>
+              + Add Staff Member
+            </button>
+          )}
         </div>
       </div>
 
@@ -223,7 +294,7 @@ export const EmployeesPage: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', gap: '6px', overflowX: 'auto' }}>
-            {roles.map((r) => (
+            {filterRoleKeys.map((r) => (
               <button
                 key={r}
                 className={`btn btn-sm ${roleFilter === r ? 'btn-primary' : 'btn-secondary'}`}
@@ -251,72 +322,63 @@ export const EmployeesPage: React.FC = () => {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-          {employees.map((emp) => (
-            <div key={emp.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <h4 style={{ fontSize: '16px', fontWeight: 800 }}>
-                    {emp.firstName} {emp.lastName}
-                  </h4>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{emp.email}</div>
-                  {emp.phone && <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{emp.phone}</div>}
-                </div>
-                <span
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    padding: '4px 8px',
-                    borderRadius: 'var(--radius-sm)',
-                    background:
-                      emp.role === 'ADMIN'
-                        ? 'rgba(239, 68, 68, 0.15)'
-                        : emp.role === 'MANAGER'
-                        ? 'rgba(168, 85, 247, 0.15)'
-                        : emp.role === 'KITCHEN'
-                        ? 'rgba(245, 158, 11, 0.15)'
-                        : 'rgba(99, 102, 241, 0.15)',
-                    color:
-                      emp.role === 'ADMIN'
-                        ? '#f87171'
-                        : emp.role === 'MANAGER'
-                        ? '#c084fc'
-                        : emp.role === 'KITCHEN'
-                        ? '#fbbf24'
-                        : 'var(--primary)',
-                  }}
-                >
-                  {emp.role}
-                </span>
-              </div>
+          {employees.map((emp) => {
+            const badgeStyle = getRoleBadgeStyle(emp.role);
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: 'var(--bg-secondary)', padding: '10px', borderRadius: 'var(--radius-md)', fontSize: '12px' }}>
-                <div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: '10px' }}>Hourly Wage</div>
-                  <div style={{ fontWeight: 800, color: '#38bdf8' }}>{formatPKR(emp.hourlyRate)}/hr</div>
-                </div>
-                <div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: '10px' }}>POS PIN</div>
-                  <div style={{ fontWeight: 800, letterSpacing: '2px' }}>•••• ({emp.pin})</div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ fontSize: '10px', color: emp.isClockedIn ? 'var(--success)' : 'var(--text-muted)' }}>
-                    {emp.isClockedIn ? '🟢 On Clock' : '⚪ Clocked Out'}
+            return (
+              <div key={emp.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <h4 style={{ fontSize: '16px', fontWeight: 800 }}>
+                      {emp.firstName} {emp.lastName}
+                    </h4>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{emp.email}</div>
+                    {emp.phone && <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{emp.phone}</div>}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '4px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      ...badgeStyle,
+                    }}
+                  >
+                    {emp.role}
                   </span>
-                  {emp.clockInTime && <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>({emp.clockInTime})</span>}
                 </div>
 
-                <button
-                  className={`btn btn-sm ${emp.isClockedIn ? 'btn-secondary' : 'btn-primary'}`}
-                  onClick={() => handleClockToggle(emp)}
-                >
-                  {emp.isClockedIn ? 'Clock Out' : 'Clock In'}
-                </button>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', background: 'var(--bg-secondary)', padding: '10px', borderRadius: 'var(--radius-md)', fontSize: '12px' }}>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '10px' }}>Hourly Wage</div>
+                    <div style={{ fontWeight: 800, color: '#38bdf8' }}>{formatPKR(emp.hourlyRate)}/hr</div>
+                  </div>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '10px' }}>POS PIN</div>
+                    <div style={{ fontWeight: 800, letterSpacing: '2px' }}>
+                      {canManageEmployees && emp.pin ? `•••• (${emp.pin})` : '••••'}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '10px', color: emp.isClockedIn ? 'var(--success)' : 'var(--text-muted)' }}>
+                      {emp.isClockedIn ? '🟢 On Clock' : '⚪ Clocked Out'}
+                    </span>
+                    {emp.clockInTime && <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>({emp.clockInTime})</span>}
+                  </div>
+
+                  <button
+                    className={`btn btn-sm ${emp.isClockedIn ? 'btn-secondary' : 'btn-primary'}`}
+                    onClick={() => handleClockToggle(emp)}
+                  >
+                    {emp.isClockedIn ? 'Clock Out' : 'Clock In'}
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -382,7 +444,7 @@ export const EmployeesPage: React.FC = () => {
       )}
 
       {/* Add Staff Member Modal */}
-      {addModalOpen && (
+      {addModalOpen && canManageEmployees && (
         <div className="modal-backdrop" onClick={() => setAddModalOpen(false)}>
           <div className="modal-card" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
@@ -456,16 +518,39 @@ export const EmployeesPage: React.FC = () => {
                     </label>
                     <select
                       className="input-field"
-                      value={newEmployee.role}
-                      onChange={(e) => setNewEmployee({ ...newEmployee, role: e.target.value as any })}
+                      value={newEmployee.roleId || newEmployee.role}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const matchedRole = availableRoles.find((r) => r.id === val || r.key === val);
+                        if (matchedRole) {
+                          setNewEmployee({
+                            ...newEmployee,
+                            role: matchedRole.key as any,
+                            roleId: matchedRole.id,
+                          });
+                        } else {
+                          setNewEmployee({
+                            ...newEmployee,
+                            role: val as any,
+                          });
+                        }
+                      }}
                     >
-                      <option value="SERVER">Server</option>
-                      <option value="MANAGER">Manager</option>
-                      <option value="ADMIN">Admin</option>
-                      <option value="KITCHEN">Kitchen / Chef</option>
-                      <option value="CASHIER">Cashier</option>
-                      <option value="BARTENDER">Bartender</option>
-                      <option value="HOST">Host</option>
+                      {availableRoles
+                        .filter((r) => !r.isOwnerRole) // Disallow assigning OWNER role
+                        .map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name} ({r.key})
+                          </option>
+                        ))}
+                      {availableRoles.length === 0 && (
+                        <>
+                          <option value="WAITER">Waiter</option>
+                          <option value="CASHIER">Cashier</option>
+                          <option value="CHEF">Chef</option>
+                          <option value="MANAGER">Manager</option>
+                        </>
+                      )}
                     </select>
                   </div>
                   <div className="form-group">

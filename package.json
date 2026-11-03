@@ -16,6 +16,8 @@
     "build:online": "npm run build:backend:postgres && npm run build:frontend",
     "start:backend": "cd apps/backend && npm start",
     "start:frontend": "cd apps/frontend && npm run preview",
+    "db:backfill": "cd apps/backend && npm run db:backfill",
+    "test:acceptance": "cd apps/backend && npm run test:acceptance",
     "install:all": "npm install && cd apps/backend && npm install && cd ../frontend && npm install",
     "electron:start": "electron .",
     "electron:dev": "npm run build:offline && electron .",

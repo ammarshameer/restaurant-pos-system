@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import { TableService } from '../services/table.service';
-import { authorize, getAuthenticatedRestaurantId } from '../middleware/auth';
+import {
+  AuthRequest,
+  getAuthenticatedRestaurantId,
+  requirePermission,
+} from '../middleware/auth';
 
 const router = Router();
 const tableService = new TableService();
 
 // Get all tables for a floor plan
-router.get('/floor/:floorPlanId', async (req, res, next) => {
+router.get('/floor/:floorPlanId', requirePermission('tables.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const tables = await tableService.getTablesByFloorPlan(req.params.floorPlanId, restaurantId);
@@ -17,7 +21,7 @@ router.get('/floor/:floorPlanId', async (req, res, next) => {
 });
 
 // Get single table
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', requirePermission('tables.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const table = await tableService.getTableById(req.params.id, restaurantId);
@@ -31,7 +35,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // Create table
-router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.post('/', requirePermission('tables.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const table = await tableService.createTable(req.body, restaurantId);
@@ -42,7 +46,7 @@ router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
 });
 
 // Update table
-router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.patch('/:id', requirePermission('tables.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const table = await tableService.updateTable(req.params.id, req.body, restaurantId);
@@ -53,7 +57,7 @@ router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => 
 });
 
 // Update table status
-router.patch('/:id/status', async (req, res, next) => {
+router.patch('/:id/status', requirePermission('tables.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const table = await tableService.updateTableStatus(req.params.id, req.body, restaurantId);
@@ -64,7 +68,7 @@ router.patch('/:id/status', async (req, res, next) => {
 });
 
 // Delete table
-router.delete('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.delete('/:id', requirePermission('tables.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     await tableService.deleteTable(req.params.id, restaurantId);
@@ -75,7 +79,7 @@ router.delete('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) =>
 });
 
 // Combine tables
-router.post('/combine', authorize(['ADMIN', 'MANAGER', 'SERVER']), async (req, res, next) => {
+router.post('/combine', requirePermission('tables.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const { tableIds } = req.body;
@@ -87,7 +91,7 @@ router.post('/combine', authorize(['ADMIN', 'MANAGER', 'SERVER']), async (req, r
 });
 
 // Split tables
-router.post('/split/:id', authorize(['ADMIN', 'MANAGER', 'SERVER']), async (req, res, next) => {
+router.post('/split/:id', requirePermission('tables.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const result = await tableService.splitTable(req.params.id, restaurantId);

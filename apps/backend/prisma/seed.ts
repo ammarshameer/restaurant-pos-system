@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { DEFAULT_SYSTEM_ROLES } from '../src/permissions';
+import { getDevPlatformCredentials } from '../src/config/dev-credentials';
 
 const prisma = new PrismaClient();
 
@@ -9,10 +11,15 @@ async function main() {
   // 1. Create Default Restaurant
   const restaurant = await prisma.restaurant.upsert({
     where: { id: 'rest-default-1' },
-    update: {},
+    update: {
+      slug: 'dimlight-cafe',
+      isActive: true,
+    },
     create: {
       id: 'rest-default-1',
       name: 'Dimlight Cafe',
+      slug: 'dimlight-cafe',
+      isActive: true,
       address: 'Main Boulevard, Gulberg III, Lahore',
       phone: '+92 (42) 3578-9000',
       email: 'contact@dimlightcafe.pk',
@@ -20,7 +27,66 @@ async function main() {
     },
   });
 
-  console.log(`✓ Restaurant created: ${restaurant.name}`);
+  console.log(`✓ Restaurant created: ${restaurant.name} (slug: ${restaurant.slug})`);
+
+  // 1b. Seed System Roles for Default Restaurant
+  const roleMap = new Map<string, any>();
+  for (const sysDef of DEFAULT_SYSTEM_ROLES) {
+    let role = await prisma.role.findFirst({
+      where: { restaurantId: restaurant.id, key: sysDef.key },
+      include: { permissions: true },
+    });
+
+    if (!role) {
+      role = await prisma.role.create({
+        data: {
+          restaurantId: restaurant.id,
+          key: sysDef.key,
+          name: sysDef.name,
+          description: sysDef.description,
+          isSystem: sysDef.isSystem,
+          isOwnerRole: sysDef.isOwnerRole,
+          permissions: {
+            create: sysDef.permissions.map((p) => ({ permission: p })),
+          },
+        },
+        include: { permissions: true },
+      });
+    }
+    roleMap.set(sysDef.key, role);
+  }
+
+  // Custom Bartender role
+  let bartenderRole = await prisma.role.findFirst({
+    where: { restaurantId: restaurant.id, key: 'BARTENDER' },
+  });
+  if (!bartenderRole) {
+    bartenderRole = await prisma.role.create({
+      data: {
+        restaurantId: restaurant.id,
+        key: 'BARTENDER',
+        name: 'Bartender',
+        description: 'Bar staff with POS and payments access',
+        isSystem: false,
+        isOwnerRole: false,
+        permissions: {
+          create: [
+            'dashboard.view',
+            'pos.use',
+            'orders.view',
+            'orders.create',
+            'orders.update',
+            'payments.view',
+            'payments.process',
+            'menu.view',
+            'invoices.view',
+          ].map((p) => ({ permission: p })),
+        },
+      },
+    });
+  }
+  roleMap.set('BARTENDER', bartenderRole);
+  console.log('✓ System roles and permissions verified');
 
   // 2. Create Default Floor Plan & Tables
   const floorPlan = await prisma.floorPlan.upsert({
@@ -78,36 +144,24 @@ async function main() {
 
   console.log('✓ Floor plan and 9 tables seeded');
 
-  // 3. Create Default Employees (Manager, Admin, Server, Cashier, Kitchen, Bartender)
+  // 3. Create Default Employees (Owner, Manager, Waiter, Cashier, Chef, Bartender)
   const passwordHash = await bcrypt.hash('password123', 10);
-
-  const manager = await prisma.employee.upsert({
-    where: { email: 'manager@restaurant.com' },
-    update: { passwordHash, restaurantId: restaurant.id },
-    create: {
-      id: 'emp-manager-1',
-      email: 'manager@restaurant.com',
-      firstName: 'Alex',
-      lastName: 'Morgan',
-      role: 'MANAGER',
-      pin: '1234',
-      phone: '+92 300 1234567',
-      hourlyRate: 1000,
-      passwordHash,
-      restaurantId: restaurant.id,
-      isActive: true,
-    },
-  });
 
   const admin = await prisma.employee.upsert({
     where: { email: 'admin@restaurant.com' },
-    update: { passwordHash, restaurantId: restaurant.id },
+    update: {
+      passwordHash,
+      restaurantId: restaurant.id,
+      role: 'OWNER',
+      roleId: roleMap.get('OWNER')?.id,
+    },
     create: {
       id: 'emp-admin-1',
       email: 'admin@restaurant.com',
       firstName: 'Sarah',
       lastName: 'Jenkins',
-      role: 'ADMIN',
+      role: 'OWNER',
+      roleId: roleMap.get('OWNER')?.id,
       pin: '0000',
       phone: '+92 300 9998877',
       hourlyRate: 1200,
@@ -117,15 +171,45 @@ async function main() {
     },
   });
 
+  const manager = await prisma.employee.upsert({
+    where: { email: 'manager@restaurant.com' },
+    update: {
+      passwordHash,
+      restaurantId: restaurant.id,
+      role: 'MANAGER',
+      roleId: roleMap.get('MANAGER')?.id,
+    },
+    create: {
+      id: 'emp-manager-1',
+      email: 'manager@restaurant.com',
+      firstName: 'Alex',
+      lastName: 'Morgan',
+      role: 'MANAGER',
+      roleId: roleMap.get('MANAGER')?.id,
+      pin: '1234',
+      phone: '+92 300 1234567',
+      hourlyRate: 1000,
+      passwordHash,
+      restaurantId: restaurant.id,
+      isActive: true,
+    },
+  });
+
   const server = await prisma.employee.upsert({
     where: { email: 'server@restaurant.com' },
-    update: { passwordHash, restaurantId: restaurant.id },
+    update: {
+      passwordHash,
+      restaurantId: restaurant.id,
+      role: 'WAITER',
+      roleId: roleMap.get('WAITER')?.id,
+    },
     create: {
       id: 'emp-server-1',
       email: 'server@restaurant.com',
       firstName: 'Sam',
       lastName: 'Rivera',
-      role: 'SERVER',
+      role: 'WAITER',
+      roleId: roleMap.get('WAITER')?.id,
       pin: '5678',
       phone: '+92 321 2345678',
       hourlyRate: 650,
@@ -137,13 +221,19 @@ async function main() {
 
   await prisma.employee.upsert({
     where: { email: 'kitchen@restaurant.com' },
-    update: { passwordHash, restaurantId: restaurant.id },
+    update: {
+      passwordHash,
+      restaurantId: restaurant.id,
+      role: 'CHEF',
+      roleId: roleMap.get('CHEF')?.id,
+    },
     create: {
       id: 'emp-kitchen-1',
       email: 'kitchen@restaurant.com',
       firstName: 'Marco',
       lastName: 'Pierre',
-      role: 'KITCHEN',
+      role: 'CHEF',
+      roleId: roleMap.get('CHEF')?.id,
       pin: '3333',
       phone: '+92 333 3456789',
       hourlyRate: 850,
@@ -155,13 +245,19 @@ async function main() {
 
   await prisma.employee.upsert({
     where: { email: 'cashier@restaurant.com' },
-    update: { passwordHash, restaurantId: restaurant.id },
+    update: {
+      passwordHash,
+      restaurantId: restaurant.id,
+      role: 'CASHIER',
+      roleId: roleMap.get('CASHIER')?.id,
+    },
     create: {
       id: 'emp-cashier-1',
       email: 'cashier@restaurant.com',
       firstName: 'Taylor',
       lastName: 'Swift',
       role: 'CASHIER',
+      roleId: roleMap.get('CASHIER')?.id,
       pin: '4444',
       phone: '+92 345 4567890',
       hourlyRate: 600,
@@ -173,13 +269,19 @@ async function main() {
 
   await prisma.employee.upsert({
     where: { email: 'bar@restaurant.com' },
-    update: { passwordHash, restaurantId: restaurant.id },
+    update: {
+      passwordHash,
+      restaurantId: restaurant.id,
+      role: 'BARTENDER',
+      roleId: roleMap.get('BARTENDER')?.id,
+    },
     create: {
       id: 'emp-bar-1',
       email: 'bar@restaurant.com',
       firstName: 'Jordan',
       lastName: 'Lee',
       role: 'BARTENDER',
+      roleId: roleMap.get('BARTENDER')?.id,
       pin: '5555',
       phone: '+92 301 5678901',
       hourlyRate: 700,
@@ -654,6 +756,62 @@ async function main() {
   }
 
   console.log('✓ Multi-day sample orders & payment records seeded');
+
+  // 12. Bootstrap Platform Users (Super Admin and Support)
+  const isProduction = process.env.NODE_ENV === 'production';
+  let superAdminEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
+  let superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
+  let supportEmail = process.env.SUPPORT_EMAIL?.trim().toLowerCase();
+  let supportPassword = process.env.SUPPORT_PASSWORD;
+
+  if (isProduction) {
+    if (!superAdminEmail || !superAdminPassword || !supportEmail || !supportPassword) {
+      throw new Error(
+        'FATAL: SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD, SUPPORT_EMAIL, and SUPPORT_PASSWORD must all be explicitly set in production environments.'
+      );
+    }
+  } else {
+    // In dev / test: if credentials not provided in environment, read or generate one-time dev credentials
+    if (!superAdminPassword || !supportPassword) {
+      const devCreds = getDevPlatformCredentials();
+      superAdminEmail = superAdminEmail || devCreds.superAdmin.email;
+      superAdminPassword = superAdminPassword || devCreds.superAdmin.password;
+      supportEmail = supportEmail || devCreds.support.email;
+      supportPassword = supportPassword || devCreds.support.password;
+    }
+    superAdminEmail = superAdminEmail || 'superadmin@restaurantpos.com';
+    supportEmail = supportEmail || 'support@restaurantpos.com';
+  }
+
+  const superAdminHash = await bcrypt.hash(superAdminPassword, 10);
+
+  await prisma.platformUser.upsert({
+    where: { email: superAdminEmail },
+    update: { passwordHash: superAdminHash },
+    create: {
+      name: process.env.SUPER_ADMIN_NAME || 'Super Administrator',
+      email: superAdminEmail,
+      passwordHash: superAdminHash,
+      role: 'SUPER_ADMIN',
+      isActive: true,
+    },
+  });
+
+  const supportHash = await bcrypt.hash(supportPassword, 10);
+
+  await prisma.platformUser.upsert({
+    where: { email: supportEmail },
+    update: { passwordHash: supportHash },
+    create: {
+      name: process.env.SUPPORT_NAME || 'Global Platform Support',
+      email: supportEmail,
+      passwordHash: supportHash,
+      role: 'SUPPORT',
+      isActive: true,
+    },
+  });
+
+  console.log('✓ Platform Super Admin and Support accounts seeded');
   console.log('🎉 Database seeding complete!');
 }
 

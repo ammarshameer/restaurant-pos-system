@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import { InventoryService } from '../services/inventory.service';
-import { authorize, getAuthenticatedRestaurantId } from '../middleware/auth';
+import {
+  AuthRequest,
+  getAuthenticatedRestaurantId,
+  requirePermission,
+} from '../middleware/auth';
 
 const router = Router();
 const inventoryService = new InventoryService();
 
 // Get all inventory items with pagination
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('inventory.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -27,7 +31,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // Get all inventory items for restaurant
-router.get('/restaurant/:restaurantId', async (req, res, next) => {
+router.get('/restaurant/:restaurantId', requirePermission('inventory.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -48,7 +52,7 @@ router.get('/restaurant/:restaurantId', async (req, res, next) => {
 });
 
 // Get single item
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', requirePermission('inventory.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await inventoryService.getInventoryItem(req.params.id, restaurantId);
@@ -62,7 +66,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // Create inventory item
-router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.post('/', requirePermission('inventory.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await inventoryService.createInventoryItem({
@@ -76,7 +80,7 @@ router.post('/', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
 });
 
 // Update inventory item
-router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.patch('/:id', requirePermission('inventory.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await inventoryService.updateInventoryItem(req.params.id, req.body, restaurantId);
@@ -87,7 +91,7 @@ router.patch('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => 
 });
 
 // Adjust stock
-router.post('/:id/adjust', authorize(['ADMIN', 'MANAGER', 'CHEF']), async (req, res, next) => {
+router.post('/:id/adjust', requirePermission('inventory.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const { quantity, reason, type } = req.body;
@@ -99,7 +103,7 @@ router.post('/:id/adjust', authorize(['ADMIN', 'MANAGER', 'CHEF']), async (req, 
 });
 
 // Get low stock items
-router.get('/restaurant/:restaurantId/low-stock', async (req, res, next) => {
+router.get('/restaurant/:restaurantId/low-stock', requirePermission('inventory.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const items = await inventoryService.getLowStockItems(restaurantId);
@@ -110,7 +114,7 @@ router.get('/restaurant/:restaurantId/low-stock', async (req, res, next) => {
 });
 
 // Get transactions for item or restaurant with pagination
-router.get('/transactions/all', async (req, res, next) => {
+router.get('/transactions/all', requirePermission('inventory.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -126,7 +130,7 @@ router.get('/transactions/all', async (req, res, next) => {
   }
 });
 
-router.get('/:id/transactions', async (req, res, next) => {
+router.get('/:id/transactions', requirePermission('inventory.view'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -143,7 +147,7 @@ router.get('/:id/transactions', async (req, res, next) => {
 });
 
 // Delete inventory item
-router.delete('/:id', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.delete('/:id', requirePermission('inventory.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     await inventoryService.deleteInventoryItem(req.params.id, restaurantId);

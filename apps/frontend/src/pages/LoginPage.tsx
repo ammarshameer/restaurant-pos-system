@@ -19,9 +19,27 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
   const { error, loading } = useSelector((state: RootState) => state.auth);
 
   const [mode, setMode] = useState<'password' | 'pin'>('password');
-  const [email, setEmail] = useState('manager@restaurant.com');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
+  const [tenantSlug, setTenantSlug] = useState(() => {
+    return localStorage.getItem('pos_tenant_slug') || '';
+  });
+
+  const getInitialRoute = (user: any): string => {
+    if (!user) return '/pos';
+    const perms = new Set(user.permissions || []);
+    if (user.role === 'OWNER' || user.role === 'ADMIN' || perms.has('pos.use')) return '/pos';
+    if (perms.has('kitchen.view')) return '/kitchen';
+    if (perms.has('invoices.view') || perms.has('orders.view')) return '/invoices';
+    if (perms.has('payments.view') || perms.has('payments.process')) return '/payments';
+    if (perms.has('menu.view')) return '/menu';
+    if (perms.has('deals.view')) return '/deals';
+    if (perms.has('inventory.view')) return '/inventory';
+    if (perms.has('employees.view')) return '/employees';
+    if (perms.has('analytics.view')) return '/analytics';
+    return '/pos';
+  };
 
   /**
    * Enter the POS using a locally cached user while offline. The previously
@@ -35,7 +53,7 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
     const token = reusableToken || 'offline';
     storeSession({ accessToken: token, user: cachedUser });
     dispatch(loginSuccess({ user: cachedUser, token }));
-    navigate('/pos');
+    navigate(getInitialRoute(cachedUser));
   };
 
   const handlePasswordLogin = async (e: React.FormEvent) => {
@@ -48,9 +66,13 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
         refreshToken: data.refreshToken,
         user: data.user,
       });
+      if (data.user?.restaurantSlug) {
+        localStorage.setItem('pos_tenant_slug', data.user.restaurantSlug);
+        setTenantSlug(data.user.restaurantSlug);
+      }
       void cachePasswordCredential(data.user, password);
       dispatch(loginSuccess({ user: data.user, token: data.accessToken }));
-      navigate('/pos');
+      navigate(getInitialRoute(data.user));
     } catch (err: any) {
       if (isNetworkError(err)) {
         // Offline: allow unlock only if this device verified these creds before.
@@ -66,16 +88,28 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
         );
         return;
       }
-      dispatch(loginFailure(err?.response?.data?.error || 'Invalid email or password.'));
+      dispatch(loginFailure(err?.response?.data?.error || err?.response?.data?.message || 'Invalid email or password.'));
     }
   };
 
   const handlePinLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pin) return;
+    if (!tenantSlug.trim()) {
+      dispatch(loginFailure('Please enter your Business Code (slug) for PIN authentication.'));
+      return;
+    }
+
     dispatch(clearError());
     try {
-      const data: any = await api.post('/auth/pin-login', { pin });
+      const cleanSlug = tenantSlug.trim().toLowerCase();
+      localStorage.setItem('pos_tenant_slug', cleanSlug);
+
+      const data: any = await api.post('/auth/pin-login', {
+        pin,
+        tenantSlug: cleanSlug,
+      });
+
       storeSession({
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
@@ -83,7 +117,7 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
       });
       void cachePinCredential(data.user, pin);
       dispatch(loginSuccess({ user: data.user, token: data.accessToken }));
-      navigate('/pos');
+      navigate(getInitialRoute(data.user));
     } catch (err: any) {
       if (isNetworkError(err)) {
         const cachedUser = await verifyOfflinePin(pin);
@@ -98,7 +132,7 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
         );
         return;
       }
-      dispatch(loginFailure(err?.response?.data?.error || 'Invalid PIN.'));
+      dispatch(loginFailure(err?.response?.data?.error || err?.response?.data?.message || 'Invalid PIN or Business Code.'));
     }
   };
 
@@ -106,21 +140,6 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
     if (pin.length < 6) {
       setPin((prev) => prev + digit);
     }
-  };
-
-  const handleQuickRoleLogin = (role: string, name: string) => {
-    const user = {
-      id: `emp-${role.toLowerCase()}`,
-      email: `${role.toLowerCase()}@restaurant.com`,
-      firstName: name.split(' ')[0],
-      lastName: name.split(' ')[1] || 'Staff',
-      role,
-    };
-    const token = 'mock-jwt-token';
-    localStorage.setItem('auth_token', token);
-    localStorage.setItem('auth_user', JSON.stringify(user));
-    dispatch(loginSuccess({ user, token }));
-    navigate('/pos');
   };
 
   return (
@@ -227,7 +246,7 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                placeholder="manager@restaurant.com"
+                placeholder="owner@restaurant.com or staff@restaurant.com"
               />
             </div>
 
@@ -246,7 +265,7 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
             <button
               type="submit"
               className="btn btn-primary btn-lg"
-              style={{ width: '100%', marginBottom: '20px' }}
+              style={{ width: '100%' }}
               disabled={loading}
             >
               Sign In to POS
@@ -254,6 +273,21 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
           </form>
         ) : (
           <form onSubmit={handlePinLogin}>
+            <div className="form-group" style={{ marginBottom: '14px' }}>
+              <label className="form-label" style={{ fontSize: '12px' }}>
+                Business Code / Slug
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                value={tenantSlug}
+                onChange={(e) => setTenantSlug(e.target.value)}
+                placeholder="e.g. dimlight-cafe"
+                required
+                style={{ padding: '8px 12px', fontSize: '13px' }}
+              />
+            </div>
+
             <div style={{ textAlign: 'center', marginBottom: '16px' }}>
               <div
                 style={{
@@ -306,50 +340,13 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
             <button
               type="submit"
               className="btn btn-primary btn-lg"
-              style={{ width: '100%', marginBottom: '20px' }}
-              disabled={!pin}
+              style={{ width: '100%' }}
+              disabled={!pin || !tenantSlug.trim()}
             >
               Unlock Terminal
             </button>
           </form>
         )}
-
-        {/* Quick Demo Access Buttons */}
-        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', textAlign: 'center' }}>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Fast Switch / Demo Profiles
-          </div>
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => handleQuickRoleLogin('MANAGER', 'Alex Morgan')}
-            >
-              Manager
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => handleQuickRoleLogin('SERVER', 'Sam Rivera')}
-            >
-              Server
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => handleQuickRoleLogin('KITCHEN', 'Chef Marco')}
-            >
-              Chef
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => handleQuickRoleLogin('CASHIER', 'Taylor Swift')}
-            >
-              Cashier
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );

@@ -1,7 +1,6 @@
 import { api } from '../lib/api';
 import { PaginatedResponse } from '../types/pagination';
-
-const DEFAULT_RESTAURANT_ID = 'rest-default-1';
+import { getCurrentRestaurantId } from '../lib/session';
 
 export interface SalesAnalyticsResponse {
   totalRevenue: number;
@@ -32,8 +31,8 @@ export interface TopSellingItem {
   category?: string;
   directQuantity: number;
   comboQuantity: number;
-  quantity: number; // total units consumed (direct + combos)
-  revenue: number; // direct standalone revenue
+  quantity: number;
+  revenue: number;
   rank?: number;
 }
 
@@ -47,9 +46,11 @@ export const analyticsApi = {
   getSalesAnalytics: async (
     startDate: string | Date,
     endDate: string | Date,
-    restaurantId = DEFAULT_RESTAURANT_ID
+    paramRestaurantId?: string
   ): Promise<SalesAnalyticsResponse> => {
-    return api.get<SalesAnalyticsResponse>(`/analytics/sales/${restaurantId}`, {
+    const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+    const endpoint = restaurantId ? `/analytics/sales/${restaurantId}` : '/analytics/sales';
+    return api.get<SalesAnalyticsResponse>(endpoint, {
       startDate: new Date(startDate).toISOString(),
       endDate: new Date(endDate).toISOString(),
     });
@@ -63,8 +64,9 @@ export const analyticsApi = {
     restaurantId?: string;
   }): Promise<PaginatedResponse<ProductRevenueItem> & { totalRevenue?: number; totalQuantity?: number }> => {
     try {
-      const restaurantId = params.restaurantId || DEFAULT_RESTAURANT_ID;
-      const res: any = await api.get(`/analytics/product-sales/${restaurantId}`, {
+      const restaurantId = params.restaurantId || getCurrentRestaurantId();
+      const endpoint = restaurantId ? `/analytics/product-sales/${restaurantId}` : '/analytics/product-sales';
+      const res: any = await api.get(endpoint, {
         startDate: new Date(params.startDate).toISOString(),
         endDate: new Date(params.endDate).toISOString(),
         page: params.page || 1,
@@ -135,8 +137,9 @@ export const analyticsApi = {
     restaurantId?: string;
   }): Promise<PaginatedResponse<TopSellingItem>> => {
     try {
-      const restaurantId = params.restaurantId || DEFAULT_RESTAURANT_ID;
-      const res: any = await api.get(`/analytics/top-items/${restaurantId}`, {
+      const restaurantId = params.restaurantId || getCurrentRestaurantId();
+      const endpoint = restaurantId ? `/analytics/top-items/${restaurantId}` : '/analytics/top-items';
+      const res: any = await api.get(endpoint, {
         startDate: new Date(params.startDate).toISOString(),
         endDate: new Date(params.endDate).toISOString(),
         page: params.page || 1,
@@ -197,10 +200,12 @@ export const analyticsApi = {
     startDate: string | Date,
     endDate: string | Date,
     limit = 10,
-    restaurantId = DEFAULT_RESTAURANT_ID
+    paramRestaurantId?: string
   ): Promise<TopSellingItem[]> => {
     try {
-      const res: any = await api.get(`/analytics/top-items/${restaurantId}`, {
+      const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+      const endpoint = restaurantId ? `/analytics/top-items/${restaurantId}` : '/analytics/top-items';
+      const res: any = await api.get(endpoint, {
         startDate: new Date(startDate).toISOString(),
         endDate: new Date(endDate).toISOString(),
         limit,
@@ -213,16 +218,20 @@ export const analyticsApi = {
 
   getRevenueByHour: async (
     date: string | Date,
-    restaurantId = DEFAULT_RESTAURANT_ID
+    paramRestaurantId?: string
   ): Promise<HourlyRevenueItem[]> => {
-    return api.get<HourlyRevenueItem[]>(`/analytics/revenue-by-hour/${restaurantId}`, {
+    const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+    const endpoint = restaurantId ? `/analytics/revenue-by-hour/${restaurantId}` : '/analytics/revenue-by-hour';
+    return api.get<HourlyRevenueItem[]>(endpoint, {
       date: new Date(date).toISOString(),
     });
   },
 
   getDashboardSummary: async (
-    restaurantId = DEFAULT_RESTAURANT_ID
+    paramRestaurantId?: string
   ): Promise<any> => {
-    return api.get(`/analytics/dashboard/${restaurantId}`);
+    const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+    const endpoint = restaurantId ? `/analytics/dashboard/${restaurantId}` : '/analytics/dashboard';
+    return api.get(endpoint);
   },
 };

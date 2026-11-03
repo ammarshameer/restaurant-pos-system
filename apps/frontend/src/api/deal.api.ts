@@ -5,8 +5,6 @@ import { offlineDB } from '../lib/offline/db';
 import { isNetworkError } from '../lib/offline/network';
 import { getCurrentRestaurantId } from '../lib/session';
 
-/** Resolve the tenant id: explicit → session user → demo fallback. */
-const DEFAULT_RESTAURANT_ID = (): string => getCurrentRestaurantId() || 'rest-default-1';
 const DEALS_CACHE_KEY = (restaurantId: string) => `deals:${restaurantId}`;
 
 function mapDeal(item: any): Deal {
@@ -51,15 +49,16 @@ export const dealApi = {
     restaurantId?: string;
   }): Promise<PaginatedResponse<Deal>> => {
     try {
-      const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID();
-      const res: any = await api.get(`/deals/restaurant/${restaurantId}`, {
+      const restaurantId = params?.restaurantId || getCurrentRestaurantId();
+      const endpoint = restaurantId ? `/deals/restaurant/${restaurantId}` : '/deals';
+      const res: any = await api.get(endpoint, {
         page: params?.page || 1,
         limit: params?.limit || 50,
         search: params?.search || undefined,
         isActive: params?.isActive !== undefined ? String(params.isActive) : undefined,
       });
 
-      if (res && res.data && Array.isArray(res.data)) {
+      if (res && Array.isArray(res.data)) {
         return {
           data: res.data.map(mapDeal),
           page: res.page || 1,
@@ -68,31 +67,39 @@ export const dealApi = {
           hasMore: Boolean(res.hasMore),
         };
       }
-
-      if (Array.isArray(res)) {
-        return {
-          data: res.map(mapDeal),
-          page: 1,
-          limit: res.length,
-          totalCount: res.length,
-          hasMore: false,
-        };
-      }
     } catch (e) {
-      console.warn('Failed to fetch paginated deals:', e);
+      if (isNetworkError(e)) {
+        const restId = params?.restaurantId || getCurrentRestaurantId();
+        if (restId) {
+          const cached = await getCachedDeals(restId);
+          if (cached.length > 0) {
+            return {
+              data: cached,
+              page: 1,
+              limit: cached.length,
+              totalCount: cached.length,
+              hasMore: false,
+            };
+          }
+        }
+      }
+      console.warn('Backend paginated deals fetch error:', e);
     }
 
     return {
       data: [],
-      page: params?.page || 1,
-      limit: params?.limit || 50,
+      page: 1,
+      limit: 50,
       totalCount: 0,
       hasMore: false,
     };
   },
 
   // Fetch active deals for restaurant (cached locally for offline POS use)
-  getActiveDeals: async (restaurantId = DEFAULT_RESTAURANT_ID()): Promise<Deal[]> => {
+  getActiveDeals: async (paramRestaurantId?: string): Promise<Deal[]> => {
+    const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+    if (!restaurantId) return [];
+
     try {
       const res: any = await api.get(`/deals/restaurant/${restaurantId}/active`);
       if (Array.isArray(res)) {
@@ -129,7 +136,8 @@ export const dealApi = {
   },
 
   // Create deal
-  createDeal: async (deal: Partial<Deal>, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<Deal | null> => {
+  createDeal: async (deal: Partial<Deal>, paramRestaurantId?: string): Promise<Deal | null> => {
+    const restaurantId = paramRestaurantId || deal.restaurantId || getCurrentRestaurantId();
     try {
       const res: any = await api.post('/deals', {
         id: deal.id,
@@ -138,7 +146,7 @@ export const dealApi = {
         price: Number(deal.price),
         isActive: deal.isActive !== false,
         imageUrl: deal.imageUrl || undefined,
-        restaurantId: deal.restaurantId || restaurantId,
+        restaurantId,
         items: deal.items?.map((item) => ({
           menuItemId: item.menuItemId,
           quantity: Number(item.quantity || 1),
@@ -152,24 +160,15 @@ export const dealApi = {
   },
 
   // Update deal
-  updateDeal: async (id: string, deal: Partial<Deal>): Promise<Deal | null> => {
+  updateDeal: async (id: string, data: Partial<Deal>): Promise<Deal | null> => {
     try {
-      const payload: any = {
-        name: deal.name,
-        description: deal.description,
-        price: deal.price !== undefined ? Number(deal.price) : undefined,
-        isActive: deal.isActive,
-        imageUrl: deal.imageUrl,
-        restaurantId: deal.restaurantId,
-      };
-
-      if (deal.items !== undefined) {
-        payload.items = deal.items.map((item) => ({
+      const payload: any = { ...data };
+      if (data.items) {
+        payload.items = data.items.map((item) => ({
           menuItemId: item.menuItemId,
           quantity: Number(item.quantity || 1),
         }));
       }
-
       const res: any = await api.patch(`/deals/${id}`, payload);
       return res ? mapDeal(res) : null;
     } catch (e) {
@@ -178,31 +177,26 @@ export const dealApi = {
     }
   },
 
-  // Toggle active status
-  toggleDealActive: async (id: string, isActive?: boolean): Promise<Deal | null> => {
-    try {
-      const res: any = await api.patch(`/deals/${id}/toggle`, { isActive });
-      return res ? mapDeal(res) : null;
-    } catch (e) {
-      console.warn('Failed to toggle deal status in backend DB:', e);
-      return null;
-    }
+  // Toggle deal active
+  toggleDealActive: async (id: string, isActive: boolean): Promise<Deal | null> => {
+    return dealApi.updateDeal(id, { isActive });
   },
 
   // Delete deal
-  deleteDeal: async (id: string): Promise<boolean> => {
+  deleteDeal: async (id: string): Promise<any> => {
     try {
-      await api.delete(`/deals/${id}`);
-      return true;
+      return await api.delete(`/deals/${id}`);
     } catch (e) {
       console.warn('Failed to delete deal from backend DB:', e);
-      return false;
+      return null;
     }
   },
 };
 
-/** Read the last cached active deals for offline use. */
-export async function getCachedDeals(restaurantId = DEFAULT_RESTAURANT_ID()): Promise<Deal[]> {
+/** Read the last cached deals for offline use. */
+export async function getCachedDeals(paramRestaurantId?: string): Promise<Deal[]> {
+  const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+  if (!restaurantId) return [];
   try {
     const entry = await offlineDB.kv.get(DEALS_CACHE_KEY(restaurantId));
     return Array.isArray(entry?.value) ? (entry.value as Deal[]) : [];

@@ -1,12 +1,10 @@
 import { Server, Socket } from 'socket.io';
-import * as jwt from 'jsonwebtoken';
+import {
+  resolveTenantSession,
+  AuthenticatedUser,
+} from './services/session-resolver';
 
-interface SocketUser {
-  id: string;
-  email: string;
-  role: string;
-  restaurantId?: string;
-}
+export type SocketUser = AuthenticatedUser;
 
 let ioInstance: Server | null = null;
 
@@ -16,43 +14,62 @@ export const getIO = (): Server | null => {
 
 export const setupWebSocket = (io: Server) => {
   ioInstance = io;
+
   // Authentication middleware for WebSocket
-  io.use((socket: Socket, next) => {
-    const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace('Bearer ', '');
-    
-    // Allow local offline / electron connections if token omitted in dev/electron
+  io.use(async (socket: Socket, next) => {
+    let token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization;
+
+    if (token && typeof token === 'string' && token.startsWith('Bearer ')) {
+      token = token.slice(7).trim();
+    }
+
+    // Allow mock connection only when NOT in production AND explicitly enabled by env
     if (!token) {
-      if (process.env.NODE_ENV === 'production') {
+      const isProduction = process.env.NODE_ENV === 'production';
+      const allowMock = process.env.ALLOW_MOCK_AUTH === 'true';
+
+      if (isProduction || !allowMock) {
         return next(new Error('Authentication error: Token required'));
+      }
+
+      const devRestId = socket.handshake.query?.restaurantId as string;
+      if (!devRestId) {
+        return next(new Error('Authentication error: restaurantId query required in dev when omitting token'));
       }
       (socket as any).user = {
         id: 'emp-dev-1',
-        email: 'admin@pos.local',
-        role: 'ADMIN',
-        restaurantId: (socket.handshake.query.restaurantId as string) || 'rest-default-1',
+        email: 'dev@pos.local',
+        role: 'OWNER',
+        restaurantId: devRestId,
       };
       return next();
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as SocketUser;
-      (socket as any).user = decoded;
+      const sessionUser = await resolveTenantSession(token);
+      (socket as any).user = sessionUser;
       next();
-    } catch (err) {
-      next(new Error('Authentication error'));
+    } catch (err: any) {
+      return next(new Error(`Authentication error: ${err.message || 'Invalid token'}`));
     }
   });
 
   io.on('connection', (socket: Socket) => {
     const user = (socket as any).user as SocketUser;
-    console.log(`User connected: ${user.email} (${socket.id})`);
-
-    // Derive restaurant room strictly from verified user token
-    const restaurantId = user.restaurantId || (socket.handshake.query.restaurantId as string) || 'rest-default-1';
-    if (restaurantId) {
-      socket.join(`restaurant:${restaurantId}`);
-      console.log(`User ${user.email} joined restaurant:${restaurantId}`);
+    if (!user || !user.restaurantId) {
+      socket.disconnect(true);
+      return;
     }
+
+    const restaurantId = user.restaurantId;
+    socket.join(`restaurant:${restaurantId}`);
+    console.log(
+      `User ${user.email} joined restaurant room: restaurant:${restaurantId}${
+        user.supportMode ? ' (Support impersonation)' : ''
+      }`
+    );
 
     // Table status updates
     socket.on('table:update', (data) => {
@@ -66,7 +83,6 @@ export const setupWebSocket = (io: Server) => {
     // Order events
     socket.on('order:created', (data) => {
       io.to(`restaurant:${restaurantId}`).emit('order:new', data);
-      // Notify kitchen
       io.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:new', data);
     });
 
@@ -76,7 +92,6 @@ export const setupWebSocket = (io: Server) => {
 
     socket.on('order:item:status', (data) => {
       io.to(`restaurant:${restaurantId}`).emit('order:item:status:changed', data);
-      // Update server/host
       io.to(`restaurant:${restaurantId}:floor`).emit('order:item:ready', data);
     });
 
@@ -99,45 +114,18 @@ export const setupWebSocket = (io: Server) => {
       io.to(`restaurant:${restaurantId}`).emit('payment:success', data);
     });
 
-    // Reservation events
-    socket.on('reservation:created', (data) => {
-      io.to(`restaurant:${restaurantId}`).emit('reservation:new', data);
-    });
-
-    socket.on('reservation:updated', (data) => {
-      io.to(`restaurant:${restaurantId}`).emit('reservation:updated', data);
-    });
-
-    // Inventory alerts
-    socket.on('inventory:low', (data) => {
+    // Inventory events
+    socket.on('inventory:alert', (data) => {
       io.to(`restaurant:${restaurantId}`).emit('inventory:alert', data);
     });
 
-    // Employee clock in/out
-    socket.on('employee:clock', (data) => {
-      io.to(`restaurant:${restaurantId}`).emit('employee:status:changed', data);
+    // Floor plan live sync
+    socket.on('floor:update', (data) => {
+      io.to(`restaurant:${restaurantId}`).emit('floor:updated', data);
     });
 
-    // Disconnect
     socket.on('disconnect', () => {
       console.log(`User disconnected: ${user.email} (${socket.id})`);
     });
   });
-
-  return io;
-};
-
-// Helper function to emit events from services
-export const emitTableUpdate = (io: Server, restaurantId: string, data: any) => {
-  io.to(`restaurant:${restaurantId}`).emit('table:updated', data);
-};
-
-export const emitOrderUpdate = (io: Server, restaurantId: string, data: any) => {
-  io.to(`restaurant:${restaurantId}`).emit('order:updated', data);
-  io.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:updated', data);
-};
-
-export const emitKitchenUpdate = (io: Server, restaurantId: string, data: any) => {
-  io.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:updated', data);
-  io.to(`restaurant:${restaurantId}:floor`).emit('order:item:ready', data);
 };

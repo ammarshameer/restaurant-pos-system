@@ -1,16 +1,18 @@
 import { api } from '../lib/api';
 import { PaginatedResponse } from '../types/pagination';
-
-const DEFAULT_RESTAURANT_ID = 'rest-default-1';
+import { getCurrentRestaurantId } from '../lib/session';
 
 export interface Employee {
   id: string;
   firstName: string;
   lastName: string;
   email: string;
-  role: 'ADMIN' | 'MANAGER' | 'SERVER' | 'BARTENDER' | 'HOST' | 'KITCHEN' | 'CASHIER';
+  role: string;
+  roleId?: string;
+  roleName?: string;
+  isOwner?: boolean;
   hourlyRate: number;
-  pin: string;
+  pin?: string;
   phone?: string;
   isActive: boolean;
   isClockedIn?: boolean;
@@ -35,6 +37,9 @@ function mapEmployee(e: any): Employee {
     lastName: e.lastName,
     email: e.email,
     role: e.role,
+    roleId: e.roleId,
+    roleName: e.roleName || e.roleRecord?.name || e.role,
+    isOwner: Boolean(e.isOwner || e.role === 'OWNER' || e.roleRecord?.isOwnerRole),
     hourlyRate: Number(e.hourlyRate || 0),
     pin: e.pin,
     phone: e.phone,
@@ -52,15 +57,18 @@ export const employeeApi = {
     limit?: number;
     search?: string;
     role?: string;
+    roleId?: string;
     restaurantId?: string;
   }): Promise<PaginatedResponse<Employee>> => {
     try {
-      const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID;
-      const res: any = await api.get(`/employees/restaurant/${restaurantId}`, {
+      const restaurantId = params?.restaurantId || getCurrentRestaurantId();
+      const endpoint = restaurantId ? `/employees/restaurant/${restaurantId}` : '/employees';
+      const res: any = await api.get(endpoint, {
         page: params?.page || 1,
         limit: params?.limit || 50,
         search: params?.search || undefined,
         role: params?.role || undefined,
+        roleId: params?.roleId || undefined,
       });
 
       if (res && res.data && Array.isArray(res.data)) {
@@ -95,9 +103,11 @@ export const employeeApi = {
     };
   },
 
-  getEmployees: async (restaurantId = DEFAULT_RESTAURANT_ID): Promise<Employee[]> => {
+  getEmployees: async (paramRestaurantId?: string): Promise<Employee[]> => {
     try {
-      const res: any = await api.get(`/employees/restaurant/${restaurantId}`, { page: 1, limit: 100 });
+      const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+      const endpoint = restaurantId ? `/employees/restaurant/${restaurantId}` : '/employees';
+      const res: any = await api.get(endpoint, { page: 1, limit: 100 });
       const list = res?.data && Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
       return list.map(mapEmployee);
     } catch (err) {
@@ -116,27 +126,27 @@ export const employeeApi = {
   },
 
   createEmployee: async (
-    data: Partial<Employee>,
-    restaurantId = DEFAULT_RESTAURANT_ID
+    data: Partial<Employee> & { password?: string }
   ): Promise<Employee | null> => {
     try {
-      return await api.post<Employee>('/employees', {
-        ...data,
-        restaurantId,
-      });
+      return await api.post<Employee>('/employees', data);
     } catch (err) {
       console.error('Failed to create employee via API:', err);
       throw err;
     }
   },
 
-  updateEmployee: async (id: string, data: Partial<Employee>): Promise<Employee | null> => {
+  updateEmployee: async (id: string, data: Partial<Employee> & { password?: string }): Promise<Employee | null> => {
     try {
       return await api.patch<Employee>(`/employees/${id}`, data);
     } catch (err) {
       console.error('Failed to update employee via API:', err);
       throw err;
     }
+  },
+
+  deactivateEmployee: async (id: string): Promise<any> => {
+    return api.post(`/employees/${id}/deactivate`);
   },
 
   clockIn: async (id: string): Promise<any> => {
@@ -147,9 +157,11 @@ export const employeeApi = {
     return api.post(`/employees/${id}/clock-out`);
   },
 
-  getActiveShifts: async (restaurantId = DEFAULT_RESTAURANT_ID): Promise<Shift[]> => {
+  getActiveShifts: async (paramRestaurantId?: string): Promise<Shift[]> => {
     try {
-      const shifts: any = await api.get(`/employees/restaurant/${restaurantId}/active-shifts`);
+      const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+      const endpoint = restaurantId ? `/employees/restaurant/${restaurantId}/active-shifts` : '/employees/active-shifts';
+      const shifts: any = await api.get(endpoint);
       if (Array.isArray(shifts)) {
         return shifts.map((s) => ({
           id: s.id,

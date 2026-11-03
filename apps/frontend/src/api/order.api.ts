@@ -6,8 +6,14 @@ import { network, isNetworkError } from '../lib/offline/network';
 import { uuid } from '../lib/offline/id';
 import { getCurrentRestaurantId } from '../lib/session';
 
-/** Resolve the tenant id: explicit → session user → demo fallback. */
-const DEFAULT_RESTAURANT_ID = (): string => getCurrentRestaurantId() || 'rest-default-1';
+/** Resolve tenant id strictly from session, failing safely if unavailable */
+const getTenantRestaurantId = (overrideId?: string): string => {
+  const id = overrideId || getCurrentRestaurantId();
+  if (!id) {
+    throw new Error('Tenant restaurant ID not available. Please log in.');
+  }
+  return id;
+};
 
 export function mapOrderRecord(o: any): Order {
   return {
@@ -130,7 +136,18 @@ export const orderApi = {
     status?: string;
     restaurantId?: string;
   }): Promise<PaginatedResponse<Order>> => {
-    const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID();
+    let restaurantId: string;
+    try {
+      restaurantId = getTenantRestaurantId(params?.restaurantId);
+    } catch {
+      return {
+        data: [],
+        page: 1,
+        limit: 50,
+        totalCount: 0,
+        hasMore: false,
+      };
+    }
     try {
       const res: any = await api.get(`/orders/restaurant/${restaurantId}`, {
         page: params?.page || 1,
@@ -179,7 +196,13 @@ export const orderApi = {
   },
 
   // Fetch all orders/invoices from DB (legacy support)
-  getAllOrders: async (restaurantId = DEFAULT_RESTAURANT_ID()): Promise<Order[]> => {
+  getAllOrders: async (paramRestaurantId?: string): Promise<Order[]> => {
+    let restaurantId: string;
+    try {
+      restaurantId = getTenantRestaurantId(paramRestaurantId);
+    } catch {
+      return [];
+    }
     try {
       const res: any = await api.get(`/orders/restaurant/${restaurantId}`, { page: 1, limit: 100 });
       const list = res?.data && Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
@@ -196,7 +219,8 @@ export const orderApi = {
   },
 
   // Create order/invoice in DB — queues locally when offline
-  createOrder: async (order: Partial<Order>, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<any> => {
+  createOrder: async (order: Partial<Order>, paramRestaurantId?: string): Promise<any> => {
+    const restaurantId = getTenantRestaurantId(paramRestaurantId);
     const clientId = (order as any).clientId || uuid();
     const id = order.id || clientId;
     const payload = buildOrderPayload(order, restaurantId, id, clientId);
@@ -236,7 +260,8 @@ export const orderApi = {
   },
 
   // Update order/invoice in DB — queues locally when offline
-  updateOrder: async (id: string, data: Partial<Order>, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<any> => {
+  updateOrder: async (id: string, data: Partial<Order>, paramRestaurantId?: string): Promise<any> => {
+    const restaurantId = getTenantRestaurantId(paramRestaurantId);
     const payload = {
       orderType: data.orderType,
       orderTypeLabel: data.orderTypeLabel,
@@ -297,7 +322,8 @@ export const orderApi = {
   },
 
   // Delete/void order in DB — queues locally when offline
-  deleteOrder: async (id: string, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<any> => {
+  deleteOrder: async (id: string, paramRestaurantId?: string): Promise<any> => {
+    const restaurantId = getTenantRestaurantId(paramRestaurantId);
     const queueDelete = async () => {
       await syncEngine.removeLocalOrder(id);
       await syncEngine.enqueue({
@@ -323,7 +349,8 @@ export const orderApi = {
   },
 
   // Update order status (KDS / workflow) — queues locally when offline
-  updateOrderStatus: async (id: string, status: string, restaurantId = DEFAULT_RESTAURANT_ID()): Promise<any> => {
+  updateOrderStatus: async (id: string, status: string, paramRestaurantId?: string): Promise<any> => {
+    const restaurantId = getTenantRestaurantId(paramRestaurantId);
     const queueStatus = async () => {
       await syncEngine.patchLocalOrder(id, { status });
       await syncEngine.enqueue({
@@ -355,8 +382,9 @@ export const orderApi = {
     paymentMethod = 'CASH',
     totalPaid?: number,
     change?: number,
-    restaurantId = DEFAULT_RESTAURANT_ID()
+    paramRestaurantId?: string
   ): Promise<any> => {
+    const restaurantId = getTenantRestaurantId(paramRestaurantId);
     const queuePayment = async () => {
       await syncEngine.patchLocalOrder(id, {
         paymentStatus,

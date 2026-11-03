@@ -1,12 +1,29 @@
-import { Router } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { PaymentService } from '../services/payment.service';
-import { authorize, getAuthenticatedRestaurantId } from '../middleware/auth';
+import {
+  AuthRequest,
+  getAuthenticatedRestaurantId,
+  requirePermission,
+} from '../middleware/auth';
 
 const router = Router();
 const paymentService = new PaymentService();
 
+// Middleware to allow receipt viewing if user has either invoices.view OR payments.view
+function requireReceiptPermission(req: AuthRequest, res: Response, next: NextFunction) {
+  if (req.user?.isOwnerRole || req.user?.role === 'OWNER') return next();
+  const perms = req.user?.permissions || [];
+  if (perms.includes('invoices.view') || perms.includes('payments.view')) {
+    return next();
+  }
+  return res.status(403).json({
+    error: 'Insufficient permissions: requires invoices.view or payments.view to access receipts',
+    code: 'FORBIDDEN',
+  });
+}
+
 // Create payment
-router.post('/', async (req, res, next) => {
+router.post('/', requirePermission('payments.process'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const payment = await paymentService.createPayment(req.body, restaurantId);
@@ -17,7 +34,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // Confirm payment
-router.post('/:id/confirm', async (req, res, next) => {
+router.post('/:id/confirm', requirePermission('payments.process'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const payment = await paymentService.confirmPayment(req.params.id, restaurantId);
@@ -28,7 +45,7 @@ router.post('/:id/confirm', async (req, res, next) => {
 });
 
 // Get structured receipt data by payment ID or order ID
-router.get('/:id/receipt', async (req, res, next) => {
+router.get('/:id/receipt', requireReceiptPermission, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const receipt = await paymentService.getReceiptData(req.params.id, restaurantId);
@@ -39,7 +56,7 @@ router.get('/:id/receipt', async (req, res, next) => {
 });
 
 // Get structured receipt data by order ID
-router.get('/order/:orderId/receipt', async (req, res, next) => {
+router.get('/order/:orderId/receipt', requireReceiptPermission, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const receipt = await paymentService.getReceiptData(req.params.orderId, restaurantId);
@@ -50,7 +67,7 @@ router.get('/order/:orderId/receipt', async (req, res, next) => {
 });
 
 // Process refund
-router.post('/:id/refund', authorize(['ADMIN', 'MANAGER']), async (req, res, next) => {
+router.post('/:id/refund', requirePermission('orders.refund'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const { amount } = req.body;
@@ -62,7 +79,7 @@ router.post('/:id/refund', authorize(['ADMIN', 'MANAGER']), async (req, res, nex
 });
 
 // Split bill
-router.post('/split', async (req, res, next) => {
+router.post('/split', requirePermission('payments.process'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const { orderId, splits } = req.body;
@@ -74,7 +91,7 @@ router.post('/split', async (req, res, next) => {
 });
 
 // Get all payments for restaurant with pagination
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('payments.view'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -98,7 +115,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.get('/restaurant/:restaurantId', async (req, res, next) => {
+router.get('/restaurant/:restaurantId', requirePermission('payments.view'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -123,7 +140,7 @@ router.get('/restaurant/:restaurantId', async (req, res, next) => {
 });
 
 // Get payments for order
-router.get('/order/:orderId', async (req, res, next) => {
+router.get('/order/:orderId', requirePermission('payments.view'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const payments = await paymentService.getPaymentsByOrder(req.params.orderId, restaurantId);
@@ -134,4 +151,3 @@ router.get('/order/:orderId', async (req, res, next) => {
 });
 
 export default router;
-

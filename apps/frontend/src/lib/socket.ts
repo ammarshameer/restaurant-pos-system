@@ -1,18 +1,21 @@
 import { io, Socket } from 'socket.io-client';
+import { getCurrentRestaurantId } from './session';
 
 const SOCKET_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3000';
 
 class SocketClient {
   private socket: Socket | null = null;
 
-  connect(token: string, restaurantId: string = 'default-restaurant') {
+  connect(token: string, restaurantId?: string) {
     if (this.socket?.connected) {
       return this.socket;
     }
 
+    const targetRestId = restaurantId || getCurrentRestaurantId() || undefined;
+
     this.socket = io(SOCKET_URL, {
       auth: { token },
-      query: { restaurantId },
+      query: targetRestId ? { restaurantId: targetRestId } : undefined,
     });
 
     this.socket.on('connect', () => {

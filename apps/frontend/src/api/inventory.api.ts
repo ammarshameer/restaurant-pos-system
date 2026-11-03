@@ -1,7 +1,6 @@
 import { api } from '../lib/api';
 import { PaginatedResponse } from '../types/pagination';
-
-const DEFAULT_RESTAURANT_ID = 'rest-default-1';
+import { getCurrentRestaurantId } from '../lib/session';
 
 export interface InventoryItem {
   id: string;
@@ -47,8 +46,9 @@ export const inventoryApi = {
     restaurantId?: string;
   }): Promise<PaginatedResponse<InventoryItem>> => {
     try {
-      const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID;
-      const res: any = await api.get(`/inventory/restaurant/${restaurantId}`, {
+      const restaurantId = params?.restaurantId || getCurrentRestaurantId();
+      const endpoint = restaurantId ? `/inventory/restaurant/${restaurantId}` : '/inventory';
+      const res: any = await api.get(endpoint, {
         page: params?.page || 1,
         limit: params?.limit || 50,
         search: params?.search || undefined,
@@ -87,9 +87,11 @@ export const inventoryApi = {
     };
   },
 
-  getInventory: async (restaurantId = DEFAULT_RESTAURANT_ID): Promise<InventoryItem[]> => {
+  getInventory: async (paramRestaurantId?: string): Promise<InventoryItem[]> => {
     try {
-      const res: any = await api.get(`/inventory/restaurant/${restaurantId}`, { page: 1, limit: 100 });
+      const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+      const endpoint = restaurantId ? `/inventory/restaurant/${restaurantId}` : '/inventory';
+      const res: any = await api.get(endpoint, { page: 1, limit: 100 });
       const list = res?.data && Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
       return list.map(mapInventoryItem);
     } catch (err) {
@@ -109,9 +111,10 @@ export const inventoryApi = {
 
   createInventoryItem: async (
     data: Partial<InventoryItem>,
-    restaurantId = DEFAULT_RESTAURANT_ID
+    paramRestaurantId?: string
   ): Promise<InventoryItem | null> => {
     try {
+      const restaurantId = paramRestaurantId || getCurrentRestaurantId();
       return await api.post<InventoryItem>('/inventory', {
         ...data,
         restaurantId,
@@ -135,8 +138,10 @@ export const inventoryApi = {
     return api.post(`/inventory/${id}/adjust`, { quantity, reason });
   },
 
-  getLowStock: async (restaurantId = DEFAULT_RESTAURANT_ID): Promise<InventoryItem[]> => {
-    return api.get<InventoryItem[]>(`/inventory/restaurant/${restaurantId}/low-stock`);
+  getLowStock: async (paramRestaurantId?: string): Promise<InventoryItem[]> => {
+    const restaurantId = paramRestaurantId || getCurrentRestaurantId();
+    const endpoint = restaurantId ? `/inventory/restaurant/${restaurantId}/low-stock` : '/inventory';
+    return api.get<InventoryItem[]>(endpoint);
   },
 
   getTransactionsPaginated: async (
@@ -152,7 +157,6 @@ export const inventoryApi = {
       const res: any = await api.get(endpoint, {
         page: params?.page || 1,
         limit: params?.limit || 50,
-        restaurantId: params?.restaurantId || DEFAULT_RESTAURANT_ID,
       });
 
       if (res && res.data && Array.isArray(res.data)) {

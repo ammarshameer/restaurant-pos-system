@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from './store/store';
@@ -9,11 +9,13 @@ import { menuApi } from './api/menu.api';
 import { orderApi, mapOrderRecord } from './api/order.api';
 import { socketClient } from './lib/socket';
 import { syncEngine } from './lib/offline/syncEngine';
-import { clearSession, getRefreshToken } from './lib/session';
+import { clearSession, getRefreshToken, getPlatformAccessToken } from './lib/session';
 import { api } from './lib/api';
 import SyncStatusIndicator from './components/SyncStatusIndicator';
+import SupportBanner from './components/SupportBanner';
+import RequirePermission from './components/RequirePermission';
 
-// Page Imports
+// Tenant Pages
 import LoginPage from './pages/LoginPage';
 import PosPage from './pages/PosPage';
 import SaleInvoicesPage from './pages/SaleInvoicesPage';
@@ -24,6 +26,13 @@ import EmployeesPage from './pages/EmployeesPage';
 import PaymentsPage from './pages/PaymentsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import DealsPage from './pages/DealsPage';
+import RolesPage from './pages/RolesPage';
+import SettingsPage from './pages/SettingsPage';
+import ForbiddenPage from './pages/ForbiddenPage';
+
+// Platform Pages
+import PlatformLoginPage from './pages/PlatformLoginPage';
+import PlatformDashboardPage from './pages/PlatformDashboardPage';
 
 export const App: React.FC = () => {
   const dispatch = useDispatch();
@@ -69,16 +78,16 @@ export const App: React.FC = () => {
     }
   }, [dispatch, isAuthenticated]);
 
-  // Start the offline sync engine and reconcile server-authoritative orders
-  // back into Redux whenever a queued or direct write lands on the server.
+  // Start offline sync engine for tenant orders
   useEffect(() => {
+    if (!isAuthenticated) return;
     void syncEngine.init();
     const unsubscribe = syncEngine.onServerOrder(({ serverOrder }) => {
       if (!serverOrder) return;
       dispatch(updateOrder(mapOrderRecord(serverOrder)));
     });
     return () => unsubscribe();
-  }, [dispatch]);
+  }, [dispatch, isAuthenticated]);
 
   // Hydrate Menu Items & Orders ONLY when authenticated
   useEffect(() => {
@@ -132,7 +141,6 @@ export const App: React.FC = () => {
     socketClient.disconnect();
     const refreshToken = getRefreshToken();
     if (refreshToken) {
-      // Best-effort server-side revocation; ignore failures (e.g. offline).
       void api.post('/auth/logout', { refreshToken }).catch(() => undefined);
     }
     clearSession();
@@ -140,9 +148,60 @@ export const App: React.FC = () => {
     navigate('/login', { replace: true });
   };
 
+  // Determine user's first permitted route
+  const firstPermittedRoute = useMemo((): string => {
+    if (!user) return '/login';
+    const perms = new Set(user.permissions || []);
+    if (user.role === 'OWNER' || user.role === 'ADMIN' || perms.has('pos.use')) return '/pos';
+    if (perms.has('kitchen.view')) return '/kitchen';
+    if (perms.has('invoices.view') || perms.has('orders.view')) return '/invoices';
+    if (perms.has('payments.view') || perms.has('payments.process')) return '/payments';
+    if (perms.has('menu.view')) return '/menu';
+    if (perms.has('deals.view')) return '/deals';
+    if (perms.has('inventory.view')) return '/inventory';
+    if (perms.has('employees.view')) return '/employees';
+    if (perms.has('roles.view') || perms.has('roles.manage')) return '/roles';
+    if (perms.has('settings.manage')) return '/settings';
+    if (perms.has('analytics.view')) return '/analytics';
+    return '/pos';
+  }, [user]);
+
+  // Permission helpers for sidebar
+  const isOwner = user?.role === 'OWNER' || user?.role === 'ADMIN';
+  const permsSet = useMemo(() => new Set(user?.permissions || []), [user]);
+
+  const canSeePos = isOwner || permsSet.has('pos.use');
+  const canSeeInvoices = isOwner || permsSet.has('invoices.view') || permsSet.has('orders.view');
+  const canSeeKitchen = isOwner || permsSet.has('kitchen.view');
+  const canSeePayments = isOwner || permsSet.has('payments.view') || permsSet.has('payments.process');
+  const canSeeMenu = isOwner || permsSet.has('menu.view');
+  const canSeeDeals = isOwner || permsSet.has('deals.view');
+  const canSeeInventory = isOwner || permsSet.has('inventory.view');
+  const canSeeEmployees = isOwner || permsSet.has('employees.view');
+  const canSeeRoles = isOwner || permsSet.has('roles.view') || permsSet.has('roles.manage');
+  const canSeeSettings = isOwner || permsSet.has('settings.manage');
+  const canSeeAnalytics = isOwner || permsSet.has('analytics.view');
+
+  // ============================================
+  // 1. PLATFORM ROUTE HANDLING
+  // ============================================
+  if (location.pathname === '/platform/login') {
+    return <PlatformLoginPage />;
+  }
+
+  if (location.pathname.startsWith('/platform')) {
+    const platformToken = getPlatformAccessToken();
+    if (!platformToken) {
+      return <Navigate to="/platform/login" replace />;
+    }
+    return <PlatformDashboardPage />;
+  }
+
+  // ============================================
+  // 2. TENANT LOGIN ROUTE HANDLING
+  // ============================================
   const hasToken = Boolean(localStorage.getItem('auth_token'));
 
-  // If on login page or unauthenticated on launch, render the login screen directly
   if (location.pathname === '/login' || (!isAuthenticated && !hasToken)) {
     return (
       <Routes>
@@ -152,6 +211,9 @@ export const App: React.FC = () => {
     );
   }
 
+  // ============================================
+  // 3. TENANT APPLICATION WITH SIDEBAR & GUARDS
+  // ============================================
   const getPageTitle = () => {
     switch (location.pathname) {
       case '/pos':
@@ -172,169 +234,322 @@ export const App: React.FC = () => {
         return '📦 Inventory & Stock Adjustments';
       case '/employees':
         return '👥 Staff Directory & Time Clock';
+      case '/roles':
+        return '🛡️ Roles & Granular Permissions';
+      case '/settings':
+        return '⚙️ Business Profile & Store Settings';
       case '/analytics':
         return '📊 Analytics & Sales Reports';
+      case '/forbidden':
+        return '🔒 Access Restricted';
       default:
-        return 'Restaurant POS System';
+        return user?.restaurantName || 'Restaurant POS System';
     }
   };
 
   const currentUser = user || {
     firstName: 'Alex',
     lastName: 'Morgan',
-    role: 'MANAGER',
-    email: 'manager@restaurant.com',
+    role: 'WAITER',
+    email: 'staff@restaurant.com',
   };
 
   return (
     <div className="app-layout">
-      {/* Sidebar Navigation */}
-      <aside className="sidebar no-print">
-        <div className="sidebar-header">
-          <div className="brand-icon">🍽️</div>
-          <div>
-            <div className="brand-title">Restaurant POS</div>
-            <div className="brand-subtitle">Dine In • Take Away • Delivery</div>
-          </div>
-        </div>
+      {/* Support Impersonation Banner */}
+      <SupportBanner />
 
-        <nav className="sidebar-nav">
-          <NavLink to="/pos" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">🛒</span>
-            <span>POS / Ordering</span>
-          </NavLink>
-
-          <NavLink to="/invoices" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">🧾</span>
-            <span>Sale Invoices</span>
-          </NavLink>
-
-          <NavLink to="/kitchen" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">🍳</span>
-            <span>Kitchen Display</span>
-          </NavLink>
-
-          <NavLink to="/payments" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">💵</span>
-            <span>Cash Register</span>
-          </NavLink>
-
-          <NavLink to="/menu" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">📋</span>
-            <span>Menu & Recipes</span>
-          </NavLink>
-
-          <NavLink to="/deals" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">🎁</span>
-            <span>Deals & Combos</span>
-          </NavLink>
-
-          <NavLink to="/inventory" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">📦</span>
-            <span>Inventory Stock</span>
-          </NavLink>
-
-          <NavLink to="/employees" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">👥</span>
-            <span>Staff & Time Clock</span>
-          </NavLink>
-
-          <NavLink to="/analytics" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">📊</span>
-            <span>Sales & Analytics</span>
-          </NavLink>
-        </nav>
-
-        {/* Sidebar Footer User Info */}
-        <div className="sidebar-footer">
-          <div className="user-badge">
-            <div className="user-avatar">
-              {currentUser.firstName[0]}{currentUser.lastName[0]}
-            </div>
-            <div className="user-info">
-              <div className="user-name">
-                {currentUser.firstName} {currentUser.lastName}
-              </div>
-              <div className="user-role">{currentUser.role}</div>
-            </div>
-          </div>
-
-          <button
-            className="btn btn-secondary btn-sm"
-            style={{ width: '100%', justifyContent: 'center' }}
-            onClick={handleLogout}
-          >
-            🔒 Switch User / Logout
-          </button>
-          <div className="app-version">Version {appVersion}</div>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <main className="main-content">
-        {/* Top Header Bar */}
-        <header className="topbar no-print">
-          <div className="page-title">{getPageTitle()}</div>
-
-          <div className="topbar-actions">
-            {/* Light / Dark Mode Toggle */}
-            <button
-              className="theme-toggle-btn"
-              onClick={toggleTheme}
-              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-            >
-              <span className="theme-icon-anim">{theme === 'dark' ? '☀️' : '🌙'}</span>
-              <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
-            </button>
-
-            {liveAlert && (
-              <div
+      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        {/* Sidebar Navigation */}
+        <aside className="sidebar no-print">
+          <div className="sidebar-header">
+            {user?.restaurantLogoUrl ? (
+              <img
+                src={user.restaurantLogoUrl}
+                alt="Logo"
                 style={{
-                  background: 'rgba(239, 68, 68, 0.2)',
-                  color: '#f87171',
-                  border: '1px solid rgba(239, 68, 68, 0.4)',
-                  padding: '6px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '8px',
+                  objectFit: 'contain',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid var(--border-color)',
                 }}
+              />
+            ) : (
+              <div className="brand-icon">🍽️</div>
+            )}
+            <div style={{ overflow: 'hidden' }}>
+              <div
+                className="brand-title"
+                style={{
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: '160px',
+                }}
+                title={user?.restaurantName || 'Restaurant POS'}
               >
-                <span>{liveAlert}</span>
-                <button
-                  style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}
-                  onClick={() => setLiveAlert(null)}
-                >
-                  ✕
-                </button>
+                {user?.restaurantName || 'Restaurant POS'}
               </div>
+              <div className="brand-subtitle">
+                {user?.restaurantSlug ? `@${user.restaurantSlug}` : 'Dine In • Take Away'}
+              </div>
+            </div>
+          </div>
+
+          <nav className="sidebar-nav">
+            {canSeePos && (
+              <NavLink to="/pos" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">🛒</span>
+                <span>POS / Ordering</span>
+              </NavLink>
             )}
 
-            <SyncStatusIndicator />
-          </div>
-        </header>
+            {canSeeInvoices && (
+              <NavLink to="/invoices" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">🧾</span>
+                <span>Sale Invoices</span>
+              </NavLink>
+            )}
 
-        {/* Dynamic Route Pages */}
-        <div className="route-container">
-          <Routes>
-            <Route path="/" element={<PosPage />} />
-            <Route path="/pos" element={<PosPage />} />
-            <Route path="/invoices" element={<SaleInvoicesPage />} />
-            <Route path="/sale-invoices" element={<SaleInvoicesPage />} />
-            <Route path="/kitchen" element={<KitchenPage />} />
-            <Route path="/tables" element={<Navigate to="/pos" replace />} />
-            <Route path="/menu" element={<MenuPage />} />
-            <Route path="/deals" element={<DealsPage />} />
-            <Route path="/inventory" element={<InventoryPage />} />
-            <Route path="/employees" element={<EmployeesPage />} />
-            <Route path="/payments" element={<PaymentsPage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="*" element={<Navigate to="/pos" replace />} />
-          </Routes>
-        </div>
-      </main>
+            {canSeeKitchen && (
+              <NavLink to="/kitchen" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">🍳</span>
+                <span>Kitchen Display</span>
+              </NavLink>
+            )}
+
+            {canSeePayments && (
+              <NavLink to="/payments" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">💵</span>
+                <span>Cash Register</span>
+              </NavLink>
+            )}
+
+            {canSeeMenu && (
+              <NavLink to="/menu" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">📋</span>
+                <span>Menu & Recipes</span>
+              </NavLink>
+            )}
+
+            {canSeeDeals && (
+              <NavLink to="/deals" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">🎁</span>
+                <span>Deals & Combos</span>
+              </NavLink>
+            )}
+
+            {canSeeInventory && (
+              <NavLink to="/inventory" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">📦</span>
+                <span>Inventory Stock</span>
+              </NavLink>
+            )}
+
+            {canSeeEmployees && (
+              <NavLink to="/employees" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">👥</span>
+                <span>Staff & Time Clock</span>
+              </NavLink>
+            )}
+
+            {canSeeRoles && (
+              <NavLink to="/roles" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">🛡️</span>
+                <span>Staff Roles</span>
+              </NavLink>
+            )}
+
+            {canSeeSettings && (
+              <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">⚙️</span>
+                <span>Store Settings</span>
+              </NavLink>
+            )}
+
+            {canSeeAnalytics && (
+              <NavLink to="/analytics" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">📊</span>
+                <span>Sales & Analytics</span>
+              </NavLink>
+            )}
+          </nav>
+
+          {/* Sidebar Footer User Info */}
+          <div className="sidebar-footer">
+            <div className="user-badge">
+              <div className="user-avatar">
+                {currentUser.firstName?.[0] || 'U'}{currentUser.lastName?.[0] || 'S'}
+              </div>
+              <div className="user-info">
+                <div className="user-name">
+                  {currentUser.firstName} {currentUser.lastName}
+                </div>
+                <div className="user-role">
+                  {(currentUser as any).roleName || currentUser.role}
+                </div>
+              </div>
+            </div>
+
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ width: '100%', justifyContent: 'center' }}
+              onClick={handleLogout}
+            >
+              🔒 Switch User / Logout
+            </button>
+            <div className="app-version">Version {appVersion}</div>
+          </div>
+        </aside>
+
+        {/* Main Content Area */}
+        <main className="main-content">
+          {/* Top Header Bar */}
+          <header className="topbar no-print">
+            <div className="page-title">{getPageTitle()}</div>
+
+            <div className="topbar-actions">
+              {/* Light / Dark Mode Toggle */}
+              <button
+                className="theme-toggle-btn"
+                onClick={toggleTheme}
+                title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+              >
+                <span className="theme-icon-anim">{theme === 'dark' ? '☀️' : '🌙'}</span>
+                <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+              </button>
+
+              {liveAlert && (
+                <div
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.2)',
+                    color: '#f87171',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    padding: '6px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <span>{liveAlert}</span>
+                  <button
+                    style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}
+                    onClick={() => setLiveAlert(null)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              <SyncStatusIndicator />
+            </div>
+          </header>
+
+          {/* Dynamic Route Pages with Permission Checks */}
+          <div className="route-container">
+            <Routes>
+              <Route path="/" element={<Navigate to={firstPermittedRoute} replace />} />
+              <Route
+                path="/pos"
+                element={
+                  <RequirePermission permissions={['pos.use']}>
+                    <PosPage />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/invoices"
+                element={
+                  <RequirePermission permissions={['invoices.view', 'orders.view']}>
+                    <SaleInvoicesPage />
+                  </RequirePermission>
+                }
+              />
+              <Route path="/sale-invoices" element={<Navigate to="/invoices" replace />} />
+              <Route
+                path="/kitchen"
+                element={
+                  <RequirePermission permissions={['kitchen.view']}>
+                    <KitchenPage />
+                  </RequirePermission>
+                }
+              />
+              <Route path="/tables" element={<Navigate to="/pos" replace />} />
+              <Route
+                path="/menu"
+                element={
+                  <RequirePermission permissions={['menu.view']}>
+                    <MenuPage />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/deals"
+                element={
+                  <RequirePermission permissions={['deals.view']}>
+                    <DealsPage />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/inventory"
+                element={
+                  <RequirePermission permissions={['inventory.view']}>
+                    <InventoryPage />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/employees"
+                element={
+                  <RequirePermission permissions={['employees.view']}>
+                    <EmployeesPage />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/roles"
+                element={
+                  <RequirePermission permissions={['roles.view', 'roles.manage']}>
+                    <RolesPage />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <RequirePermission permissions={['settings.manage']}>
+                    <SettingsPage />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/payments"
+                element={
+                  <RequirePermission permissions={['payments.view', 'payments.process']}>
+                    <PaymentsPage />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/analytics"
+                element={
+                  <RequirePermission permissions={['analytics.view']}>
+                    <AnalyticsPage />
+                  </RequirePermission>
+                }
+              />
+              <Route path="/forbidden" element={<ForbiddenPage />} />
+              <Route path="*" element={<Navigate to={firstPermittedRoute} replace />} />
+            </Routes>
+          </div>
+        </main>
+      </div>
     </div>
   );
 };

@@ -1,7 +1,6 @@
 import { api } from '../lib/api';
 import { PaginatedResponse } from '../types/pagination';
-
-const DEFAULT_RESTAURANT_ID = 'rest-default-1';
+import { getCurrentRestaurantId } from '../lib/session';
 
 export interface PaymentItem {
   id: string;
@@ -30,8 +29,10 @@ export const paymentApi = {
     restaurantId?: string;
   }): Promise<PaginatedResponse<PaymentItem>> => {
     try {
-      const restaurantId = params?.restaurantId || DEFAULT_RESTAURANT_ID;
-      const res: any = await api.get(`/payments/restaurant/${restaurantId}`, {
+      const restaurantId = params?.restaurantId || getCurrentRestaurantId();
+      const endpoint = restaurantId ? `/payments/restaurant/${restaurantId}` : '/payments';
+
+      const res: any = await api.get(endpoint, {
         page: params?.page || 1,
         limit: params?.limit || 50,
         search: params?.search || undefined,

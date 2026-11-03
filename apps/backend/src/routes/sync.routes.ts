@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { syncService, SyncOperation } from '../services/sync.service';
-import { getAuthenticatedRestaurantId } from '../middleware/auth';
+import { AuthRequest, getAuthenticatedRestaurantId, requirePermission } from '../middleware/auth';
 
 const router = Router();
 
@@ -8,11 +8,9 @@ const router = Router();
  * POST /api/sync/push
  *
  * Receives a batch of offline operations queued by the POS client and applies
- * them idempotently. Returns one result per operation, in the same order.
- * The client uses the results to reconcile server ids / order numbers and to
- * decide whether to retry or discard each queued operation.
+ * them idempotently. Scoped strictly to the authenticated tenant.
  */
-router.post('/push', async (req, res, next) => {
+router.post('/push', requirePermission('orders.create'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const operations: SyncOperation[] = Array.isArray(req.body?.operations)
