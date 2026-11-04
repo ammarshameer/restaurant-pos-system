@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
 
 export interface DevPlatformCredentials {
   superAdmin: {
@@ -38,11 +37,11 @@ export function getDevPlatformCredentials(): DevPlatformCredentials {
   const generated: DevPlatformCredentials = {
     superAdmin: {
       email: process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase() || 'superadmin@restaurantpos.com',
-      password: `sa_dev_${crypto.randomBytes(16).toString('hex')}!`,
+      password: process.env.SUPER_ADMIN_PASSWORD || 'SuperAdmin123!',
     },
     support: {
       email: process.env.SUPPORT_EMAIL?.trim().toLowerCase() || 'support@restaurantpos.com',
-      password: `sp_dev_${crypto.randomBytes(16).toString('hex')}!`,
+      password: process.env.SUPPORT_PASSWORD || 'Support123!',
     },
     createdAt: new Date().toISOString(),
   };
@@ -59,4 +58,3 @@ export function getDevPlatformCredentials(): DevPlatformCredentials {
 
   return generated;
 }
-
