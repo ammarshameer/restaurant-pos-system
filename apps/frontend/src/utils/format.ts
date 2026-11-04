@@ -19,7 +19,8 @@ export const formatPersonName = (name: string | null | undefined): string => {
   return (name || '')
     .trim()
     .toLowerCase()
-    .replace(/\b[\p{L}\p{N}]/gu, (character) => character.toUpperCase());
+    .replace(/\b[\p{L}\p{N}]/gu, (character) => character.toUpperCase())
+    .toUpperCase();
 };
 
 export default formatPKR;

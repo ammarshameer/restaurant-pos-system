@@ -12,8 +12,7 @@ const prisma = new PrismaClient();
 function capitalizeName(value: string): string {
   return value
     .trim()
-    .toLowerCase()
-    .replace(/\b[\p{L}\p{N}]/gu, (character) => character.toUpperCase());
+    .toUpperCase();
 }
 
 export function slugify(text: string): string {

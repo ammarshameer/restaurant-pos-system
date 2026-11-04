@@ -396,7 +396,7 @@ export const App: React.FC = () => {
           <div className="sidebar-footer">
             <div className="user-badge">
               <div className="user-avatar">
-                {currentUser.firstName?.[0] || 'U'}{currentUser.lastName?.[0] || 'S'}
+                {formatPersonName(currentUser.firstName)?.[0] || 'U'}{formatPersonName(currentUser.lastName)?.[0] || 'S'}
               </div>
               <div className="user-info">
                 <div className="user-name">
