@@ -132,7 +132,7 @@ export const TablesPage: React.FC = () => {
       case 'OCCUPIED': return '#ef4444';
       case 'DIRTY': return '#f59e0b';
       case 'RESERVED': return '#38bdf8';
-      case 'CLEANING': return '#a855f7';
+      case 'CLEANING': return 'var(--accent)';
     }
   };
 
@@ -163,7 +163,7 @@ export const TablesPage: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid-cols-4" style={{ marginBottom: '24px' }}>
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary)' }}>
+          <div className="stat-icon" style={{ background: 'rgba(var(--primary-rgb), 0.15)', color: 'var(--primary)' }}>
             🪑
           </div>
           <div>
@@ -193,7 +193,7 @@ export const TablesPage: React.FC = () => {
         </div>
 
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)' }}>
+          <div className="stat-icon" style={{ background: 'var(--warning-glow)', color: 'var(--warning)' }}>
             🧹
           </div>
           <div>
@@ -252,9 +252,9 @@ export const TablesPage: React.FC = () => {
                     onClick={() => setSelectedTable(table)}
                     style={{
                       ...shapeStyle,
-                      background: isSelected ? 'rgba(99, 102, 241, 0.3)' : 'var(--bg-card)',
+                      background: isSelected ? 'rgba(var(--primary-rgb), 0.3)' : 'var(--bg-card)',
                       border: isSelected ? '2px solid var(--primary)' : `2px solid ${color}`,
-                      boxShadow: isSelected ? '0 0 16px rgba(99, 102, 241, 0.4)' : 'none',
+                      boxShadow: isSelected ? '0 0 16px rgba(var(--primary-rgb), 0.4)' : 'none',
                       cursor: 'pointer',
                       display: 'flex',
                       flexDirection: 'column',

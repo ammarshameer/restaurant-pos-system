@@ -335,7 +335,7 @@ export const SaleInvoicesPage: React.FC = () => {
             padding: '12px 20px',
             marginBottom: '16px',
             borderRadius: 'var(--radius-md)',
-            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(99, 102, 241, 0.25))',
+            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(var(--primary-rgb), 0.25))',
             border: '1px solid #10b981',
             color: '#34d399',
             fontWeight: 700,
@@ -365,7 +365,7 @@ export const SaleInvoicesPage: React.FC = () => {
                 ⚡ Synced with server
               </span>
             ) : (
-              <span style={{ fontSize: '11px', background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '2px 8px', borderRadius: '9999px', fontWeight: 700 }}>
+              <span style={{ fontSize: '11px', background: 'var(--warning-glow)', color: 'var(--warning)', border: '1px solid var(--warning)', padding: '2px 8px', borderRadius: '9999px', fontWeight: 700 }}>
                 {online ? `⏳ ${pending + failed} pending sync` : `📴 Offline — ${pending + failed} queued`}
               </span>
             )}
@@ -381,7 +381,7 @@ export const SaleInvoicesPage: React.FC = () => {
       {/* KPI Cards */}
       <div className="grid-cols-4" style={{ marginBottom: '24px' }}>
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary)' }}>
+          <div className="stat-icon" style={{ background: 'rgba(var(--primary-rgb), 0.15)', color: 'var(--primary)' }}>
             🧾
           </div>
           <div>
@@ -411,7 +411,7 @@ export const SaleInvoicesPage: React.FC = () => {
         </div>
 
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)' }}>
+          <div className="stat-icon" style={{ background: 'var(--warning-glow)', color: 'var(--warning)' }}>
             ⏳
           </div>
           <div>
@@ -575,7 +575,7 @@ export const SaleInvoicesPage: React.FC = () => {
                             </div>
                           ) : null}
                           {order.serviceCharge > 0 ? (
-                            <div style={{ color: '#a855f7', fontWeight: 600 }}>
+                            <div style={{ color: 'var(--accent)', fontWeight: 600 }}>
                               SC: {formatPKR(order.serviceCharge)}
                             </div>
                           ) : null}
@@ -940,7 +940,7 @@ export const SaleInvoicesPage: React.FC = () => {
                         <label className="form-label" style={{ marginBottom: 0 }}>
                           🛎️ Service Charges (PKR):
                         </label>
-                        <span style={{ fontSize: '12px', fontWeight: 800, color: '#a855f7' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--accent)' }}>
                           {formatPKR(editServiceCharge)}
                         </span>
                       </div>
@@ -1071,7 +1071,7 @@ export const SaleInvoicesPage: React.FC = () => {
                       {editServiceCharge > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-secondary)' }}>
                           <span>Service Charges</span>
-                          <span style={{ color: '#a855f7', fontWeight: 700 }}>{formatPKR(editServiceCharge)}</span>
+                          <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{formatPKR(editServiceCharge)}</span>
                         </div>
                       )}
                     </>

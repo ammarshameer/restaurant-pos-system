@@ -39,7 +39,7 @@ export const SyncStatusIndicator: React.FC = () => {
 
   if (!online) {
     dotColor = '#f59e0b';
-    bg = 'rgba(245, 158, 11, 0.15)';
+    bg = 'var(--warning-glow)';
     fg = '#fbbf24';
     label = queued > 0 ? `Offline • ${queued} queued` : 'Offline • POS ready';
   } else if (syncing || busy) {
@@ -54,7 +54,7 @@ export const SyncStatusIndicator: React.FC = () => {
     label = pending > 0 ? `${pending} pending • ${failed} failed` : `${failed} failed`;
   } else if (queued > 0) {
     dotColor = '#f59e0b';
-    bg = 'rgba(245, 158, 11, 0.15)';
+    bg = 'var(--warning-glow)';
     fg = '#fbbf24';
     label = `${pending} pending sync`;
   }

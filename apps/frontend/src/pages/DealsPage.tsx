@@ -401,9 +401,9 @@ export const DealsPage: React.FC = () => {
             <span
               style={{
                 fontSize: '11px',
-                background: 'rgba(99, 102, 241, 0.15)',
+                background: 'rgba(var(--primary-rgb), 0.15)',
                 color: 'var(--primary)',
-                border: '1px solid rgba(99, 102, 241, 0.3)',
+                border: '1px solid rgba(var(--primary-rgb), 0.3)',
                 padding: '2px 8px',
                 borderRadius: '9999px',
                 fontWeight: 700,
@@ -431,7 +431,7 @@ export const DealsPage: React.FC = () => {
       {/* Summary Stat Cards */}
       <div className="grid-cols-3" style={{ marginBottom: '24px' }}>
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary)' }}>
+          <div className="stat-icon" style={{ background: 'rgba(var(--primary-rgb), 0.15)', color: 'var(--primary)' }}>
             🎁
           </div>
           <div>
@@ -641,7 +641,7 @@ export const DealsPage: React.FC = () => {
                   <div
                     style={{
                       padding: '14px 16px',
-                      background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.08))',
+                      background: 'linear-gradient(135deg, rgba(var(--primary-rgb), 0.12), rgba(168, 85, 247, 0.08))',
                       borderBottom: '1px solid var(--border-color)',
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -676,9 +676,9 @@ export const DealsPage: React.FC = () => {
 
                     <div
                       style={{
-                        background: 'rgba(99, 102, 241, 0.15)',
+                        background: 'rgba(var(--primary-rgb), 0.15)',
                         color: 'var(--primary)',
-                        border: '1px solid rgba(99, 102, 241, 0.3)',
+                        border: '1px solid rgba(var(--primary-rgb), 0.3)',
                         borderRadius: 'var(--radius-md)',
                         padding: '4px 10px',
                         fontSize: '15px',
@@ -1104,7 +1104,7 @@ export const DealsPage: React.FC = () => {
                                 fontSize: '12px',
                                 color: 'var(--text-primary)',
                               }}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)')}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(var(--primary-rgb), 0.15)')}
                               onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                             >
                               <span style={{ fontWeight: 600 }}>{m.name}</span>
@@ -1206,7 +1206,7 @@ export const DealsPage: React.FC = () => {
                       style={{
                         marginTop: '16px',
                         padding: '12px 16px',
-                        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(16, 185, 129, 0.15))',
+                        background: 'linear-gradient(135deg, rgba(var(--primary-rgb), 0.15), rgba(16, 185, 129, 0.15))',
                         border: '1px solid var(--primary)',
                         borderRadius: 'var(--radius-md)',
                         display: 'flex',

@@ -221,7 +221,7 @@ export const InventoryPage: React.FC = () => {
       {/* Top Stat Cards */}
       <div className="grid-cols-4" style={{ marginBottom: '24px' }}>
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary)' }}>
+          <div className="stat-icon" style={{ background: 'rgba(var(--primary-rgb), 0.15)', color: 'var(--primary)' }}>
             📦
           </div>
           <div>

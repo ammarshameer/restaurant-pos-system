@@ -181,7 +181,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             fontSize: '11px',
             lineHeight: 1.6,
             color: 'var(--text-muted)',
-            background: 'rgba(99, 102, 241, 0.06)',
+            background: 'rgba(var(--primary-rgb), 0.06)',
             borderBottom: '1px solid var(--border-color)',
           }}
         >

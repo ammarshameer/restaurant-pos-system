@@ -332,7 +332,7 @@ export const KitchenPage: React.FC = () => {
                           item.status === 'READY'
                             ? 'rgba(16, 185, 129, 0.1)'
                             : item.status === 'PREPARING'
-                            ? 'rgba(99, 102, 241, 0.1)'
+                            ? 'rgba(var(--primary-rgb), 0.1)'
                             : 'var(--bg-secondary)',
                         display: 'flex',
                         justifyContent: 'space-between',

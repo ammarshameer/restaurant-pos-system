@@ -503,7 +503,7 @@ export const PosPage: React.FC = () => {
             style={{
               padding: '12px 18px',
               borderRadius: 'var(--radius-md)',
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(16, 185, 129, 0.2))',
+              background: 'linear-gradient(135deg, rgba(var(--primary-rgb), 0.2), rgba(16, 185, 129, 0.2))',
               border: '1px solid var(--primary)',
               display: 'flex',
               alignItems: 'center',
@@ -565,12 +565,12 @@ export const PosPage: React.FC = () => {
                         ? '2px solid var(--primary)'
                         : '1px solid var(--border-color)',
                       background: isActive
-                        ? 'linear-gradient(135deg, #4338ca, #4f46e5)'
+                        ? 'linear-gradient(135deg, var(--accent), var(--primary))'
                         : 'var(--bg-tertiary)',
                       color: isActive ? '#000' : 'var(--text-secondary)',
                       cursor: 'pointer',
                       transition: 'all 0.15s ease',
-                      boxShadow: isActive ? '0 6px 18px rgba(67, 56, 202, 0.45)' : 'none',
+                      boxShadow: isActive ? '0 6px 18px var(--primary-glow)' : 'none',
                       transform: isActive ? 'translateY(-1px)' : 'none',
                       opacity: isActive ? 1 : 0.9,
                     }}
@@ -729,10 +729,10 @@ export const PosPage: React.FC = () => {
                   flexShrink: 0,
                   background:
                     cat === '🎁 Deals & Combos' && selectedCategory === cat
-                      ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
+                      ? 'linear-gradient(135deg, var(--primary), var(--accent))'
                       : undefined,
                   borderColor:
-                    cat === '🎁 Deals & Combos' ? '#818cf8' : undefined,
+                    cat === '🎁 Deals & Combos' ? 'var(--accent)' : undefined,
                   fontWeight: cat === '🎁 Deals & Combos' ? 700 : 500,
                 }}
               >
@@ -771,8 +771,8 @@ export const PosPage: React.FC = () => {
                     onClick={() => addDealToCart(deal)}
                     style={{
                       cursor: 'pointer',
-                      border: '1px solid rgba(99, 102, 241, 0.4)',
-                      background: 'linear-gradient(180deg, rgba(99, 102, 241, 0.08) 0%, var(--bg-card) 100%)',
+                      border: '1px solid rgba(var(--primary-rgb), 0.4)',
+                      background: 'linear-gradient(180deg, rgba(var(--primary-rgb), 0.08) 0%, var(--bg-card) 100%)',
                       position: 'relative',
                     }}
                   >
@@ -788,7 +788,7 @@ export const PosPage: React.FC = () => {
                       ) : (
                         <div
                           className="menu-card-placeholder"
-                          style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }}
+                          style={{ background: 'linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%)' }}
                         >
                           <span style={{ fontSize: '32px' }}>🎁</span>
                         </div>
@@ -798,7 +798,7 @@ export const PosPage: React.FC = () => {
                           position: 'absolute',
                           top: '6px',
                           right: '6px',
-                          background: 'rgba(15, 23, 42, 0.9)',
+                          background: 'var(--bg-overlay)',
                           backdropFilter: 'blur(4px)',
                           color: '#34d399',
                           fontWeight: 800,
@@ -816,7 +816,7 @@ export const PosPage: React.FC = () => {
                           position: 'absolute',
                           top: '6px',
                           left: '6px',
-                          background: 'linear-gradient(135deg, #6366f1, #a855f7)',
+                          background: 'linear-gradient(135deg, var(--primary), var(--accent))',
                           color: '#fff',
                           fontWeight: 800,
                           fontSize: '10px',
@@ -881,7 +881,7 @@ export const PosPage: React.FC = () => {
                         style={{
                           padding: '4px 10px',
                           fontSize: '12px',
-                          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                          background: 'linear-gradient(135deg, var(--primary), var(--accent))',
                           border: 'none',
                         }}
                         onClick={(e) => {
@@ -933,7 +933,7 @@ export const PosPage: React.FC = () => {
                           position: 'absolute',
                           top: '6px',
                           right: '6px',
-                          background: 'rgba(15, 23, 42, 0.85)',
+                          background: 'var(--bg-overlay)',
                           backdropFilter: 'blur(4px)',
                           color: '#38bdf8',
                           fontWeight: 800,
@@ -1058,10 +1058,10 @@ export const PosPage: React.FC = () => {
               <div
                 key={item.id}
                 style={{
-                  background: item.isDeal ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-secondary)',
+                  background: item.isDeal ? 'rgba(var(--primary-rgb), 0.08)' : 'var(--bg-secondary)',
                   padding: '10px 12px',
                   borderRadius: 'var(--radius-md)',
-                  border: item.isDeal ? '1px solid rgba(99, 102, 241, 0.35)' : '1px solid var(--border-color)',
+                  border: item.isDeal ? '1px solid rgba(var(--primary-rgb), 0.35)' : '1px solid var(--border-color)',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
@@ -1323,7 +1323,7 @@ export const PosPage: React.FC = () => {
                 {serviceCharge > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
                     <span>Service Charges</span>
-                    <span style={{ color: '#a855f7', fontWeight: 700 }}>{formatPKR(serviceCharge)}</span>
+                    <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{formatPKR(serviceCharge)}</span>
                   </div>
                 )}
               </>

@@ -83,7 +83,7 @@ export const getCategoryVisual = (category = ''): { icon: string; gradient: stri
     return { icon: '🥗', gradient: 'linear-gradient(135deg, #065f46 0%, #064e3b 100%)' };
   }
   if (cat.includes('beverage') || cat.includes('drink') || cat.includes('coffee') || cat.includes('tea')) {
-    return { icon: '🍹', gradient: 'linear-gradient(135deg, #1e40af 0%, #1e1b4b 100%)' };
+    return { icon: '🍹', gradient: 'linear-gradient(135deg, #1e40af 0%, var(--bg-primary) 100%)' };
   }
   if (cat.includes('dessert') || cat.includes('cake') || cat.includes('sweet') || cat.includes('ice cream')) {
     return { icon: '🍰', gradient: 'linear-gradient(135deg, #831843 0%, #500724 100%)' };

@@ -435,7 +435,7 @@ export const AnalyticsPage: React.FC = () => {
   // Order Type Performance Breakdown (Dine In vs Take Away vs Delivery)
   const orderTypePerformance: OrderTypeStat[] = useMemo(() => {
     const configs: Array<{ typeKey: 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY'; type: string; icon: string; color: string }> = [
-      { typeKey: 'DINE_IN', type: 'Dine In', icon: '🍽️', color: '#6366f1' },
+      { typeKey: 'DINE_IN', type: 'Dine In', icon: '🍽️', color: 'var(--primary)' },
       { typeKey: 'TAKE_AWAY', type: 'Take Away', icon: '🛍️', color: '#38bdf8' },
       { typeKey: 'DELIVERY', type: 'Delivery', icon: '🛵', color: '#10b981' },
     ];
@@ -490,7 +490,7 @@ export const AnalyticsPage: React.FC = () => {
               padding: '4px 10px',
               borderRadius: 'var(--radius-md)',
               border: `1px solid ${dateRange === 'custom' ? 'var(--primary)' : 'var(--border-color)'}`,
-              background: dateRange === 'custom' ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+              background: dateRange === 'custom' ? 'rgba(var(--primary-rgb), 0.12)' : 'transparent',
             }}
           >
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
@@ -525,12 +525,12 @@ export const AnalyticsPage: React.FC = () => {
         </div>
 
         {/* Card 2: Deal Sales Revenue */}
-        <div className="stat-card" style={{ borderLeft: '4px solid #818cf8' }}>
-          <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8' }}>
+        <div className="stat-card" style={{ borderLeft: '4px solid var(--accent)' }}>
+          <div className="stat-icon" style={{ background: 'rgba(var(--primary-rgb), 0.15)', color: 'var(--accent)' }}>
             🎁
           </div>
           <div>
-            <div className="stat-val" style={{ color: '#818cf8' }}>{formatPKR(dealRevenue)}</div>
+            <div className="stat-val" style={{ color: 'var(--accent)' }}>{formatPKR(dealRevenue)}</div>
             <div className="stat-label">
               Combo Deal Sales ({dealsCount} deals • {totalSales > 0 ? Math.round((dealRevenue / totalSales) * 100) : 0}%)
             </div>
@@ -552,7 +552,7 @@ export const AnalyticsPage: React.FC = () => {
 
         {/* Card 4: Average Order Ticket */}
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)' }}>
+          <div className="stat-icon" style={{ background: 'var(--warning-glow)', color: 'var(--warning)' }}>
             🎯
           </div>
           <div>
@@ -591,7 +591,7 @@ export const AnalyticsPage: React.FC = () => {
           <div
             className="metric-card"
             style={{
-              borderTop: '4px solid #818cf8',
+              borderTop: '4px solid var(--accent)',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -600,7 +600,7 @@ export const AnalyticsPage: React.FC = () => {
                 style={{
                   fontSize: '10px',
                   background: 'rgba(129, 140, 248, 0.15)',
-                  color: '#818cf8',
+                  color: 'var(--accent)',
                   padding: '2px 7px',
                   borderRadius: '9999px',
                   fontWeight: 800,
@@ -609,7 +609,7 @@ export const AnalyticsPage: React.FC = () => {
                 DEALS
               </span>
             </div>
-            <div style={{ fontSize: '20px', fontWeight: 900, color: '#818cf8', marginTop: '8px' }}>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: 'var(--accent)', marginTop: '8px' }}>
               {formatPKR(dealRevenue)}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 500 }}>
@@ -759,10 +759,10 @@ export const AnalyticsPage: React.FC = () => {
                     style={{
                       width: '100%',
                       height: `${heightPercent}%`,
-                      background: h.revenue > 0 ? 'linear-gradient(180deg, #6366f1 0%, #3b82f6 100%)' : 'var(--bg-secondary)',
+                      background: h.revenue > 0 ? 'linear-gradient(180deg, var(--accent) 0%, var(--primary) 100%)' : 'var(--bg-secondary)',
                       borderRadius: '6px 6px 0 0',
                       transition: 'height 0.3s ease',
-                      boxShadow: h.revenue > 0 ? '0 0 12px rgba(99, 102, 241, 0.3)' : 'none',
+                      boxShadow: h.revenue > 0 ? '0 0 12px rgba(var(--primary-rgb), 0.3)' : 'none',
                     }}
                     title={`${h.hour}: ${formatPKR(h.revenue)} (${h.orders} orders)`}
                   />
@@ -794,8 +794,8 @@ export const AnalyticsPage: React.FC = () => {
                 fontSize: '11px',
                 fontWeight: 700,
                 padding: '4px 8px',
-                background: 'rgba(99, 102, 241, 0.12)',
-                color: '#818cf8',
+                background: 'rgba(var(--primary-rgb), 0.12)',
+                color: 'var(--accent)',
                 borderRadius: '6px',
               }}
             >
@@ -805,8 +805,8 @@ export const AnalyticsPage: React.FC = () => {
 
           <div
             style={{
-              background: 'rgba(99, 102, 241, 0.06)',
-              border: '1px solid rgba(99, 102, 241, 0.18)',
+              background: 'rgba(var(--primary-rgb), 0.06)',
+              border: '1px solid rgba(var(--primary-rgb), 0.18)',
               borderRadius: '8px',
               padding: '10px 12px',
               fontSize: '12px',
@@ -857,10 +857,10 @@ export const AnalyticsPage: React.FC = () => {
                                 fontSize: '10px',
                                 fontWeight: 800,
                                 padding: '2px 6px',
-                                background: 'rgba(99, 102, 241, 0.2)',
-                                color: '#818cf8',
+                                background: 'rgba(var(--primary-rgb), 0.2)',
+                                color: 'var(--accent)',
                                 borderRadius: '4px',
-                                border: '1px solid rgba(99, 102, 241, 0.4)',
+                                border: '1px solid rgba(var(--primary-rgb), 0.4)',
                               }}
                             >
                               🎁 DEAL
@@ -879,7 +879,7 @@ export const AnalyticsPage: React.FC = () => {
                       <td style={{ textAlign: 'center', fontWeight: 800 }}>
                         {item.quantity}
                       </td>
-                      <td style={{ textAlign: 'right', fontWeight: 800, color: item.type === 'DEAL' ? '#818cf8' : '#34d399' }}>
+                      <td style={{ textAlign: 'right', fontWeight: 800, color: item.type === 'DEAL' ? 'var(--accent)' : '#34d399' }}>
                         {formatPKR(item.revenue)}
                       </td>
                     </tr>
@@ -915,7 +915,7 @@ export const AnalyticsPage: React.FC = () => {
                 fontSize: '11px',
                 fontWeight: 700,
                 padding: '4px 8px',
-                background: 'rgba(245, 158, 11, 0.15)',
+                background: 'var(--warning-glow)',
                 color: '#fbbf24',
                 borderRadius: '6px',
               }}

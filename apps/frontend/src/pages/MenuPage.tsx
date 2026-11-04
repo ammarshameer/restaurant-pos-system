@@ -360,7 +360,7 @@ export const MenuPage: React.FC = () => {
             padding: '12px 20px',
             marginBottom: '16px',
             borderRadius: 'var(--radius-md)',
-            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(99, 102, 241, 0.25))',
+            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(var(--primary-rgb), 0.25))',
             border: '1px solid #10b981',
             color: '#34d399',
             fontWeight: 700,

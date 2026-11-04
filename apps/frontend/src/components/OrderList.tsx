@@ -250,14 +250,14 @@ export const OrderList: React.FC<OrderListProps> = ({
                 style={{
                   padding: '14px',
                   borderRadius: 'var(--radius-md)',
-                  background: isSelected ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-secondary)',
+                  background: isSelected ? 'rgba(var(--primary-rgb), 0.15)' : 'var(--bg-secondary)',
                   border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border-color)',
                   cursor: onSelectOrder ? 'pointer' : 'default',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '8px',
                   transition: 'all 0.15s ease',
-                  boxShadow: isSelected ? '0 4px 12px rgba(99, 102, 241, 0.2)' : 'none',
+                  boxShadow: isSelected ? '0 4px 12px rgba(var(--primary-rgb), 0.2)' : 'none',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -185,14 +185,14 @@ export const EmployeesPage: React.FC = () => {
         return { background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc' };
       case 'CHEF':
       case 'KITCHEN':
-        return { background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24' };
+        return { background: 'var(--warning-glow)', color: 'var(--warning)' };
       case 'CASHIER':
         return { background: 'rgba(16, 185, 129, 0.15)', color: '#34d399' };
       case 'WAITER':
       case 'SERVER':
         return { background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' };
       default:
-        return { background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary)' };
+        return { background: 'rgba(var(--primary-rgb), 0.15)', color: 'var(--primary)' };
     }
   };
 
@@ -239,7 +239,7 @@ export const EmployeesPage: React.FC = () => {
       {/* Top Stat Cards */}
       <div className="grid-cols-4" style={{ marginBottom: '24px' }}>
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary)' }}>
+          <div className="stat-icon" style={{ background: 'rgba(var(--primary-rgb), 0.15)', color: 'var(--primary)' }}>
             👥
           </div>
           <div>
@@ -269,7 +269,7 @@ export const EmployeesPage: React.FC = () => {
         </div>
 
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)' }}>
+          <div className="stat-icon" style={{ background: 'var(--warning-glow)', color: 'var(--warning)' }}>
             💰
           </div>
           <div>

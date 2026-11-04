@@ -149,7 +149,7 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'radial-gradient(circle at center, #1e1b4b 0%, #0f172a 60%, #020617 100%)',
+        background: 'radial-gradient(circle at center, var(--bg-tertiary) 0%, var(--bg-primary) 60%, #1a020b 100%)',
         padding: '20px',
       }}
     >
@@ -158,8 +158,8 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
         style={{
           width: '100%',
           maxWidth: '460px',
-          background: 'rgba(30, 41, 59, 0.95)',
-          border: '1px solid rgba(255, 255, 255, 0.12)',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-color)',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
           padding: '32px',
         }}
@@ -170,12 +170,12 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
               width: '56px',
               height: '56px',
               borderRadius: '16px',
-              background: 'linear-gradient(135deg, #6366f1, #a855f7)',
+              background: 'linear-gradient(135deg, var(--primary), var(--accent))',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: '28px',
-              boxShadow: '0 0 24px rgba(99, 102, 241, 0.4)',
+              boxShadow: '0 0 24px rgba(var(--primary-rgb), 0.4)',
               marginBottom: '14px',
             }}
           >

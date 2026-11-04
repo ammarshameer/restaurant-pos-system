@@ -21,7 +21,7 @@ const TableComponent: React.FC<TableComponentProps> = ({
       'OCCUPIED': '#ef4444',
       'RESERVED': '#3b82f6',
       'DIRTY': '#f59e0b',
-      'CLEANING': '#8b5cf6',
+      'CLEANING': 'var(--accent)',
     };
     return colors[status] || '#6b7280';
   };

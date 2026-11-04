@@ -376,7 +376,7 @@ export const PaymentsPage: React.FC = () => {
         </div>
 
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)' }}>
+          <div className="stat-icon" style={{ background: 'var(--warning-glow)', color: 'var(--warning)' }}>
             🧾
           </div>
           <div>
@@ -386,7 +386,7 @@ export const PaymentsPage: React.FC = () => {
         </div>
 
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: 'var(--primary)' }}>
+          <div className="stat-icon" style={{ background: 'rgba(var(--primary-rgb), 0.15)', color: 'var(--primary)' }}>
             ✅
           </div>
           <div>
@@ -421,7 +421,7 @@ export const PaymentsPage: React.FC = () => {
                   style={{
                     padding: '12px',
                     borderRadius: 'var(--radius-md)',
-                    background: selectedOrder?.id === o.id ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-secondary)',
+                    background: selectedOrder?.id === o.id ? 'rgba(var(--primary-rgb), 0.15)' : 'var(--bg-secondary)',
                     border: selectedOrder?.id === o.id ? '1px solid var(--primary)' : '1px solid var(--border-color)',
                     cursor: 'pointer',
                     transition: 'all 0.15s ease',
@@ -501,7 +501,7 @@ export const PaymentsPage: React.FC = () => {
                       style={{
                         padding: '14px 10px',
                         borderRadius: 'var(--radius-md)',
-                        background: paymentMethod === m.id ? 'rgba(99, 102, 241, 0.2)' : 'var(--bg-secondary)',
+                        background: paymentMethod === m.id ? 'rgba(var(--primary-rgb), 0.2)' : 'var(--bg-secondary)',
                         border: paymentMethod === m.id ? '2px solid var(--primary)' : '1px solid var(--border-color)',
                         color: paymentMethod === m.id ? 'var(--primary)' : 'var(--text-primary)',
                         fontWeight: 800,
