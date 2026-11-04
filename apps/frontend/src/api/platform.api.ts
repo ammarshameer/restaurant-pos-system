@@ -15,6 +15,20 @@ const platformHttp: AxiosInstance = axios.create({
   },
 });
 
+let platformRefreshPromise: Promise<any> | null = null;
+
+async function refreshPlatformSession(refreshToken: string): Promise<any> {
+  if (!platformRefreshPromise) {
+    platformRefreshPromise = axios
+      .post(`${API_URL}/platform/auth/refresh`, { refreshToken })
+      .then((res) => res.data)
+      .finally(() => {
+        platformRefreshPromise = null;
+      });
+  }
+  return platformRefreshPromise;
+}
+
 platformHttp.interceptors.request.use((config) => {
   const token = getPlatformAccessToken();
   if (token) {
@@ -35,12 +49,12 @@ platformHttp.interceptors.response.use(
       const refreshToken = getPlatformRefreshToken();
       if (refreshToken) {
         try {
-          const res = await axios.post(`${API_URL}/platform/auth/refresh`, { refreshToken });
-          if (res.data?.accessToken) {
+          const res = await refreshPlatformSession(refreshToken);
+          if (res?.accessToken) {
             storePlatformSession({
-              accessToken: res.data.accessToken,
-              refreshToken: res.data.refreshToken,
-              user: res.data.user,
+              accessToken: res.accessToken,
+              refreshToken: res.refreshToken,
+              user: res.user,
             });
             original.headers.Authorization = `Bearer ${res.data.accessToken}`;
             return platformHttp(original);
@@ -154,4 +168,3 @@ export const platformApi = {
     return res.data;
   },
 };
-
