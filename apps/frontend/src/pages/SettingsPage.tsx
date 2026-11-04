@@ -145,7 +145,7 @@ export const SettingsPage: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '900px', margin: '0 auto' }}>
+    <div className="page-container" style={{ maxWidth: '900px', margin: '0 auto' }}>
       {/* Header */}
       <div style={{ marginBottom: '24px' }}>
         <h1 style={{ fontSize: '24px', fontWeight: 800, margin: '0 0 6px 0' }}>
@@ -333,10 +333,11 @@ export const SettingsPage: React.FC = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '16px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+              <label htmlFor="business-name" style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
                 Business Name *
               </label>
               <input
+                id="business-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
