@@ -154,7 +154,7 @@ export const RolesPage: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
+    <div className="page-container roles-page" style={{ maxWidth: '1200px', margin: '0 auto' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
@@ -359,6 +359,7 @@ export const RolesPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 9999,
             padding: '20px',
+            overflowY: 'auto',
           }}
           onClick={closeModal}
         >
@@ -372,6 +373,7 @@ export const RolesPage: React.FC = () => {
               maxHeight: '90vh',
               display: 'flex',
               flexDirection: 'column',
+              overflow: 'hidden',
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
             }}
             onClick={(e) => e.stopPropagation()}
@@ -384,6 +386,7 @@ export const RolesPage: React.FC = () => {
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
+                flexShrink: 0,
               }}
             >
               <div>
@@ -411,7 +414,7 @@ export const RolesPage: React.FC = () => {
             </div>
 
             {/* Modal Body */}
-            <form onSubmit={handleSave} style={{ overflowY: 'auto', padding: '24px', flex: 1 }}>
+            <form onSubmit={handleSave} style={{ overflowY: 'auto', overscrollBehavior: 'contain', padding: '24px', flex: 1, minHeight: 0 }}>
               {formError && (
                 <div
                   style={{
@@ -627,4 +630,3 @@ export const RolesPage: React.FC = () => {
 };
 
 export default RolesPage;
-
