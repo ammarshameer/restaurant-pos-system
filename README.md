@@ -68,22 +68,30 @@ restaurant-pos/
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete setup and deployment instructions.
 
-## Thermal printing (Windows)
+## Thermal printing
 
-For an 80 mm ESC/POS printer (for example the Black Copper BC-88AC), install the
-optional Windows print helper. It prints RAW ESC/POS from
-`https://pos.gsmpilot.com`, so the browser/driver cannot add a blank page or
-extra long slip. If the helper is not running, the POS falls back to the normal
-browser print dialog.
+For an 80 mm ESC/POS printer (for example the Black Copper BC-88AC), three
+direct-print channels are available; the receipt modal picks whatever exists:
+
+- **USB printers** — Chromium browsers (Chrome/Edge) print straight to the
+  printer over WebUSB. No install at all.
+- **Local print agent** — a single ~8 MB binary (`apps/print-agent`, Go) that
+  bridges any installed OS printer on Windows, Linux and macOS. The receipt
+  modal offers a one-shot installer per platform.
+- **Windows desktop app** — the packaged Electron POS prints natively with no
+  extra install.
+
+If none is available, Android browsers fall back to the system print dialog.
 
 ```bash
-npm run print-helper:start   # run from source
-npm run dist:print-helper    # build the Windows installer + portable zip
+cd apps/print-agent && go build -o local-print-agent .   # run the agent manually
+npm run print-helper:start   # legacy Windows print helper (Electron tray app)
+npm run dist:print-helper    # build the helper installer + portable zip
 ```
 
-See [electron/print-helper/README.md](./electron/print-helper/README.md) for
-setup, security details, API reference, and the Windows 10 Chrome/Edge test
-checklist.
+See [apps/print-agent/README.md](./apps/print-agent/README.md) for the agent API
+and configuration, and [electron/print-helper/README.md](./electron/print-helper/README.md)
+for the legacy Windows helper.
 
 ## Documentation
 

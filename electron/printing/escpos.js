@@ -83,14 +83,7 @@ function formatMoney(value) {
 function formatReceiptDate(value) {
   const date = value ? new Date(value) : new Date();
   if (Number.isNaN(date.getTime())) return String(value || '');
-  return date.toLocaleString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
+  return date.toLocaleString('en-PK', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function getOrderNumber(receipt) {
@@ -145,6 +138,52 @@ class EscPosBuilder {
     const leftPart = leftText.length > available ? leftText.slice(0, available) : leftText;
     const gap = Math.max(1, width - leftPart.length - rightText.length);
     return this.text(`${leftPart}${' '.repeat(gap)}${rightText}`);
+  }
+
+  /**
+   * Three-column row: left label wraps inside its column; mid and right are
+   * right-aligned in fixed-width columns (ITEM / PRICE / TOTAL table).
+   */
+  line3(left, mid, right) {
+    const midW = Math.min(12, Math.floor(this.columns / 4));
+    const rightW = Math.min(13, Math.floor(this.columns / 4) + 1);
+    const leftW = this.columns - midW - rightW - 2;
+    const words = sanitizeText(left).trim().split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (const word of words) {
+      if (word.length > leftW) {
+        if (cur) {
+          lines.push(cur);
+          cur = '';
+        }
+        let rest = word;
+        while (rest.length > leftW) {
+          lines.push(rest.slice(0, leftW));
+          rest = rest.slice(leftW);
+        }
+        cur = rest;
+        continue;
+      }
+      const candidate = cur ? `${cur} ${word}` : word;
+      if (candidate.length <= leftW) cur = candidate;
+      else {
+        lines.push(cur);
+        cur = word;
+      }
+    }
+    if (cur || !lines.length) lines.push(cur);
+
+    const midText = sanitizeText(mid).slice(-midW).padStart(midW);
+    const rightText = sanitizeText(right).slice(-rightW).padStart(rightW);
+    lines.forEach((l, i) => {
+      if (i === lines.length - 1) {
+        this.text(`${l.padEnd(leftW)} ${midText} ${rightText}`);
+      } else {
+        this.text(l);
+      }
+    });
+    return this;
   }
 
   wrapped(value, width = this.columns, indent = '') {
@@ -219,6 +258,9 @@ class EscPosBuilder {
   }
 }
 
+const DEFAULT_ADDRESS = 'Main Boulevard, Gulberg III, Lahore';
+const DEFAULT_PHONE = '+92 (42) 3578-9000';
+
 function buildCustomerSlip(receipt, options = {}) {
   const columns = options.columns || DEFAULT_COLUMNS;
   const builder = new EscPosBuilder(columns);
@@ -233,15 +275,14 @@ function buildCustomerSlip(receipt, options = {}) {
     .align('center')
     .bold(true)
     .doubleSize(true)
-    .text(RESTAURANT_NAME.toUpperCase())
+    .text(RESTAURANT_NAME)
     .doubleSize(false)
     .bold(false);
 
-  if (restaurant.address) builder.wrapped(restaurant.address, columns);
-  if (restaurant.phone) builder.text(`Tel: ${restaurant.phone}`);
+  builder.wrapped(restaurant.address || DEFAULT_ADDRESS, columns);
+  builder.text(`Tel: ${restaurant.phone || DEFAULT_PHONE}`);
 
   builder
-    .feed(1)
     .divider()
     .align('left')
     .line(`Order #: ${orderNumber}`, formattedDate, columns)
@@ -255,18 +296,17 @@ function buildCustomerSlip(receipt, options = {}) {
   }
 
   if (receipt.notes) {
-    builder.divider().wrapped(receipt.notes, columns);
+    builder.wrapped(receipt.notes, columns);
   }
 
-  builder.divider().bold(true).line('ITEM / QTY', 'TOTAL', columns).bold(false);
+  builder.divider().bold(true).line3('ITEM / QTY', 'PRICE', 'TOTAL').bold(false);
 
   for (const item of Array.isArray(receipt.items) ? receipt.items : []) {
     const quantity = Number(item.quantity) || 1;
     const unitPrice = Number(item.unitPrice ?? item.price ?? 0);
     const itemTotal = Number(item.total ?? unitPrice * quantity);
 
-    builder.wrapped(`${quantity}x ${item.name || 'Item'}`, columns);
-    builder.line(`   @ ${formatMoney(unitPrice)}`, formatMoney(itemTotal), columns);
+    builder.line3(`${quantity}x ${item.name || 'Item'}`, formatMoney(unitPrice), formatMoney(itemTotal));
 
     if (Array.isArray(item.dealComponents)) {
       for (const component of item.dealComponents) {
@@ -304,10 +344,11 @@ function buildCustomerSlip(receipt, options = {}) {
   }
 
   builder
-    .divider()
+    .divider('=')
     .bold(true)
     .line('TOTAL AMOUNT', formatMoney(receipt.total), columns)
     .bold(false)
+    .feed(1)
     .line('Payment Method', String(receipt.paymentMethod || 'CASH').toUpperCase(), columns);
 
   if (Number(receipt.totalPaid) > 0) {
@@ -344,26 +385,31 @@ function buildKitchenSlip(receipt, options = {}) {
     .doubleSize(true)
     .text('KITCHEN ORDER TICKET')
     .doubleSize(false)
-    .bold(false)
     .text('*** PREPARATION COPY ***')
-    .feed(1)
+    .bold(false)
     .divider()
     .align('left')
-    .line(`TICKET #: ${orderNumber}`, `TYPE: ${orderType}`, columns)
-    .line(`TIME: ${formattedDate}`, `SERVER: ${cashier}`, columns);
+    .line('TICKET #:', `#${orderNumber}`, columns)
+    .line('ORDER TYPE:', orderType, columns)
+    .line('TIME:', formattedDate, columns)
+    .line('SERVER:', cashier, columns);
 
   if (receipt.customerName) {
-    builder.line('CUSTOMER', receipt.customerName, columns);
+    builder.line('CUSTOMER:', receipt.customerName, columns);
   }
   if (receipt.customerPhone) {
-    builder.line('MOBILE', receipt.customerPhone, columns);
+    builder.line('MOBILE:', receipt.customerPhone, columns);
   }
 
   if (receipt.notes) {
-    builder.divider().wrapped(`ORDER NOTES: ${receipt.notes}`, columns);
+    builder
+      .divider()
+      .bold(true)
+      .wrapped(`ORDER DETAILS / INSTRUCTIONS: ${receipt.notes}`, columns)
+      .bold(false);
   }
 
-  builder.divider().bold(true).line('QTY', 'ITEM', columns).bold(false);
+  builder.divider().bold(true).line('QTY', 'ITEM DESCRIPTION', columns).bold(false);
 
   for (const item of Array.isArray(receipt.items) ? receipt.items : []) {
     const quantity = Number(item.quantity) || 1;

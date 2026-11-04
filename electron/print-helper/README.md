@@ -72,11 +72,13 @@ All routes require the `Origin` and `X-Print-Token` headers.
 | --- | --- | --- |
 | `GET` | `/status` | Helper status and configured printer |
 | `GET` | `/printers` | Installed Windows printer names |
-| `POST` | `/print` | Print a receipt (`{ receipt, mode, openDrawer }`) |
+| `POST` | `/print` | Print a receipt (`{ receipt, mode, openDrawer, printerName }`) |
 | `POST` | `/test-print` | Print a small test receipt |
 
 `mode` is `BOTH`, `CUSTOMER`, or `KITCHEN`. `BOTH` prints the customer slip
 then the kitchen slip, each ending with its own partial cut.
+`printerName` is optional and lets the receipt modal select an installed printer
+for an individual print; without it, the configured printer is used.
 
 ---
 

@@ -54,3 +54,8 @@ apps/backend/prisma/migrations/
 
 # Build artifacts
 *.tsbuildinfo
+
+
+# Print-agent compiled binaries
+apps/print-agent/local-print-agent*
+apps/print-agent/dist/
