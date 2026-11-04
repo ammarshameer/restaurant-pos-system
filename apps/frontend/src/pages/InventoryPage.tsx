@@ -29,8 +29,8 @@ export const InventoryPage: React.FC = () => {
     category: 'Grocery',
     quantity: 10,
     unit: 'g',
-    purchaseUnit: 'lbs',
-    conversionFactor: 1000,
+    purchaseUnit: 'kg',
+    conversionFactor: 1,
     reorderPoint: 5,
     costPerUnit: 250,
   });
@@ -192,7 +192,7 @@ export const InventoryPage: React.FC = () => {
       quantity: 10,
       unit: 'g',
       purchaseUnit: 'kg',
-      conversionFactor: 1000,
+      conversionFactor: 1,
       reorderPoint: 5,
       costPerUnit: 250,
     });
@@ -584,8 +584,8 @@ export const InventoryPage: React.FC = () => {
 
                   <div className="form-group">
                     <label className="input-label">
-                      <span>Unit of Measure</span>
-                      <span className="label-hint">lbs, kg, pcs</span>
+                      <span>Sale / Usage Unit</span>
+                      <span className="label-hint">Stock is tracked in this unit</span>
                     </label>
                     <select
                       className="input-field"
@@ -613,7 +613,7 @@ export const InventoryPage: React.FC = () => {
                     </select>
                   </div>
                   <div className="form-group">
-                    <label className="input-label"><span>Units per purchase</span><span className="label-hint">For packs or cases</span></label>
+                    <label className="input-label"><span>Sale Units per Purchase Unit</span><span className="label-hint">Used for packs or cases</span></label>
                     <input
                       type="number"
                       min="0.0001"

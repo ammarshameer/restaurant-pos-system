@@ -24,6 +24,22 @@ function convertUnit(quantity: number, fromUnit: string, toUnit: string): number
   throw new Error(`Cannot convert ${fromUnit} to ${toUnit}`);
 }
 
+function convertPurchaseQuantity(
+  quantity: number,
+  purchaseUnit: string,
+  saleUnit: string,
+  conversionFactor: number
+): number {
+  if (purchaseUnit.toLowerCase().trim() === saleUnit.toLowerCase().trim()) {
+    return quantity * conversionFactor;
+  }
+  try {
+    return convertUnit(quantity, purchaseUnit, saleUnit);
+  } catch {
+    return quantity * conversionFactor;
+  }
+}
+
 export class InventoryService {
   async getInventoryItems(
     restaurantId: string,
@@ -124,9 +140,12 @@ export class InventoryService {
         unit: data.unit,
         purchaseUnit: data.purchaseUnit || data.unit,
         conversionFactor: Number(data.conversionFactor) || 1,
-        quantity: (data.purchaseUnit || data.unit) === data.unit
-          ? data.quantity * (Number(data.conversionFactor) || 1)
-          : convertUnit(data.quantity, data.purchaseUnit || data.unit, data.unit),
+        quantity: convertPurchaseQuantity(
+          data.quantity,
+          data.purchaseUnit || data.unit,
+          data.unit,
+          Number(data.conversionFactor) || 1
+        ),
         reorderPoint: data.reorderPoint,
         costPerUnit: data.costPerUnit,
         sku: data.sku,
@@ -209,8 +228,13 @@ export class InventoryService {
     }
 
     const currentQty = Number(item.quantity);
-    const convertedQuantity = inputUnit === item.unit && type === 'RESTOCK'
-      ? adjustmentQuantity * Number(item.conversionFactor || 1)
+    const convertedQuantity = type === 'RESTOCK'
+      ? convertPurchaseQuantity(
+          adjustmentQuantity,
+          inputUnit || item.purchaseUnit,
+          item.unit,
+          Number(item.conversionFactor || 1)
+        )
       : convertUnit(adjustmentQuantity, inputUnit || item.unit, item.unit);
     const signedQuantity = type === 'USAGE' || type === 'WASTE' ? -Math.abs(convertedQuantity) : convertedQuantity;
     const newQty = Math.max(0, +(currentQty + signedQuantity).toFixed(3));
