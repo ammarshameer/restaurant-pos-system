@@ -41,6 +41,50 @@ function mapInventoryItem(i: any): InventoryItem {
   };
 }
 
+export function getCostPerSaleUnit(item: InventoryItem): number {
+  const purchaseUnit = item.purchaseUnit || item.unit;
+  if (purchaseUnit.toLowerCase() === item.unit.toLowerCase()) {
+    return item.costPerUnit / (item.conversionFactor || 1);
+  }
+  const standardUnits: Record<string, number> = {
+    g: 1, gram: 1, grams: 1,
+    kg: 1000, kilogram: 1000, kilograms: 1000,
+    ml: 1, milliliter: 1, milliliters: 1, l: 1000, litre: 1000, liters: 1000,
+    lb: 453.59237, lbs: 453.59237, pound: 453.59237, pounds: 453.59237,
+    oz: 28.349523, ounce: 28.349523, ounces: 28.349523,
+  };
+  const purchaseScale = standardUnits[purchaseUnit.toLowerCase()];
+  const saleScale = standardUnits[item.unit.toLowerCase()];
+  if (purchaseScale && saleScale) {
+    return item.costPerUnit / (purchaseScale / saleScale);
+  }
+  return item.costPerUnit / (item.conversionFactor || 1);
+}
+
+export function getConvertedIngredientCost(
+  quantity: number,
+  usageUnit: string,
+  saleUnit: string,
+  costPerSaleUnit: number,
+  conversionFactor = 1
+): number {
+  const from = usageUnit.toLowerCase().trim();
+  const to = saleUnit.toLowerCase().trim();
+  if (from === to) return quantity * costPerSaleUnit;
+
+  const scales: Record<string, number> = {
+    g: 1, gram: 1, grams: 1,
+    kg: 1000, kilogram: 1000, kilograms: 1000,
+    ml: 1, milliliter: 1, milliliters: 1, l: 1000, litre: 1000, liters: 1000,
+    lb: 453.59237, lbs: 453.59237, pound: 453.59237, pounds: 453.59237,
+    oz: 28.349523, ounce: 28.349523, ounces: 28.349523,
+  };
+  if (scales[from] && scales[to]) {
+    return quantity * (scales[from] / scales[to]) * costPerSaleUnit;
+  }
+  return quantity * costPerSaleUnit / conversionFactor;
+}
+
 export const inventoryApi = {
   getInventoryPaginated: async (params?: {
     page?: number;

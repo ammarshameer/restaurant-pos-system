@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { inventoryApi, InventoryItem as PosInventoryItem, InventoryTransaction as PosTransaction } from '../api/inventory.api';
+import { inventoryApi, InventoryItem as PosInventoryItem, InventoryTransaction as PosTransaction, getCostPerSaleUnit } from '../api/inventory.api';
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
@@ -127,7 +127,7 @@ export const InventoryPage: React.FC = () => {
   }, [queryClient]);
 
   const lowStockItems = inventory.filter((item) => item.quantity <= item.reorderPoint);
-  const totalValuation = inventory.reduce((sum, item) => sum + item.quantity * item.costPerUnit, 0);
+  const totalValuation = inventory.reduce((sum, item) => sum + item.quantity * getCostPerSaleUnit(item), 0);
 
   const categories = ['All', 'Meat', 'Dairy', 'Bakery', 'Frozen', 'Grocery', 'Beverage'];
 
@@ -320,7 +320,7 @@ export const InventoryPage: React.FC = () => {
                   <th>Category</th>
                   <th>Current Stock</th>
                   <th>Reorder Point</th>
-                  <th>Cost / Unit</th>
+                  <th>Cost / Purchase Unit</th>
                   <th>Stock Valuation</th>
                   <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
@@ -329,7 +329,7 @@ export const InventoryPage: React.FC = () => {
               <tbody>
                 {inventory.map((item) => {
                   const isLow = item.quantity <= item.reorderPoint;
-                  const itemValuation = item.quantity * item.costPerUnit;
+                  const itemValuation = item.quantity * getCostPerSaleUnit(item);
 
                   return (
                     <tr key={item.id}>
@@ -348,7 +348,7 @@ export const InventoryPage: React.FC = () => {
                       <td style={{ color: 'var(--text-secondary)' }}>
                         {item.reorderPoint} {item.unit}
                       </td>
-                      <td style={{ fontWeight: 700 }}>{formatPKR(item.costPerUnit)}</td>
+                      <td style={{ fontWeight: 700 }}>{formatPKR(item.costPerUnit)} / {item.purchaseUnit || item.unit}</td>
                       <td style={{ fontWeight: 800, color: '#34d399' }}>{formatPKR(itemValuation)}</td>
                       <td>
                         {isLow ? (
@@ -643,8 +643,8 @@ export const InventoryPage: React.FC = () => {
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label className="input-label">
-                      <span>Cost per Unit (PKR)</span>
-                      <span className="label-hint">Valuation</span>
+                      <span>Cost per Purchase Unit (PKR)</span>
+                      <span className="label-hint">{newItem.purchaseUnit}</span>
                     </label>
                     <input
                       type="number"

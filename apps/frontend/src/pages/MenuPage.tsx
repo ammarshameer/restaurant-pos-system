@@ -12,7 +12,7 @@ import {
   toggle86Item,
 } from '../store/slices/menuSlice';
 import { menuApi } from '../api/menu.api';
-import { inventoryApi, InventoryItem } from '../api/inventory.api';
+import { inventoryApi, InventoryItem, getCostPerSaleUnit, getConvertedIngredientCost } from '../api/inventory.api';
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR } from '../utils/format';
 import { compressImageFile, getCategoryVisual } from '../utils/image';
@@ -241,6 +241,7 @@ export const MenuPage: React.FC = () => {
               quantity: inv.quantity,
             }
           : undefined,
+        unit: ing.unit || inv?.unit || 'each',
       };
     });
 
@@ -358,7 +359,10 @@ export const MenuPage: React.FC = () => {
   // Calculate live total recipe food cost from selected inventory items
   const calculatedRecipeCost = formData.ingredients.reduce((sum, ing) => {
     const item = inventoryList.find((i) => i.id === ing.inventoryItemId);
-    return sum + (Number(ing.quantityUsed) || 0) * (item?.costPerUnit || 0);
+    if (!item) return sum;
+    const ingredientUnit = ing.unit || item.unit;
+    const saleCost = getCostPerSaleUnit(item);
+    return sum + getConvertedIngredientCost(Number(ing.quantityUsed) || 0, ingredientUnit, item.unit, saleCost, item.conversionFactor || 1);
   }, 0);
 
   return (
@@ -843,7 +847,7 @@ export const MenuPage: React.FC = () => {
                   <div className="form-group">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                       <label className="input-label" style={{ marginBottom: 0 }}>
-                        <span>Estimated Food Cost (PKR)</span>
+                        <span>Actual Food Cost (PKR)</span>
                       </label>
                       {calculatedRecipeCost > 0 && (
                         <button
@@ -859,9 +863,24 @@ export const MenuPage: React.FC = () => {
                           }}
                           title="Click to copy calculated recipe cost into food cost field"
                         >
-                          ⚡ Fill ({formatPKR(calculatedRecipeCost)})
+                          Fill estimated {formatPKR(calculatedRecipeCost)}
                         </button>
                       )}
+                    </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '8px',
+                        padding: '9px 12px',
+                        borderRadius: '6px',
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-color)',
+                      }}
+                    >
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Estimated Cost from Inventory</span>
+                      <strong style={{ color: 'var(--gold)', fontSize: '16px' }}>{formatPKR(calculatedRecipeCost)}</strong>
                     </div>
                     <input
                       type="number"
@@ -1030,7 +1049,15 @@ export const MenuPage: React.FC = () => {
                       formData.ingredients.map((ing, idx) => {
                         const invItem = inventoryList.find((i) => i.id === ing.inventoryItemId);
                         const unitLabel = invItem?.unit || 'units';
-                        const itemCost = (Number(ing.quantityUsed) || 0) * (invItem?.costPerUnit || 0);
+                        const itemCost = invItem
+                          ? getConvertedIngredientCost(
+                              Number(ing.quantityUsed) || 0,
+                              ing.unit || invItem.unit,
+                              invItem.unit,
+                              getCostPerSaleUnit(invItem),
+                              invItem.conversionFactor || 1
+                            )
+                          : 0;
 
                         return (
                           <div
