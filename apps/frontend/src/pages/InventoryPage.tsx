@@ -16,6 +16,8 @@ export const InventoryPage: React.FC = () => {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<PosInventoryItem | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editItem, setEditItem] = useState<PosInventoryItem | null>(null);
 
   // Adjustment Form
   const [adjustType, setAdjustType] = useState<'RESTOCK' | 'USAGE' | 'WASTE' | 'ADJUSTMENT'>('RESTOCK');
@@ -208,6 +210,30 @@ export const InventoryPage: React.FC = () => {
     }
   };
 
+  const openEditModal = (item: PosInventoryItem) => {
+    setEditItem({ ...item });
+    setEditModalOpen(true);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editItem?.name.trim()) return;
+
+    await inventoryApi.updateInventoryItem(editItem.id, {
+      name: editItem.name.trim(),
+      sku: editItem.sku,
+      category: editItem.category,
+      unit: editItem.unit,
+      purchaseUnit: editItem.purchaseUnit || editItem.unit,
+      conversionFactor: editItem.conversionFactor || 1,
+      reorderPoint: editItem.reorderPoint,
+      costPerUnit: editItem.costPerUnit,
+    });
+    queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    setEditModalOpen(false);
+    setEditItem(null);
+  };
+
   return (
     <div className="page-container">
       {/* Header */}
@@ -363,20 +389,31 @@ export const InventoryPage: React.FC = () => {
                             className="btn btn-sm btn-primary"
                             onClick={() => openAdjustModal(item)}
                             title="Adjust inventory quantity"
+                            aria-label={`Adjust ${item.name}`}
                           >
-                            ⚡ Adjust
+                            ⚡
+                          </button>
+                          <button
+                            className="btn btn-sm btn-secondary"
+                            onClick={() => openEditModal(item)}
+                            title="Edit inventory item"
+                            aria-label={`Edit ${item.name}`}
+                          >
+                            ✏️
                           </button>
                           <button
                             className="btn btn-sm btn-secondary"
                             onClick={() => openHistoryModal(item)}
                             title="View transaction movement history"
+                            aria-label={`View history for ${item.name}`}
                           >
-                            📜 History
+                            📜
                           </button>
                           <button
                             className="btn btn-sm btn-danger"
                             onClick={() => handleDeleteItem(item.id, item.name)}
                             title="Delete item from inventory"
+                            aria-label={`Delete ${item.name}`}
                           >
                             🗑️
                           </button>
@@ -666,6 +703,72 @@ export const InventoryPage: React.FC = () => {
                 <button type="submit" className="btn btn-primary">
                   ✓ Save Item to Catalog
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editModalOpen && editItem && (
+        <div className="modal-backdrop" onClick={() => setEditModalOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: '560px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-header-text">
+                <h3 className="modal-title">✏️ Edit Inventory Item</h3>
+                <p className="modal-subtitle">{editItem.name}</p>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={() => setEditModalOpen(false)} aria-label="Close edit dialog">✕</button>
+            </div>
+            <form onSubmit={handleSaveEdit}>
+              <div className="modal-body">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Item Name</label>
+                    <input className="input-field" required value={editItem.name} onChange={(e) => setEditItem({ ...editItem, name: e.target.value })} />
+                  </div>
+                  <div className="form-group">
+                    <label className="input-label">SKU</label>
+                    <input className="input-field" value={editItem.sku} onChange={(e) => setEditItem({ ...editItem, sku: e.target.value })} />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Category</label>
+                    <input className="input-field" value={editItem.category} onChange={(e) => setEditItem({ ...editItem, category: e.target.value })} />
+                  </div>
+                  <div className="form-group">
+                    <label className="input-label">Sale / Usage Unit</label>
+                    <select className="input-field" value={editItem.unit} onChange={(e) => setEditItem({ ...editItem, unit: e.target.value })}>
+                      {['g', 'kg', 'ml', 'l', 'each', 'lbs', 'oz', 'cans', 'boxes'].map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Purchase Unit</label>
+                    <select className="input-field" value={editItem.purchaseUnit || editItem.unit} onChange={(e) => setEditItem({ ...editItem, purchaseUnit: e.target.value })}>
+                      {['g', 'kg', 'ml', 'l', 'each', 'lbs', 'oz', 'cans', 'boxes'].map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="input-label">Sale Units per Purchase Unit</label>
+                    <input type="number" min="0.0001" step="any" className="input-field" value={editItem.conversionFactor || 1} onChange={(e) => setEditItem({ ...editItem, conversionFactor: Number(e.target.value) })} />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">Reorder Point ({editItem.unit})</label>
+                    <input type="number" min="0" step="any" className="input-field" value={editItem.reorderPoint} onChange={(e) => setEditItem({ ...editItem, reorderPoint: Number(e.target.value) })} />
+                  </div>
+                  <div className="form-group">
+                    <label className="input-label">Cost per Purchase Unit (PKR)</label>
+                    <input type="number" min="0" step="any" className="input-field" value={editItem.costPerUnit} onChange={(e) => setEditItem({ ...editItem, costPerUnit: Number(e.target.value) })} />
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setEditModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save Changes</button>
               </div>
             </form>
           </div>
