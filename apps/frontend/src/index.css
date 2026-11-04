@@ -1113,20 +1113,17 @@ select.form-input {
 select.input-field,
 select.form-input,
 .form-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23efc2d2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2.5' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  background-size: 15px 15px;
-  padding-right: 36px;
+  appearance: auto;
+  -webkit-appearance: auto;
+  background-image: none;
+  padding-right: 12px;
   cursor: pointer;
 }
 
 [data-theme="light"] select.input-field,
 [data-theme="light"] select.form-input,
 [data-theme="light"] .form-select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2387455f'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2.5' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-image: none;
 }
 
 select.input-field option,
