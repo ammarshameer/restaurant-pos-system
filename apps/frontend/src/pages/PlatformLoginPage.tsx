@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { platformApi } from '../api/platform.api';
-import { storePlatformSession } from '../lib/session';
+import { getPlatformAccessToken, storePlatformSession } from '../lib/session';
 import PlatformThemeToggle from '../components/PlatformThemeToggle';
 
 export const PlatformLoginPage: React.FC = () => {
@@ -10,6 +10,12 @@ export const PlatformLoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (getPlatformAccessToken()) {
+      navigate('/platform', { replace: true });
+    }
+  }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -197,6 +197,9 @@ export const App: React.FC = () => {
   // 1. PLATFORM ROUTE HANDLING
   // ============================================
   if (location.pathname === '/platform/login') {
+    if (getPlatformAccessToken()) {
+      return <Navigate to="/platform" replace />;
+    }
     return <PlatformLoginPage />;
   }
 
