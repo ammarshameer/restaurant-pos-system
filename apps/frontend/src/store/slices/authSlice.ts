@@ -25,10 +25,25 @@ interface AuthState {
   error: string | null;
 }
 
+const getInitialAuthState = (): AuthState => {
+  if (typeof localStorage === 'undefined') {
+    return { user: null, token: null, isAuthenticated: false, loading: false, error: null };
+  }
+  try {
+    const token = localStorage.getItem('auth_token');
+    const storedUser = localStorage.getItem('auth_user');
+    const user = storedUser ? JSON.parse(storedUser) as User : null;
+    if (token && user) {
+      return { user, token, isAuthenticated: true, loading: false, error: null };
+    }
+  } catch {
+    // Invalid cached auth is handled by the API session guards.
+  }
+  return { user: null, token: null, isAuthenticated: false, loading: false, error: null };
+};
+
 const initialState: AuthState = {
-  user: null,
-  token: null,
-  isAuthenticated: false,
+  ...getInitialAuthState(),
   loading: false,
   error: null,
 };
