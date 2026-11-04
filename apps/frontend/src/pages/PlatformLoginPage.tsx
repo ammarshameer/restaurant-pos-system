@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { platformApi } from '../api/platform.api';
 import { storePlatformSession } from '../lib/session';
+import PlatformThemeToggle from '../components/PlatformThemeToggle';
 
 export const PlatformLoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -33,23 +34,14 @@ export const PlatformLoginPage: React.FC = () => {
 
   return (
     <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'radial-gradient(circle at center, #0f172a 0%, #020617 100%)',
-        padding: '20px',
-      }}
+      className="platform-page platform-login-page"
     >
+      <PlatformThemeToggle />
       <div
         className="card"
         style={{
           width: '100%',
           maxWidth: '440px',
-          background: 'rgba(15, 23, 42, 0.95)',
-          border: '1px solid rgba(255, 255, 255, 0.12)',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)',
           padding: '36px',
           borderRadius: '16px',
         }}
@@ -137,4 +129,3 @@ export const PlatformLoginPage: React.FC = () => {
 };
 
 export default PlatformLoginPage;
-

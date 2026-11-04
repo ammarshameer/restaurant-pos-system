@@ -571,6 +571,160 @@ body {
   border: 1px solid #b8801f;
 }
 
+/* Platform administration screens */
+.platform-page {
+  height: 100vh;
+  min-height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-sans);
+}
+
+.platform-login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 20px;
+  background:
+    radial-gradient(circle at top right, var(--primary-tint), transparent 38%),
+    var(--bg-primary) !important;
+}
+
+.platform-login-page > .platform-theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+}
+
+.platform-theme-toggle {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.platform-page .card {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: var(--shadow-lg) !important;
+  color: var(--text-primary) !important;
+}
+
+.platform-page input,
+.platform-page select,
+.platform-page textarea {
+  background: var(--bg-input) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.platform-page input::placeholder,
+.platform-page textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.platform-page h1,
+.platform-page h2,
+.platform-page h3,
+.platform-page strong {
+  color: var(--text-primary);
+}
+
+.platform-page p,
+.platform-page label,
+.platform-page small {
+  color: var(--text-secondary);
+}
+
+.platform-page [style*="background: #090d16"],
+.platform-page [style*="background: #0f172a"],
+.platform-page [style*="background: rgb(15, 23, 42)"],
+.platform-page [style*="background: rgba(15, 23, 42"] {
+  background: var(--bg-card) !important;
+}
+
+.platform-page [style*="background: #1e293b"],
+.platform-page [style*="background: #334155"],
+.platform-page [style*="background: rgb(30, 41, 59)"] {
+  background: var(--bg-secondary) !important;
+}
+
+.platform-page [style*="border: 1px solid #1e293b"],
+.platform-page [style*="border-bottom: 1px solid #1e293b"],
+.platform-page [style*="border-bottom: 1px solid #334155"],
+.platform-page [style*="border: 1px solid #334155"] {
+  border-color: var(--border-color) !important;
+}
+
+.platform-page [style*="color: #f8fafc"],
+.platform-page [style*="color: rgb(248, 250, 252)"] {
+  color: var(--text-primary) !important;
+}
+
+.platform-page [style*="color: #94a3b8"],
+.platform-page [style*="color: rgb(148, 163, 184)"],
+.platform-page [style*="color: #64748b"] {
+  color: var(--text-secondary) !important;
+}
+
+.platform-page [style*="color: #60a5fa"],
+.platform-page [style*="color: #3b82f6"] {
+  color: var(--accent) !important;
+}
+
+.platform-page [style*="background: #2563eb"],
+.platform-page [style*="background: linear-gradient(135deg, #2563eb"] {
+  background: var(--primary) !important;
+  color: var(--on-primary) !important;
+}
+
+.platform-page [style*="overflow: hidden"] {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  max-width: 100%;
+}
+
+.platform-page table {
+  min-width: 760px;
+}
+
+.platform-dashboard-page .form-input,
+.platform-dashboard-page button {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.platform-dashboard-page div[style*="repeat(4, 1fr)"] {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+}
+
+.platform-dashboard-page div[style*="display: flex"][style*="gap: 8px"] {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .platform-dashboard-page {
+    padding: 18px 16px !important;
+  }
+
+  .platform-dashboard-page header,
+  .platform-dashboard-page header > div:last-child {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .platform-dashboard-page header {
+    gap: 16px;
+  }
+}
+
 .btn-secondary {
   background: var(--bg-tertiary);
   color: var(--text-primary);

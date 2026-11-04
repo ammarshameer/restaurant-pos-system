@@ -12,6 +12,7 @@ import {
   enterSupportMode,
 } from '../lib/session';
 import { loginSuccess } from '../store/slices/authSlice';
+import PlatformThemeToggle from '../components/PlatformThemeToggle';
 
 export const PlatformDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -247,7 +248,7 @@ export const PlatformDashboardPage: React.FC = () => {
   const totalStaff = tenants.reduce((sum, t) => sum + (t.userCount || 0), 0);
 
   return (
-    <div style={{ minHeight: '100vh', background: '#090d16', color: '#f8fafc', padding: '24px 32px' }}>
+    <div className="platform-page platform-dashboard-page" style={{ minHeight: '100vh', padding: '24px 32px' }}>
       {/* Top Header */}
       <header
         style={{
@@ -285,6 +286,7 @@ export const PlatformDashboardPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <PlatformThemeToggle />
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '14px', fontWeight: 700 }}>{platformUser?.name || 'Administrator'}</div>
             <div style={{ fontSize: '12px', color: '#60a5fa' }}>{platformUser?.role || 'SUPER_ADMIN'}</div>
@@ -1194,4 +1196,3 @@ export const PlatformDashboardPage: React.FC = () => {
 };
 
 export default PlatformDashboardPage;
-
