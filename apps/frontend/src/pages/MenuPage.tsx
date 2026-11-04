@@ -20,6 +20,7 @@ import { compressImageFile, getCategoryVisual } from '../utils/image';
 interface IngredientFormItem {
   inventoryItemId: string;
   quantityUsed: number | string;
+  unit?: string;
 }
 
 export const MenuPage: React.FC = () => {
@@ -174,7 +175,7 @@ export const MenuPage: React.FC = () => {
       ...prev,
       ingredients: [
         ...prev.ingredients,
-        { inventoryItemId: inv.id, quantityUsed: 1 },
+        { inventoryItemId: inv.id, quantityUsed: 1, unit: inv.unit || 'each' },
       ],
     }));
     setIngredientSearch('');
@@ -194,6 +195,14 @@ export const MenuPage: React.FC = () => {
     setFormData((prev) => {
       const next = [...prev.ingredients];
       next[index] = { ...next[index], quantityUsed: val };
+      return { ...prev, ingredients: next };
+    });
+  };
+
+  const handleIngredientUnitChange = (index: number, unit: string) => {
+    setFormData((prev) => {
+      const next = [...prev.ingredients];
+      next[index] = { ...next[index], unit };
       return { ...prev, ingredients: next };
     });
   };
@@ -322,6 +331,7 @@ export const MenuPage: React.FC = () => {
       ingredients: (item.ingredients || []).map((ing) => ({
         inventoryItemId: ing.inventoryItemId,
         quantityUsed: ing.quantityUsed,
+        unit: ing.unit || '',
       })),
     });
     setModalOpen(true);
@@ -1067,7 +1077,7 @@ export const MenuPage: React.FC = () => {
                                     outline: 'none',
                                   }}
                                 />
-                                <span
+                                <select
                                   style={{
                                     padding: '6px 10px',
                                     background: 'rgba(255, 255, 255, 0.06)',
@@ -1076,9 +1086,13 @@ export const MenuPage: React.FC = () => {
                                     fontSize: '12px',
                                     fontWeight: 600,
                                   }}
+                                  value={ing.unit || unitLabel}
+                                  onChange={(e) => handleIngredientUnitChange(idx, e.target.value)}
                                 >
-                                  {unitLabel}
-                                </span>
+                                  {[unitLabel, 'kg', 'g', 'l', 'ml', 'each'].filter((unit, index, units) => units.indexOf(unit) === index).map(unit => (
+                                    <option key={unit} value={unit}>{unit}</option>
+                                  ))}
+                                </select>
                               </div>
 
                               <button

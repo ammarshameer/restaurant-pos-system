@@ -4,6 +4,7 @@ export interface MenuItemIngredientItem {
   id?: string;
   inventoryItemId: string;
   quantityUsed: number;
+  unit?: string;
   inventoryItem?: {
     id: string;
     name: string;

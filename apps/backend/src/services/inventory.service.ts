@@ -3,6 +3,27 @@ import { getIO } from '../websocket';
 
 const prisma = new PrismaClient();
 
+const UNIT_ALIASES: Record<string, string> = {
+  g: 'g', gram: 'g', grams: 'g',
+  kg: 'kg', kilogram: 'kg', kilograms: 'kg',
+  lbs: 'lb', lb: 'lb', pounds: 'lb',
+  oz: 'oz', ounce: 'oz', ounces: 'oz',
+  ml: 'ml', millilitre: 'ml', milliliter: 'ml', millilitres: 'ml', milliliters: 'ml',
+  l: 'l', litre: 'l', liter: 'l', litres: 'l', liters: 'l',
+  piece: 'each', pieces: 'each', pcs: 'each', pc: 'each', each: 'each', unit: 'each', units: 'each',
+};
+
+function convertUnit(quantity: number, fromUnit: string, toUnit: string): number {
+  const from = UNIT_ALIASES[fromUnit.toLowerCase().trim()] || fromUnit.toLowerCase().trim();
+  const to = UNIT_ALIASES[toUnit.toLowerCase().trim()] || toUnit.toLowerCase().trim();
+  if (from === to) return quantity;
+  const mass: Record<string, number> = { g: 1, kg: 1000, lb: 453.59237, oz: 28.349523 };
+  const volume: Record<string, number> = { ml: 1, l: 1000 };
+  if (mass[from] && mass[to]) return quantity * mass[from] / mass[to];
+  if (volume[from] && volume[to]) return quantity * volume[from] / volume[to];
+  throw new Error(`Cannot convert ${fromUnit} to ${toUnit}`);
+}
+
 export class InventoryService {
   async getInventoryItems(
     restaurantId: string,
@@ -89,6 +110,8 @@ export class InventoryService {
     sku?: string;
     category?: string;
     menuItemId?: string;
+    purchaseUnit?: string;
+    conversionFactor?: number;
   }) {
     if (!data.restaurantId || !data.restaurantId.trim()) {
       throw new Error('restaurantId is required to create an inventory item');
@@ -99,7 +122,11 @@ export class InventoryService {
         name: data.name,
         restaurantId: data.restaurantId,
         unit: data.unit,
-        quantity: data.quantity,
+        purchaseUnit: data.purchaseUnit || data.unit,
+        conversionFactor: Number(data.conversionFactor) || 1,
+        quantity: (data.purchaseUnit || data.unit) === data.unit
+          ? data.quantity * (Number(data.conversionFactor) || 1)
+          : convertUnit(data.quantity, data.purchaseUnit || data.unit, data.unit),
         reorderPoint: data.reorderPoint,
         costPerUnit: data.costPerUnit,
         sku: data.sku,
@@ -163,7 +190,8 @@ export class InventoryService {
     adjustmentQuantity: number,
     type: 'RESTOCK' | 'USAGE' | 'WASTE' | 'ADJUSTMENT' = 'ADJUSTMENT',
     reason?: string,
-    restaurantId?: string
+    restaurantId?: string,
+    inputUnit?: string
   ) {
     if (!restaurantId || !restaurantId.trim()) {
       throw new Error('restaurantId is required to adjust stock');
@@ -181,7 +209,11 @@ export class InventoryService {
     }
 
     const currentQty = Number(item.quantity);
-    const newQty = Math.max(0, +(currentQty + adjustmentQuantity).toFixed(3));
+    const convertedQuantity = inputUnit === item.unit && type === 'RESTOCK'
+      ? adjustmentQuantity * Number(item.conversionFactor || 1)
+      : convertUnit(adjustmentQuantity, inputUnit || item.unit, item.unit);
+    const signedQuantity = type === 'USAGE' || type === 'WASTE' ? -Math.abs(convertedQuantity) : convertedQuantity;
+    const newQty = Math.max(0, +(currentQty + signedQuantity).toFixed(3));
 
     const [updatedItem] = await prisma.$transaction([
       prisma.inventoryItem.update({
@@ -191,7 +223,7 @@ export class InventoryService {
       prisma.inventoryTransaction.create({
         data: {
           inventoryItemId: id,
-          quantity: adjustmentQuantity,
+          quantity: signedQuantity,
           type,
           reason: reason || `Manual adjustment: ${adjustmentQuantity > 0 ? '+' : ''}${adjustmentQuantity} ${item.unit}`,
         },
@@ -250,7 +282,11 @@ export class InventoryService {
     // Deduct explicit recipe ingredients
     if (menuItem.ingredients && menuItem.ingredients.length > 0) {
       for (const recipeItem of menuItem.ingredients) {
-        const qtyToDeduct = Number(recipeItem.quantityUsed) * quantitySold;
+        const qtyToDeduct = convertUnit(
+          Number(recipeItem.quantityUsed) * quantitySold,
+          recipeItem.unit || recipeItem.inventoryItem.unit,
+          recipeItem.inventoryItem.unit
+        );
         const currentQty = Number(recipeItem.inventoryItem.quantity);
         const newQty = Math.max(0, +(currentQty - qtyToDeduct).toFixed(3));
 
@@ -346,7 +382,11 @@ export class InventoryService {
     // Restore explicit recipe ingredients
     if (menuItem.ingredients && menuItem.ingredients.length > 0) {
       for (const recipeItem of menuItem.ingredients) {
-        const qtyToRestore = Number(recipeItem.quantityUsed) * quantityRestored;
+        const qtyToRestore = convertUnit(
+          Number(recipeItem.quantityUsed) * quantityRestored,
+          recipeItem.unit || recipeItem.inventoryItem.unit,
+          recipeItem.inventoryItem.unit
+        );
         const currentQty = Number(recipeItem.inventoryItem.quantity);
         const newQty = +(currentQty + qtyToRestore).toFixed(3);
 

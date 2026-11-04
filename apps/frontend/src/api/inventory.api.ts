@@ -9,6 +9,8 @@ export interface InventoryItem {
   category: string;
   quantity: number;
   unit: string;
+  purchaseUnit?: string;
+  conversionFactor?: number;
   reorderPoint: number;
   costPerUnit: number;
   lastRestocked?: string;
@@ -31,6 +33,8 @@ function mapInventoryItem(i: any): InventoryItem {
     category: i.category || 'General',
     quantity: Number(i.quantity || 0),
     unit: i.unit || 'units',
+    purchaseUnit: i.purchaseUnit || i.unit || 'units',
+    conversionFactor: Number(i.conversionFactor || 1),
     reorderPoint: Number(i.reorderPoint || 5),
     costPerUnit: Number(i.costPerUnit || 0),
     lastRestocked: i.lastRestocked ? new Date(i.lastRestocked).toISOString().slice(0, 10) : undefined,
@@ -134,8 +138,8 @@ export const inventoryApi = {
     }
   },
 
-  adjustStock: async (id: string, quantity: number, reason: string): Promise<any> => {
-    return api.post(`/inventory/${id}/adjust`, { quantity, reason });
+  adjustStock: async (id: string, quantity: number, reason: string, type?: string, unit?: string): Promise<any> => {
+    return api.post(`/inventory/${id}/adjust`, { quantity, reason, type, unit });
   },
 
   getLowStock: async (paramRestaurantId?: string): Promise<InventoryItem[]> => {

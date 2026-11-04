@@ -142,7 +142,7 @@ export class MenuService {
     preparationTime?: number;
     isAvailable?: boolean;
     is86d?: boolean;
-    ingredients?: Array<{ inventoryItemId: string; quantityUsed: number }>;
+    ingredients?: Array<{ inventoryItemId: string; quantityUsed: number; unit?: string }>;
   }) {
     if (!data.restaurantId || !data.restaurantId.trim()) {
       throw new Error('restaurantId is required to create a menu item');
@@ -219,6 +219,7 @@ export class MenuService {
                 create: validIngredients.map((ing) => ({
                   inventoryItemId: ing.inventoryItemId,
                   quantityUsed: Number(ing.quantityUsed),
+                  unit: ing.unit || '',
                 })),
               }
             : undefined,
@@ -316,6 +317,7 @@ export class MenuService {
               menuItemId: id,
               inventoryItemId: ing.inventoryItemId,
               quantityUsed: Number(ing.quantityUsed),
+              unit: ing.unit || '',
             })),
           });
         }

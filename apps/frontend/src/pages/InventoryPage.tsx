@@ -28,7 +28,9 @@ export const InventoryPage: React.FC = () => {
     sku: '',
     category: 'Grocery',
     quantity: 10,
-    unit: 'lbs',
+    unit: 'g',
+    purchaseUnit: 'lbs',
+    conversionFactor: 1000,
     reorderPoint: 5,
     costPerUnit: 250,
   });
@@ -154,8 +156,10 @@ export const InventoryPage: React.FC = () => {
     try {
       await inventoryApi.adjustStock(
         selectedItem.id,
-        delta,
-        adjustReason || `Manual ${adjustType.toLowerCase()} entry`
+        Math.abs(delta),
+        adjustReason || `Manual ${adjustType.toLowerCase()} entry`,
+        adjustType,
+        adjustType === 'RESTOCK' ? selectedItem.purchaseUnit || selectedItem.unit : selectedItem.unit
       );
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['inventory-transactions', selectedItem.id] });
@@ -186,7 +190,9 @@ export const InventoryPage: React.FC = () => {
       sku: '',
       category: 'Grocery',
       quantity: 10,
-      unit: 'lbs',
+      unit: 'g',
+      purchaseUnit: 'kg',
+      conversionFactor: 1000,
       reorderPoint: 5,
       costPerUnit: 250,
     });
@@ -581,12 +587,40 @@ export const InventoryPage: React.FC = () => {
                       <span>Unit of Measure</span>
                       <span className="label-hint">lbs, kg, pcs</span>
                     </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. lbs, kg, pcs, cans"
+                    <select
                       className="input-field"
                       value={newItem.unit}
                       onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
+                    >
+                      {['g', 'kg', 'ml', 'l', 'each', 'lbs', 'oz', 'cans', 'boxes'].map(unit => (
+                        <option key={unit} value={unit}>{unit}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label"><span>Purchase Unit</span><span className="label-hint">Bought in</span></label>
+                    <select
+                      className="input-field"
+                      value={newItem.purchaseUnit}
+                      onChange={(e) => setNewItem({ ...newItem, purchaseUnit: e.target.value })}
+                    >
+                      {['g', 'kg', 'ml', 'l', 'each', 'lbs', 'oz', 'cans', 'boxes'].map(unit => (
+                        <option key={unit} value={unit}>{unit}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="input-label"><span>Units per purchase</span><span className="label-hint">For packs or cases</span></label>
+                    <input
+                      type="number"
+                      min="0.0001"
+                      step="any"
+                      className="input-field"
+                      value={newItem.conversionFactor}
+                      onChange={(e) => setNewItem({ ...newItem, conversionFactor: Number(e.target.value) })}
                     />
                   </div>
                 </div>

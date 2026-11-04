@@ -94,8 +94,8 @@ router.patch('/:id', requirePermission('inventory.manage'), async (req: AuthRequ
 router.post('/:id/adjust', requirePermission('inventory.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
-    const { quantity, reason, type } = req.body;
-    const item = await inventoryService.adjustStock(req.params.id, quantity, type, reason, restaurantId);
+    const { quantity, reason, type, unit } = req.body;
+    const item = await inventoryService.adjustStock(req.params.id, quantity, type, reason, restaurantId, unit);
     res.json(item);
   } catch (error) {
     next(error);

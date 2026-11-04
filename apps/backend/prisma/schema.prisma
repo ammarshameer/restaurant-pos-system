@@ -333,6 +333,8 @@ model InventoryItem {
   category            String?
   quantity            Float                  @default(0)
   unit                String                 @default("each")
+  purchaseUnit        String                 @default("each")
+  conversionFactor    Float                  @default(1)
   reorderPoint        Float                  @default(5)
   costPerUnit         Float                  @default(0)
   restaurantId        String
@@ -352,6 +354,7 @@ model MenuItemIngredient {
   menuItemId      String
   inventoryItemId String
   quantityUsed    Float
+  unit            String        @default("")
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   
