@@ -5,7 +5,7 @@ import { employeeApi, Employee as EmployeeItem, Shift as ShiftLog } from '../api
 import { rolesApi, RoleItem } from '../api/roles.api';
 import { RootState } from '../store/store';
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
-import { formatPKR } from '../utils/format';
+import { formatPersonName, formatPKR } from '../utils/format';
 
 export const EmployeesPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -330,7 +330,7 @@ export const EmployeesPage: React.FC = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <h4 style={{ fontSize: '16px', fontWeight: 800 }}>
-                      {emp.firstName} {emp.lastName}
+                      {formatPersonName(emp.firstName)} {formatPersonName(emp.lastName)}
                     </h4>
                     <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{emp.email}</div>
                     {emp.phone && <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{emp.phone}</div>}

@@ -16,6 +16,7 @@ import SupportBanner from './components/SupportBanner';
 import RequirePermission from './components/RequirePermission';
 import { settingsApi } from './api/settings.api';
 import { cacheReceiptBranding } from './lib/receiptBranding';
+import { formatPersonName } from './utils/format';
 
 // Tenant Pages
 import LoginPage from './pages/LoginPage';
@@ -399,7 +400,7 @@ export const App: React.FC = () => {
               </div>
               <div className="user-info">
                 <div className="user-name">
-                  {currentUser.firstName} {currentUser.lastName}
+                  {formatPersonName(currentUser.firstName)} {formatPersonName(currentUser.lastName)}
                 </div>
                 <div className="user-role">
                   {(currentUser as any).roleName || currentUser.role}

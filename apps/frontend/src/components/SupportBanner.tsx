@@ -4,6 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store/store';
 import { isSupportMode, exitSupportMode } from '../lib/session';
 import { logout } from '../store/slices/authSlice';
+import { formatPersonName } from '../utils/format';
 
 export const SupportBanner: React.FC = () => {
   const navigate = useNavigate();
@@ -21,7 +22,9 @@ export const SupportBanner: React.FC = () => {
   };
 
   const businessName = user?.restaurantName || 'Tenant Restaurant';
-  const ownerName = user?.firstName ? `${user.firstName} ${user.lastName}` : 'Owner';
+  const ownerName = user?.firstName
+    ? `${formatPersonName(user.firstName)} ${formatPersonName(user.lastName)}`
+    : 'Owner';
 
   return (
     <div
@@ -70,4 +73,3 @@ export const SupportBanner: React.FC = () => {
 };
 
 export default SupportBanner;
-

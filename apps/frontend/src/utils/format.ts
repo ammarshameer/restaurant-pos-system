@@ -15,4 +15,11 @@ export const formatNumber = (num: number | string | undefined | null): string =>
   return n.toLocaleString('en-PK');
 };
 
+export const formatPersonName = (name: string | null | undefined): string => {
+  return (name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\b[\p{L}\p{N}]/gu, (character) => character.toUpperCase());
+};
+
 export default formatPKR;

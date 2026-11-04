@@ -9,6 +9,13 @@ export type EmployeeRole = 'OWNER' | 'MANAGER' | 'CHEF' | 'WAITER' | 'CASHIER' |
 
 const prisma = new PrismaClient();
 
+function capitalizeName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\b[\p{L}\p{N}]/gu, (character) => character.toUpperCase());
+}
+
 export function slugify(text: string): string {
   return text
     .toString()
@@ -128,8 +135,8 @@ export class AuthService {
         data: {
           email: emailNormalized,
           passwordHash: hashedPassword,
-          firstName: data.ownerFirstName.trim(),
-          lastName: data.ownerLastName.trim(),
+          firstName: capitalizeName(data.ownerFirstName),
+          lastName: capitalizeName(data.ownerLastName),
           restaurantId: restaurant.id,
           role: 'OWNER',
           roleId: ownerRoleRecord?.id || null,
