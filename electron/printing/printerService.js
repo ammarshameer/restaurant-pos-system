@@ -55,29 +55,47 @@ function createPrinterService(options = {}) {
   }
 
   async function print(payload = {}) {
-    requirePrinter();
-
     const receipt = payload.receipt;
-    if (!receipt || typeof receipt !== 'object' || !Array.isArray(receipt.items)) {
+    // Callers may send ready-to-print raster bytes instead of receipt JSON;
+    // those are spooled verbatim so the printout matches the preview exactly.
+    const rawBase64 = typeof payload.dataBase64 === 'string' ? payload.dataBase64 : '';
+    if (!rawBase64 && (!receipt || typeof receipt !== 'object' || !Array.isArray(receipt.items))) {
       throw new Error('Invalid receipt data. Expected a receipt object with an items array.');
+    }
+
+    const printerName =
+      typeof payload.printerName === 'string' && payload.printerName.trim()
+        ? payload.printerName.trim()
+        : settings.printerName;
+    if (!printerName) {
+      throw new Error('No printer is selected or configured.');
+    }
+
+    if (payload.printerName) {
+      const availablePrinters = await list();
+      if (availablePrinters.length > 0 && !availablePrinters.includes(printerName)) {
+        throw new Error(`Selected printer "${printerName}" is no longer available.`);
+      }
     }
 
     const mode = PRINT_MODES.has(payload.mode) ? payload.mode : 'BOTH';
     const columns = settings.columns || DEFAULT_COLUMNS;
-    const buffer = buildReceiptEscPos(receipt, {
-      mode,
-      openDrawer: Boolean(payload.openDrawer),
-      columns,
-    });
+    const buffer = rawBase64
+      ? Buffer.from(rawBase64, 'base64')
+      : buildReceiptEscPos(receipt, {
+          mode,
+          openDrawer: Boolean(payload.openDrawer),
+          columns,
+        });
 
     try {
-      await sendRaw(settings.printerName, buffer);
+      await sendRaw(printerName, buffer);
       lastPrintAt = new Date().toISOString();
       lastError = null;
       return {
         ok: true,
-        message: `Printed ${mode === 'BOTH' ? 'customer + kitchen slips' : mode.toLowerCase() + ' slip'} to ${settings.printerName}.`,
-        printerName: settings.printerName,
+        message: `Printed ${mode === 'BOTH' ? 'customer + kitchen slips' : mode.toLowerCase() + ' slip'} to ${printerName}.`,
+        printerName,
         bytes: buffer.length,
       };
     } catch (error) {

@@ -5,7 +5,7 @@ import type { ReceiptData } from '../../types/receipt.types';
 export type ReceiptPrintMode = 'BOTH' | 'CUSTOMER' | 'KITCHEN';
 
 /** Name printed as the shop title on every slip. */
-const RECEIPT_RESTAURANT_NAME = 'Dimlight Cafe';
+export const RECEIPT_RESTAURANT_NAME = 'Dimlight Cafe';
 
 interface ReceiptSlipProps {
   receiptData: ReceiptData;
@@ -19,7 +19,7 @@ export function formatReceiptDate(date?: string | Date): string {
   });
 }
 
-function getOrderNumber(receiptData: ReceiptData): string {
+export function getOrderNumber(receiptData: ReceiptData): string {
   return String(receiptData.orderNumber || receiptData.orderId?.slice(0, 6) || '101');
 }
 
@@ -33,7 +33,6 @@ export const CustomerSlip: React.FC<ReceiptSlipProps> = ({ receiptData }) => {
 
   return (
     <div className="receipt-paper customer-slip" id="customer-receipt">
-      <div className="receipt-badge">CUSTOMER RECEIPT</div>
       <div className="receipt-header">
         <div className="receipt-restaurant-name">{restaurantName}</div>
         <div style={{ fontSize: '11px', color: '#444' }}>{restaurantAddress}</div>
@@ -234,7 +233,6 @@ export const KitchenSlip: React.FC<ReceiptSlipProps> = ({ receiptData }) => {
 
   return (
     <div className="kot-paper kitchen-slip" id="kitchen-ticket">
-      <div className="kot-badge">🍳 KITCHEN COPY (KOT)</div>
       <div className="kot-header">
         <div className="kot-title">KITCHEN ORDER TICKET</div>
         <div className="kot-subtitle">*** PREPARATION COPY ***</div>
