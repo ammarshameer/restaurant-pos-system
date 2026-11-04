@@ -493,7 +493,7 @@ export class AuthService {
         permissions = sysRole ? [...sysRole.permissions] : [];
       }
 
-      const { accessToken, refreshToken: newRefreshToken } = this.generateTokens({
+      const { accessToken } = this.generateTokens({
         id: user.id,
         email: user.email,
         role: user.role,
@@ -504,12 +504,12 @@ export class AuthService {
         permissions,
       });
 
-      await prisma.refreshToken.delete({ where: { id: storedToken.id } });
-      await this.saveRefreshToken(user.id, newRefreshToken);
+      // Keep the refresh token stable. Rotating it from multiple browser tabs
+      // can invalidate a reload while another tab is still using the old token.
 
       return {
         accessToken,
-        refreshToken: newRefreshToken,
+        refreshToken,
         user: {
           id: user.id,
           email: user.email,

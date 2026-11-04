@@ -149,27 +149,9 @@ export class PlatformService {
       { expiresIn: '12h' }
     );
 
-    const newRefreshToken = jwt.sign(
-      { id: platformUser.id, isPlatform: true, tokenUse: 'platform', jti: crypto.randomUUID() },
-      refreshTokenSecret,
-      { expiresIn: '30d' }
-    );
-
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30);
-
-    await prisma.platformRefreshToken.delete({ where: { id: stored.id } });
-    await prisma.platformRefreshToken.create({
-      data: {
-        token: newRefreshToken,
-        platformUserId: platformUser.id,
-        expiresAt,
-      },
-    });
-
     return {
       accessToken,
-      refreshToken: newRefreshToken,
+      refreshToken,
       user: {
         id: platformUser.id,
         name: platformUser.name,
