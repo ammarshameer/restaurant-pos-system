@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store/store';
 import { loginSuccess } from '../store/slices/authSlice';
 import { settingsApi, BusinessSettings } from '../api/settings.api';
+import { cacheReceiptBranding } from '../lib/receiptBranding';
 
 export const SettingsPage: React.FC = () => {
   const dispatch = useDispatch();
@@ -29,6 +30,7 @@ export const SettingsPage: React.FC = () => {
       setLoading(true);
       setError(null);
       const data = await settingsApi.getBusinessSettings();
+      cacheReceiptBranding(data);
       setName(data.name || '');
       setSlug(data.slug || '');
       setAddress(data.address || '');
@@ -107,6 +109,7 @@ export const SettingsPage: React.FC = () => {
         timezone,
         logoUrl: finalLogo,
       });
+      cacheReceiptBranding(updated);
 
       setSuccessMessage('Business profile and settings updated successfully!');
       setName(updated.name);
@@ -488,4 +491,3 @@ export const SettingsPage: React.FC = () => {
 };
 
 export default SettingsPage;
-

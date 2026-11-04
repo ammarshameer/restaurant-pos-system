@@ -1,11 +1,9 @@
 import React from 'react';
 import { formatPKR } from '../../utils/format';
 import type { ReceiptData } from '../../types/receipt.types';
+import { getCachedReceiptBranding } from '../../lib/receiptBranding';
 
 export type ReceiptPrintMode = 'BOTH' | 'CUSTOMER' | 'KITCHEN';
-
-/** Name printed as the shop title on every slip. */
-const RECEIPT_RESTAURANT_NAME = 'Dimlight Cafe';
 
 interface ReceiptSlipProps {
   receiptData: ReceiptData;
@@ -25,9 +23,11 @@ function getOrderNumber(receiptData: ReceiptData): string {
 
 export const CustomerSlip: React.FC<ReceiptSlipProps> = ({ receiptData }) => {
   const formattedDate = formatReceiptDate(receiptData.date);
-  const restaurantName = RECEIPT_RESTAURANT_NAME;
-  const restaurantAddress = receiptData.restaurant?.address || 'Main Boulevard, Gulberg III, Lahore';
-  const restaurantPhone = receiptData.restaurant?.phone || '+92 (42) 3578-9000';
+  const cachedRestaurant = getCachedReceiptBranding();
+  const restaurantName = receiptData.restaurant?.name || cachedRestaurant?.name || 'Restaurant';
+  const restaurantAddress = receiptData.restaurant?.address || cachedRestaurant?.address || '';
+  const restaurantPhone = receiptData.restaurant?.phone || cachedRestaurant?.phone || '';
+  const restaurantLogo = receiptData.restaurant?.logoUrl || cachedRestaurant?.logoUrl;
   const orderNumStr = getOrderNumber(receiptData);
   const typeDisplay = receiptData.orderType || 'Dine In';
 
@@ -35,9 +35,17 @@ export const CustomerSlip: React.FC<ReceiptSlipProps> = ({ receiptData }) => {
     <div className="receipt-paper customer-slip" id="customer-receipt">
       <div className="receipt-badge">CUSTOMER RECEIPT</div>
       <div className="receipt-header">
+        {restaurantLogo && (
+          <img
+            className="receipt-restaurant-logo"
+            src={restaurantLogo}
+            alt=""
+            style={{ width: '48px', height: '48px', objectFit: 'contain', marginBottom: '4px' }}
+          />
+        )}
         <div className="receipt-restaurant-name">{restaurantName}</div>
-        <div style={{ fontSize: '11px', color: '#444' }}>{restaurantAddress}</div>
-        <div style={{ fontSize: '11px', color: '#444' }}>Tel: {restaurantPhone}</div>
+        {restaurantAddress && <div style={{ fontSize: '11px', color: '#444' }}>{restaurantAddress}</div>}
+        {restaurantPhone && <div style={{ fontSize: '11px', color: '#444' }}>Tel: {restaurantPhone}</div>}
       </div>
 
       <hr className="receipt-divider" />

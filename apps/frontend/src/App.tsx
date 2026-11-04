@@ -14,6 +14,8 @@ import { api } from './lib/api';
 import SyncStatusIndicator from './components/SyncStatusIndicator';
 import SupportBanner from './components/SupportBanner';
 import RequirePermission from './components/RequirePermission';
+import { settingsApi } from './api/settings.api';
+import { cacheReceiptBranding } from './lib/receiptBranding';
 
 // Tenant Pages
 import LoginPage from './pages/LoginPage';
@@ -42,6 +44,15 @@ export const App: React.FC = () => {
 
   const [liveAlert, setLiveAlert] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState(__APP_VERSION__);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void settingsApi.getBusinessSettings()
+      .then((settings) => {
+        cacheReceiptBranding(settings);
+      })
+      .catch(() => undefined);
+  }, [isAuthenticated]);
 
   // Light and Dark Theme state
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {

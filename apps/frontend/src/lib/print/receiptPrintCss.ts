@@ -125,6 +125,14 @@ export const RECEIPT_PRINT_CSS = `
     letter-spacing: 0.04em;
   }
 
+  .receipt-restaurant-logo {
+    display: block;
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    margin: 0 auto 4px;
+  }
+
   .receipt-divider,
   .kot-divider {
     border: none;

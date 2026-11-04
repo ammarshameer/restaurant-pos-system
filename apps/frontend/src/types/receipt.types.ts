@@ -19,6 +19,7 @@ export interface ReceiptData {
     address: string;
     phone: string;
     email: string;
+    logoUrl?: string | null;
   };
   server?: string;
   orderType?: string;
