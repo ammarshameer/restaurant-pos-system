@@ -576,18 +576,20 @@ export const PlatformDashboardPage: React.FC = () => {
                             type="button"
                             onClick={() => handleEnterTenant(t)}
                             title="Enter business as owner in support mode"
+                            aria-label={`Enter ${t.name}`}
+                            className="platform-action-button"
                             style={{
                               background: '#d97706',
                               color: '#ffffff',
                               border: 'none',
-                              padding: '5px 10px',
+                              padding: '5px',
                               borderRadius: '6px',
                               fontWeight: 600,
-                              fontSize: '11px',
+                              fontSize: '16px',
                               cursor: 'pointer',
                             }}
                           >
-                            Enter
+                            ↗
                           </button>
 
                           {isSuperAdmin && (
@@ -606,35 +608,41 @@ export const PlatformDashboardPage: React.FC = () => {
                                   });
                                   setEditModalOpen(true);
                                 }}
+                                title={`Edit ${t.name}`}
+                                aria-label={`Edit ${t.name}`}
+                                className="platform-action-button"
                                 style={{
                                   background: '#334155',
                                   color: '#f8fafc',
                                   border: 'none',
-                                  padding: '5px 10px',
+                                  padding: '5px',
                                   borderRadius: '6px',
                                   fontWeight: 600,
-                                  fontSize: '11px',
+                                  fontSize: '16px',
                                   cursor: 'pointer',
                                 }}
                               >
-                                Edit
+                                ✎
                               </button>
 
                               <button
                                 type="button"
                                 onClick={() => handleToggleActive(t)}
+                                title={t.isActive ? `Suspend ${t.name}` : `Activate ${t.name}`}
+                                aria-label={t.isActive ? `Suspend ${t.name}` : `Activate ${t.name}`}
+                                className="platform-action-button"
                                 style={{
                                   background: t.isActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
                                   color: t.isActive ? '#f87171' : '#4ade80',
                                   border: 'none',
-                                  padding: '5px 10px',
+                                  padding: '5px',
                                   borderRadius: '6px',
                                   fontWeight: 600,
-                                  fontSize: '11px',
+                                  fontSize: '16px',
                                   cursor: 'pointer',
                                 }}
                               >
-                                {t.isActive ? 'Suspend' : 'Activate'}
+                                {t.isActive ? '⏸' : '▶'}
                               </button>
 
                               <button
@@ -644,18 +652,21 @@ export const PlatformDashboardPage: React.FC = () => {
                                   setNewOwnerPassword('');
                                   setResetPwModalOpen(true);
                                 }}
+                                title={`Reset password for ${t.name}`}
+                                aria-label={`Reset password for ${t.name}`}
+                                className="platform-action-button"
                                 style={{
                                   background: '#1e293b',
                                   color: '#cbd5e1',
                                   border: '1px solid #334155',
-                                  padding: '5px 10px',
+                                  padding: '5px',
                                   borderRadius: '6px',
                                   fontWeight: 600,
-                                  fontSize: '11px',
+                                  fontSize: '16px',
                                   cursor: 'pointer',
                                 }}
                               >
-                                Reset PW
+                                🔑
                               </button>
                             </>
                           )}
