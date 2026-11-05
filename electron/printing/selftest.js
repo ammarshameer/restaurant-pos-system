@@ -93,7 +93,7 @@ async function run() {
   );
 
   const bothText = both.toString('ascii');
-  assert(bothText.includes('DIMLIGHT CAFE'), 'restaurant name should be printed');
+  assert(bothText.includes('Dimlight Cafe'), 'restaurant name should be printed');
   assert(bothText.includes('Ali Khan'), 'customer name should be printed');
   assert(bothText.includes('+92 300 1234567'), 'customer mobile should be printed');
   assert(bothText.includes('KITCHEN ORDER TICKET'), 'kitchen slip should be printed');
@@ -117,6 +117,17 @@ async function run() {
   assert(printResult.ok);
   assert.strictEqual(sent.printerName, 'Black Copper BC-88AC');
   assert(sent.buffer.length > 100);
+  const selectedPrintResult = await service.print({
+    receipt,
+    mode: 'CUSTOMER',
+    printerName: 'Black Copper BC-88AC',
+  });
+  assert(selectedPrintResult.ok);
+  assert.strictEqual(sent.printerName, 'Black Copper BC-88AC');
+  await assert.rejects(
+    service.print({ receipt, printerName: 'Unavailable Printer' }),
+    /Selected printer "Unavailable Printer" is no longer available/
+  );
   assert.deepStrictEqual(await service.getPrinters(), ['Black Copper BC-88AC']);
 
   const mockService = {

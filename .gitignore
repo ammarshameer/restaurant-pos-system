@@ -59,3 +59,7 @@ apps/backend/prisma/migrations/
 # Dev platform credentials
 .dev-platform-credentials.json
 *.dev-platform-credentials.json
+
+# Print-agent compiled binaries
+apps/print-agent/local-print-agent*
+apps/print-agent/dist/
