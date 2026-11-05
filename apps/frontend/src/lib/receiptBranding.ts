@@ -9,7 +9,7 @@ export interface ReceiptBranding {
 
 const STORAGE_KEY = 'pos_business_print_settings';
 
-export function cacheReceiptBranding(settings: BusinessSettings): void {
+export function cacheReceiptBranding(settings: Pick<BusinessSettings, 'name' | 'address' | 'phone' | 'logoUrl'>): void {
   const branding: ReceiptBranding = {
     name: settings.name,
     address: settings.address,

@@ -14,7 +14,21 @@ export interface BusinessSettings {
   updatedAt: string;
 }
 
+export interface BusinessBranding {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl?: string | null;
+  address: string;
+  phone: string;
+  timezone: string;
+}
+
 export const settingsApi = {
+  getBranding: async () => {
+    return api.get<BusinessBranding>('/settings/branding');
+  },
+
   getBusinessSettings: async (): Promise<BusinessSettings> => {
     return api.get('/settings/business');
   },
@@ -23,4 +37,3 @@ export const settingsApi = {
     return api.patch('/settings/business', data);
   },
 };
-

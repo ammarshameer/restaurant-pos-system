@@ -12,8 +12,7 @@ export const EmployeesPage: React.FC = () => {
   const { user } = useSelector((state: RootState) => state.auth);
 
   const canManageEmployees =
-    user?.role === 'OWNER' ||
-    user?.role === 'ADMIN' ||
+    user?.isOwnerRole === true ||
     (user?.permissions || []).includes('employees.manage');
 
   const [shifts, setShifts] = useState<ShiftLog[]>([]);

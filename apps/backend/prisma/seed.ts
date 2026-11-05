@@ -29,6 +29,14 @@ async function main() {
 
   console.log(`✓ Restaurant created: ${restaurant.name} (slug: ${restaurant.slug})`);
 
+  await prisma.tenantFeature.createMany({
+    data: [
+      { restaurantId: restaurant.id, featureKey: 'costing', enabled: true },
+      { restaurantId: restaurant.id, featureKey: 'accounting', enabled: true },
+    ],
+    skipDuplicates: true,
+  });
+
   // 1b. Seed System Roles for Default Restaurant
   const roleMap = new Map<string, any>();
   for (const sysDef of DEFAULT_SYSTEM_ROLES) {

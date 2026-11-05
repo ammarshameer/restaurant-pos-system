@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { ALL_PERMISSIONS, DEFAULT_SYSTEM_ROLES } from '../permissions';
 import { JWT_SECRET, JWT_REFRESH_SECRET } from '../config/secrets';
+import { getEnabledFeatures } from './feature.service';
 
 export type EmployeeRole = 'OWNER' | 'MANAGER' | 'CHEF' | 'WAITER' | 'CASHIER' | string;
 
@@ -105,6 +106,13 @@ export class AuthService {
           timezone: data.timezone || 'Asia/Karachi',
           createdByPlatformUserId: data.createdByPlatformUserId || null,
         },
+      });
+
+      await tx.tenantFeature.createMany({
+        data: [
+          { restaurantId: restaurant.id, featureKey: 'costing', enabled: true },
+          { restaurantId: restaurant.id, featureKey: 'accounting', enabled: true },
+        ],
       });
 
       // 2. Create Default System Roles with Permissions
@@ -267,6 +275,8 @@ export class AuthService {
         restaurantSlug: restaurant.slug,
         restaurantLogoUrl: restaurant.logoUrl,
         permissions,
+        features: await getEnabledFeatures(restaurant.id),
+        isOwnerRole: true,
         isPlatform: false,
       },
       accessToken,
@@ -343,6 +353,8 @@ export class AuthService {
         restaurantSlug: user.restaurant.slug,
         restaurantLogoUrl: user.restaurant.logoUrl,
         permissions,
+        features: await getEnabledFeatures(user.restaurantId),
+        isOwnerRole: isOwner,
         isPlatform: false,
       },
       accessToken,
@@ -435,6 +447,8 @@ export class AuthService {
         restaurantSlug: restaurant.slug,
         restaurantLogoUrl: restaurant.logoUrl,
         permissions,
+        features: await getEnabledFeatures(restaurant.id),
+        isOwnerRole: isOwner,
         isPlatform: false,
       },
       accessToken,
@@ -529,6 +543,8 @@ export class AuthService {
           restaurantSlug: user.restaurant.slug,
           restaurantLogoUrl: user.restaurant.logoUrl,
           permissions,
+          features: await getEnabledFeatures(user.restaurantId),
+          isOwnerRole: isOwner,
           isPlatform: false,
         },
       };

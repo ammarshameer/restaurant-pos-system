@@ -56,7 +56,7 @@ platformHttp.interceptors.response.use(
               refreshToken: res.refreshToken,
               user: res.user,
             });
-            original.headers.Authorization = `Bearer ${res.data.accessToken}`;
+            original.headers.Authorization = `Bearer ${res.accessToken}`;
             return platformHttp(original);
           }
         } catch {
@@ -111,6 +111,14 @@ export interface CreateBusinessPayload {
 }
 
 export const platformApi = {
+  getTenantFeatures: async (restaurantId: string) => {
+    const res = await platformHttp.get(`/restaurants/${restaurantId}/features`);
+    return res.data;
+  },
+  updateTenantFeatures: async (restaurantId: string, features: Array<{ key: string; enabled: boolean; expiresAt?: string | null }>) => {
+    const res = await platformHttp.put(`/restaurants/${restaurantId}/features`, { features });
+    return res.data;
+  },
   login: async (email: string, password: string) => {
     const res = await platformHttp.post('/auth/login', { email, password });
     return res.data;

@@ -181,7 +181,7 @@ export class EmployeeService {
       hourlyRate?: number;
       phone?: string;
     },
-    requester?: { id: string; isOwnerRole?: boolean; role?: string }
+    requester?: { id: string; isOwnerRole?: boolean; role?: string; permissions?: string[] }
   ) {
     if (!data.restaurantId || !data.restaurantId.trim()) {
       throw new Error('restaurantId is required to create an employee');
@@ -204,9 +204,20 @@ export class EmployeeService {
     if (data.roleId) {
       targetRole = await prisma.role.findFirst({
         where: { id: data.roleId, restaurantId: data.restaurantId },
+        include: { permissions: true },
       });
       if (!targetRole) {
         throw new Error('Specified role does not belong to your restaurant');
+      }
+
+      const targetPermissions = targetRole.permissions?.map((permission: any) => permission.permission) || [];
+      const requesterPermissions = new Set(requester?.permissions || []);
+      const elevated = targetPermissions.find((permission: string) =>
+        permission === 'backups.manage' ||
+        (!requester?.isOwnerRole && !requesterPermissions.has(permission))
+      );
+      if (!requester?.isOwnerRole && elevated) {
+        throw Object.assign(new Error('Cannot assign permissions above the requester permission ceiling'), { statusCode: 403 });
       }
     } else if (data.role) {
       const candidateKey = data.role.trim().toUpperCase();
@@ -516,10 +527,21 @@ export class EmployeeService {
       throw new Error('The Owner account cannot be deactivated');
     }
 
-    return prisma.employee.update({
+    const deactivated = await prisma.employee.update({
       where: { id },
       data: { isActive: false },
+      include: { roleRecord: true },
     });
+    return {
+      id: deactivated.id,
+      email: deactivated.email,
+      firstName: deactivated.firstName,
+      lastName: deactivated.lastName,
+      role: deactivated.roleRecord?.name || deactivated.role,
+      roleId: deactivated.roleId,
+      isActive: deactivated.isActive,
+      updatedAt: deactivated.updatedAt,
+    };
   }
 
   async clockIn(

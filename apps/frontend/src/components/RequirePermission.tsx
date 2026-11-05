@@ -22,10 +22,7 @@ export const RequirePermission: React.FC<RequirePermissionProps> = ({
   }
 
   // Owner unconditionally bypasses permission checks
-  const isOwner =
-    user.role === 'OWNER' ||
-    user.role === 'ADMIN' ||
-    (user as any).isOwner === true;
+  const isOwner = user.isOwnerRole === true;
 
   if (isOwner) {
     return <>{children}</>;
@@ -45,4 +42,3 @@ export const RequirePermission: React.FC<RequirePermissionProps> = ({
 };
 
 export default RequirePermission;
-

@@ -4,6 +4,9 @@ import { Table, TableStatus } from '../types/table.types';
 const DEFAULT_FLOOR_PLAN_ID = 'fp-default-1';
 
 export const tableApi = {
+  getFloorPlans: async (): Promise<Array<{ id: string; name: string }>> =>
+    api.get('/tables/floor-plans'),
+
   getTables: async (floorPlanId = DEFAULT_FLOOR_PLAN_ID): Promise<Table[]> => {
     try {
       const tables = await api.get<Table[]>(`/tables/floor/${floorPlanId}`);

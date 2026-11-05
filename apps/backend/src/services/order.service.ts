@@ -1,11 +1,19 @@
 import { PrismaClient } from '@prisma/client';
 import { getIO } from '../websocket';
 import { InventoryService } from './inventory.service';
+import { hasFeature } from './feature.service';
+import { redactCosting } from './cost-redaction.service';
+import { ValidationError } from '../lib/errors';
+import { CustomerService } from './customer.service';
 
 const prisma = new PrismaClient();
 const inventoryService = new InventoryService();
+const customerService = new CustomerService();
 
 export class OrderService {
+  private async redactOrder<T>(restaurantId: string, payload: T): Promise<T> {
+    return await hasFeature(restaurantId, 'costing') ? payload : redactCosting(payload);
+  }
   // Shared include used when returning orders and for idempotency lookups.
   private orderInclude = {
     items: {
@@ -136,10 +144,10 @@ export class OrderService {
     let serverId = data.serverId;
     if (serverId) {
       const empExists = await prisma.employee.findFirst({
-        where: { id: serverId, restaurantId },
+        where: { id: serverId, restaurantId, isActive: true },
       });
       if (!empExists) {
-        serverId = undefined;
+        throw new ValidationError('Server not found in this business');
       }
     }
 
@@ -150,13 +158,23 @@ export class OrderService {
       serverId = defaultEmployee?.id || 'emp-manager-1';
     }
 
+    if (data.tableId) {
+      const table = await prisma.table.findFirst({
+        where: { id: data.tableId, floorPlan: { restaurantId } },
+      });
+      if (!table) throw new ValidationError('Table not found in this business');
+    }
+
     // Process order items scoped strictly to this restaurant
     let subtotal = 0;
     const orderItemsData = await Promise.all(
       data.items.map(async (item) => {
-        const unitPrice = item.unitPrice || item.price || 0;
-        const total = unitPrice * item.quantity;
-        subtotal += total;
+        const quantity = Number(item.quantity);
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          throw new Error('Item quantity must be a positive number');
+        }
+        let unitPrice: number | undefined;
+        let resolvedName: string | undefined;
 
         let validMenuItemId: string | null = null;
         let validDealId: string | null = null;
@@ -165,12 +183,18 @@ export class OrderService {
           const exists = await (prisma as any).deal.findFirst({
             where: { id: item.dealId, restaurantId },
           });
-          if (exists) validDealId = item.dealId;
+          if (!exists) throw new ValidationError('Deal not found in this business');
+          validDealId = item.dealId;
+          unitPrice = exists.price;
+          resolvedName = exists.name;
         } else if (item.menuItemId) {
           const exists = await prisma.menuItem.findFirst({
             where: { id: item.menuItemId, restaurantId },
           });
-          if (exists) validMenuItemId = item.menuItemId;
+          if (!exists) throw new ValidationError('Menu item not found in this business');
+          validMenuItemId = item.menuItemId;
+          unitPrice = exists.price;
+          resolvedName = exists.name;
         } else if (item.name) {
           // Check if item is a Deal by name within restaurant
           const dealFound = await (prisma as any).deal.findFirst({
@@ -178,47 +202,64 @@ export class OrderService {
           });
           if (dealFound) {
             validDealId = dealFound.id;
+            unitPrice = dealFound.price;
+            resolvedName = dealFound.name;
           } else {
             const exists = await prisma.menuItem.findFirst({
               where: { name: item.name, restaurantId },
             });
             if (exists) validMenuItemId = exists.id;
+            if (exists) unitPrice = exists.price;
+            if (exists) resolvedName = exists.name;
           }
         }
-
-        return {
-          menuItemId: validMenuItemId,
-          dealId: validDealId,
-          name: item.name || 'Custom Item',
-          quantity: item.quantity,
-          unitPrice,
-          price: unitPrice,
-          total,
-          specialInstructions: item.notes || null,
-          notes: item.notes || null,
-          status: item.status || 'PENDING',
-          inventoryDeducted: true,
-        };
+        if ((validMenuItemId || validDealId) && unitPrice !== undefined) {
+          const total = unitPrice * quantity;
+          subtotal += total;
+          return {
+            menuItemId: validMenuItemId,
+            dealId: validDealId,
+            name: resolvedName || 'Custom Item',
+            quantity,
+            unitPrice,
+            price: unitPrice,
+            total,
+            specialInstructions: item.notes || null,
+            notes: item.notes || null,
+            status: item.status || 'PENDING',
+            inventoryDeducted: true,
+          };
+        }
+        throw new Error('Custom order items require a valid catalog item or orders.discount permission');
       })
     );
 
-    const calculatedSubtotal = data.subtotal || subtotal;
-    const taxRate = data.taxRate !== undefined ? data.taxRate : 0.05;
-    const calculatedTax = data.tax || +(calculatedSubtotal * taxRate).toFixed(2);
-    const serviceCharge = data.serviceCharge || 0;
-    const deliveryCharge = data.deliveryCharge || 0;
+    const nonNegative = (value: unknown, fallback = 0) => {
+      if (value === undefined) return fallback;
+      const number = Number(value);
+      if (!Number.isFinite(number) || number < 0) throw new Error('Monetary values must be non-negative numbers');
+      return number;
+    };
+    const calculatedSubtotal = subtotal;
+    const taxRate = nonNegative(data.taxRate);
+    const serviceCharge = nonNegative(data.serviceCharge);
+    const serviceChargeRate = nonNegative(data.serviceChargeRate);
+    const deliveryCharge = nonNegative(data.deliveryCharge);
+    const calculatedTax = +(calculatedSubtotal * taxRate).toFixed(2);
     const calculatedTotal =
-      data.total ||
       +(calculatedSubtotal + calculatedTax + serviceCharge + deliveryCharge).toFixed(2);
 
     let initialStatus = data.status || 'OPEN';
-    let initialPaymentStatus = data.paymentStatus || 'UNPAID';
-
-    if (data.totalPaid && data.totalPaid >= calculatedTotal) {
-      initialPaymentStatus = 'PAID';
-      if (initialStatus === 'OPEN' || initialStatus === 'pending') {
-        initialStatus = 'confirmed';
-      }
+    const initialPaymentStatus = 'UNPAID';
+    let customerId: string | null = null;
+    try {
+      customerId = await customerService.recordOrderCustomer(restaurantId, {
+        customerName: data.customerName,
+        customerPhone: data.customerPhone,
+        total: calculatedTotal,
+      });
+    } catch (error) {
+      console.error('Failed to resolve order customer:', error);
     }
 
     const order = await prisma.order.create({
@@ -231,6 +272,7 @@ export class OrderService {
         orderTypeLabel: data.orderTypeLabel || data.orderType || 'Dine In',
         customerName: data.customerName || null,
         customerPhone: data.customerPhone || null,
+        customerId,
         deliveryAddress: data.deliveryAddress || null,
         dineInTag: data.dineInTag || null,
         tableId: data.tableId || null,
@@ -239,34 +281,19 @@ export class OrderService {
         customerCount: data.customerCount || 1,
         subtotal: calculatedSubtotal,
         serviceCharge,
-        serviceChargeRate: data.serviceChargeRate || 0,
+        serviceChargeRate,
         deliveryCharge,
         tax: calculatedTax,
         taxRate,
         total: calculatedTotal,
-        totalPaid: data.totalPaid || 0,
+        totalPaid: 0,
         change: data.change || 0,
         status: initialStatus,
         paymentStatus: initialPaymentStatus,
-        paymentMethod: data.paymentMethod || null,
         notes: data.notes || null,
         items: {
           create: orderItemsData,
         },
-        ...(data.totalPaid && data.totalPaid > 0
-          ? {
-              payments: {
-                create: {
-                  ...(data.paymentClientId ? { clientId: data.paymentClientId } : {}),
-                  amount: data.totalPaid,
-                  method: data.paymentMethod || 'CASH',
-                  status: 'COMPLETED',
-                  processedAt: new Date(),
-                  transactionId: `TXN-${Date.now().toString().slice(-6)}`,
-                },
-              },
-            }
-          : {}),
       },
       include: this.orderInclude,
     });
@@ -488,37 +515,65 @@ export class OrderService {
       throw new Error('Order not found or unauthorized');
     }
 
-    // If items are provided, replace existing items
-    if (data.items && Array.isArray(data.items)) {
-      await prisma.orderItem.deleteMany({
-        where: { orderId: id },
-      });
-
-      const orderItemsData = data.items.map((item: any) => ({
-        orderId: id,
-        menuItemId: item.menuItemId || null,
-        dealId: item.dealId || null,
-        name: item.name || 'Custom Item',
-        quantity: item.quantity,
-        unitPrice: item.unitPrice || item.price || 0,
-        price: item.unitPrice || item.price || 0,
-        total: (item.unitPrice || item.price || 0) * item.quantity,
-        specialInstructions: item.notes || null,
-        notes: item.notes || null,
-        status: item.status || 'PENDING',
-      }));
-
-      await prisma.orderItem.createMany({
-        data: orderItemsData,
-      });
+    const updateData: any = {};
+    const allowedScalarFields = [
+      'customerName', 'customerPhone', 'deliveryAddress', 'dineInTag', 'customerCount',
+      'notes', 'serviceCharge', 'serviceChargeRate', 'deliveryCharge', 'tax', 'taxRate', 'status',
+    ];
+    for (const field of allowedScalarFields) {
+      if (data[field] !== undefined) updateData[field] = data[field];
+    }
+    if (data.tableId !== undefined) {
+      const table = await prisma.table.findFirst({ where: { id: data.tableId, floorPlan: { restaurantId } } });
+      if (!table) throw new ValidationError('Table not found in this business');
+      updateData.tableId = table.id;
+    }
+    if (data.serverId !== undefined) {
+      const server = await prisma.employee.findFirst({ where: { id: data.serverId, restaurantId, isActive: true } });
+      if (!server) throw new ValidationError('Server not found in this business');
+      updateData.serverId = server.id;
     }
 
-    const { items, server, payments, ...updateFields } = data;
-
-    const updatedOrder = await prisma.order.update({
-      where: { id },
-      data: updateFields,
-      include: {
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      if (Array.isArray(data.items)) {
+        const items = [];
+        for (const item of data.items) {
+          let unitPrice = 0;
+          let name = item.name || 'Custom Item';
+          if (item.menuItemId) {
+            const menuItem = await tx.menuItem.findFirst({ where: { id: item.menuItemId, restaurantId } });
+            if (!menuItem) throw new ValidationError('Menu item not found in this business');
+            unitPrice = menuItem.price;
+            name = menuItem.name;
+          } else if (item.dealId) {
+            const deal = await tx.deal.findFirst({ where: { id: item.dealId, restaurantId } });
+            if (!deal) throw new ValidationError('Deal not found in this business');
+            unitPrice = deal.price;
+            name = deal.name;
+          }
+          const quantity = Number(item.quantity);
+          if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Invalid item quantity');
+          items.push({
+            orderId: id,
+            menuItemId: item.menuItemId || null,
+            dealId: item.dealId || null,
+            name,
+            quantity,
+            unitPrice,
+            price: unitPrice,
+            total: unitPrice * quantity,
+            specialInstructions: item.notes || null,
+            notes: item.notes || null,
+            status: item.status || 'PENDING',
+          });
+        }
+        await tx.orderItem.deleteMany({ where: { orderId: id } });
+        await tx.orderItem.createMany({ data: items });
+      }
+      return tx.order.update({
+        where: { id, restaurantId },
+        data: updateData,
+        include: {
         items: {
           include: {
             menuItem: true,
@@ -540,7 +595,8 @@ export class OrderService {
             lastName: true,
           },
         },
-      },
+        },
+      });
     });
 
     const io = getIO();

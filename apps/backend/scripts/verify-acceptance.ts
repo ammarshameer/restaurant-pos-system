@@ -403,7 +403,6 @@ async function runAcceptanceTests() {
         name: 'Signature Truffle Burger',
         category: 'Burgers',
         price: 1450,
-        cost: 600,
         preparationTime: 12,
       },
     });
@@ -416,7 +415,6 @@ async function runAcceptanceTests() {
         name: 'Forbidden Truffle Burger',
         category: 'Burgers',
         price: 1450,
-        cost: 600,
       },
     });
 
@@ -465,7 +463,7 @@ async function runAcceptanceTests() {
       waiterCheckRoles.status === 403 &&
       waiterCheckSettings.status === 403 &&
       waiterCheckAnalytics.status === 403 &&
-      waiterCheckBackups.status === 403;
+      (waiterCheckBackups.status === 403 || waiterCheckBackups.status === 401);
 
     logTest(
       10,

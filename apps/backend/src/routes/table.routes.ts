@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { PrismaClient } from '@prisma/client';
 import { TableService } from '../services/table.service';
 import {
   AuthRequest,
@@ -8,6 +9,21 @@ import {
 
 const router = Router();
 const tableService = new TableService();
+const prisma = new PrismaClient();
+
+router.get('/floor-plans', requirePermission('tables.view'), async (req: AuthRequest, res, next) => {
+  try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const floorPlans = await prisma.floorPlan.findMany({
+      where: { restaurantId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true },
+    });
+    res.json(floorPlans);
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Get all tables for a floor plan
 router.get('/floor/:floorPlanId', requirePermission('tables.view'), async (req: AuthRequest, res, next) => {

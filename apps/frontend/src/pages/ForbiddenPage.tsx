@@ -10,7 +10,7 @@ export const ForbiddenPage: React.FC = () => {
   const getFirstPermittedRoute = (): string => {
     if (!user) return '/login';
     const perms = new Set(user.permissions || []);
-    if (user.role === 'OWNER' || user.role === 'ADMIN' || perms.has('pos.use')) return '/pos';
+    if (user.isOwnerRole === true || (!user.isOwnerRole && perms.has('pos.use'))) return '/pos';
     if (perms.has('kitchen.view')) return '/kitchen';
     if (perms.has('invoices.view') || perms.has('orders.view')) return '/invoices';
     if (perms.has('payments.view') || perms.has('payments.process')) return '/payments';
@@ -69,4 +69,3 @@ export const ForbiddenPage: React.FC = () => {
 };
 
 export default ForbiddenPage;
-

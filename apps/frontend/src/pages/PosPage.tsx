@@ -12,6 +12,7 @@ import { dealApi } from '../api/deal.api';
 import { Deal } from '../types/deal.types';
 import { getCategoryVisual } from '../utils/image';
 import { uuid } from '../lib/offline/id';
+import { customerApi, Customer } from '../api/customer.api';
 
 export type OrderType = 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY';
 
@@ -79,8 +80,26 @@ export const PosPage: React.FC = () => {
   // Order Type contextual metadata
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerSuggestions, setCustomerSuggestions] = useState<Customer[]>([]);
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [dineInTag, setDineInTag] = useState('');
+
+  useEffect(() => {
+    const query = customerName.trim().length >= 2 ? customerName.trim() : customerPhone.trim();
+    if (query.length < 2) {
+      setCustomerSuggestions([]);
+      return;
+    }
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await customerApi.list({ search: query, limit: 5 });
+        setCustomerSuggestions(result.data);
+      } catch {
+        setCustomerSuggestions([]);
+      }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [customerName, customerPhone]);
 
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -99,6 +118,16 @@ export const PosPage: React.FC = () => {
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [defaultReceiptTab, setDefaultReceiptTab] = useState<'BOTH' | 'CUSTOMER' | 'KITCHEN'>('BOTH');
+
+  const saveCustomer = async () => {
+    if (!customerName.trim()) return;
+    try {
+      await customerApi.create({ name: customerName.trim(), phone: customerPhone.trim() || undefined });
+      setNotification('Customer saved');
+    } catch (error: any) {
+      setNotification(error?.response?.data?.error || 'Failed to save customer');
+    }
+  };
 
   // Cash payment prompt state
   const [cashModalOpen, setCashModalOpen] = useState(false);
@@ -703,6 +732,24 @@ export const PosPage: React.FC = () => {
             </div>
           )}
         </div>
+
+        {customerSuggestions.length > 0 && (
+          <div style={{ position: 'relative', zIndex: 20 }}>
+            <div style={{ position: 'absolute', left: 0, right: 0, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+              {customerSuggestions.map((customer) => (
+                <button
+                  key={customer.id}
+                  type="button"
+                  onClick={() => { setCustomerName(customer.name); setCustomerPhone(customer.phone || ''); setCustomerSuggestions([]); }}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', border: 0, background: 'transparent', color: 'var(--text-primary)' }}
+                >
+                  {customer.name}{customer.phone ? ` — ${customer.phone}` : ''}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <button type="button" className="btn btn-secondary" disabled={!customerName.trim()} onClick={saveCustomer}>Save Customer</button>
 
         {/* Search & Category Pills */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

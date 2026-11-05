@@ -1,4 +1,6 @@
 import { PrismaClient } from '@prisma/client';
+import { hasFeature } from './feature.service';
+import { redactCosting } from './cost-redaction.service';
 
 const prisma = new PrismaClient();
 
@@ -10,6 +12,11 @@ const formatDealResponse = (deal: any) => {
     items: itemsList,
     dealItems: itemsList,
   };
+};
+
+const formatForTenant = async (deal: any, restaurantId: string) => {
+    const formatted = formatDealResponse(deal);
+    return await hasFeature(restaurantId, 'costing') ? formatted : redactCosting(formatted);
 };
 
 export class DealService {
@@ -67,8 +74,9 @@ export class DealService {
 
     const hasMore = page * limit < totalCount;
 
+    const data = await Promise.all(items.map((deal) => formatForTenant(deal, restaurantId)));
     return {
-      data: items.map(formatDealResponse),
+      data,
       page,
       limit,
       totalCount,
@@ -100,7 +108,7 @@ export class DealService {
       orderBy: { name: 'asc' },
     });
 
-    return deals.map(formatDealResponse);
+    return Promise.all(deals.map((deal) => formatForTenant(deal, restaurantId)));
   }
 
   async getDealById(id: string, restaurantId: string) {
@@ -126,7 +134,7 @@ export class DealService {
       },
     });
 
-    return formatDealResponse(deal);
+    return formatForTenant(deal, restaurantId);
   }
 
   async createDeal(data: {
@@ -144,6 +152,11 @@ export class DealService {
     }
 
     const itemsList = data.items || data.dealItems || [];
+    for (const item of itemsList) {
+      if (!item?.menuItemId) continue;
+      const menuItem = await prisma.menuItem.findFirst({ where: { id: item.menuItemId, restaurantId: data.restaurantId } });
+      if (!menuItem) throw Object.assign(new Error('Menu item not found in this business'), { name: 'ValidationError', statusCode: 400 });
+    }
     const validItems = itemsList.filter(
       (item) => item && item.menuItemId && Number(item.quantity) > 0
     );
@@ -179,7 +192,7 @@ export class DealService {
       },
     });
 
-    return formatDealResponse(created);
+    return formatForTenant(created, data.restaurantId);
   }
 
   async updateDeal(id: string, data: any, restaurantId: string) {
@@ -215,6 +228,10 @@ export class DealService {
         const validItems = itemsList.filter(
           (item: any) => item && item.menuItemId && Number(item.quantity) > 0
         );
+        for (const item of validItems) {
+          const menuItem = await tx.menuItem.findFirst({ where: { id: item.menuItemId, restaurantId } });
+          if (!menuItem) throw Object.assign(new Error('Menu item not found in this business'), { name: 'ValidationError', statusCode: 400 });
+        }
 
         if (validItems.length > 0) {
           await tx.dealItem.createMany({
@@ -243,7 +260,7 @@ export class DealService {
         },
       });
 
-      return formatDealResponse(updated);
+      return formatForTenant(updated, restaurantId);
     });
   }
 
@@ -284,7 +301,7 @@ export class DealService {
       },
     });
 
-    return formatDealResponse(updated);
+    return formatForTenant(updated, restaurantId);
   }
 
   async deleteDeal(id: string, restaurantId: string) {

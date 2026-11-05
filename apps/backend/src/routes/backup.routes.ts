@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import { backupService } from '../services/backup.service';
-import { requirePermission } from '../middleware/auth';
+import { authenticatePlatform, authorizePlatform } from '../middleware/auth';
 
 const router = Router();
 
-// Backup operations require backups.manage
-router.use(requirePermission('backups.manage'));
+router.use(authenticatePlatform, authorizePlatform(['SUPER_ADMIN']));
 
 // List all automated and manual database backups
 router.get('/', (req, res) => {

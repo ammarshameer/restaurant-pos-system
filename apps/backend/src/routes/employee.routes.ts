@@ -91,7 +91,7 @@ router.post('/', requirePermission('employees.manage'), async (req: AuthRequest,
     );
     res.status(201).json(employee);
   } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Failed to create employee' });
+    res.status(error.statusCode || 400).json({ error: error.message || 'Failed to create employee' });
   }
 });
 
@@ -107,10 +107,7 @@ router.patch('/:id', requirePermission('employees.manage'), async (req: AuthRequ
     );
     res.json(employee);
   } catch (error: any) {
-    if (error.message?.includes('Cannot assign a role with permissions exceeding your own')) {
-      return res.status(403).json({ error: error.message });
-    }
-    res.status(400).json({ error: error.message || 'Failed to update employee' });
+    res.status(error.statusCode || 400).json({ error: error.message || 'Failed to update employee' });
   }
 });
 

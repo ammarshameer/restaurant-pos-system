@@ -1,13 +1,28 @@
 import { Router, Response, NextFunction } from 'express';
 import { OrderService } from '../services/order.service';
+import { hasFeature } from '../services/feature.service';
+import { redactCosting } from '../services/cost-redaction.service';
 import {
   AuthRequest,
   getAuthenticatedRestaurantId,
   requirePermission,
+  requireAnyPermission,
 } from '../middleware/auth';
 
 const router = Router();
 const orderService = new OrderService();
+
+router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const originalJson = res.json.bind(res);
+  res.json = ((body: any) => {
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    void hasFeature(restaurantId, 'costing').then((enabled) => {
+      originalJson(enabled ? body : redactCosting(body));
+    }).catch(next);
+    return res;
+  }) as any;
+  next();
+});
 
 // Create new order
 router.post('/', requirePermission('orders.create'), async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -173,7 +188,7 @@ router.post('/:id/items', requirePermission('orders.update'), async (req: AuthRe
 });
 
 // Update order item status
-router.patch('/items/:itemId/status', requirePermission('orders.update'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/items/:itemId/status', requireAnyPermission(['orders.update', 'kitchen.manage']), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await orderService.updateOrderItemStatus(req.params.itemId, req.body.status, restaurantId);
@@ -184,7 +199,7 @@ router.patch('/items/:itemId/status', requirePermission('orders.update'), async 
 });
 
 // Update order status
-router.patch('/:id/status', requirePermission('orders.update'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/:id/status', requireAnyPermission(['orders.update', 'kitchen.manage']), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const order = await orderService.updateOrderStatus(req.params.id, req.body.status, restaurantId);

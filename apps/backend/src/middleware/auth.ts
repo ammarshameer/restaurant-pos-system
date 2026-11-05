@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
-import { ALL_PERMISSIONS } from '../permissions';
+import { ALL_PERMISSIONS, FeatureKey, Permission } from '../permissions';
 import { JWT_PLATFORM_SECRET } from '../config/secrets';
 import {
   resolveTenantSession,
   AuthenticatedUser,
   SessionResolverError,
 } from '../services/session-resolver';
+import { hasFeature } from '../services/feature.service';
 
 const prisma = new PrismaClient();
 
@@ -111,6 +112,54 @@ export const requirePermission = (...requiredPermissions: string[]) => {
     }
 
     next();
+  };
+};
+
+export const requireAnyPermission = (permissions: Permission[]) => {
+    return (req: AuthRequest, res: Response, next: NextFunction) => {
+      if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+      if (req.user.isOwnerRole || permissions.some((permission) => req.user?.permissions?.includes(permission))) {
+        return next();
+      }
+      return res.status(403).json({
+        error: `Insufficient permissions: requires one of ${permissions.join(', ')}`,
+        code: 'FORBIDDEN',
+        required: permissions,
+      });
+    };
+};
+
+export const requireFeature = (feature: FeatureKey) => {
+    return async (req: AuthRequest, res: Response, next: NextFunction) => {
+      if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+      if (!(await hasFeature(req.user.restaurantId, feature))) {
+        return res.status(403).json({
+          error: 'Feature not enabled for this business',
+          code: 'FEATURE_NOT_ENABLED',
+          feature,
+        });
+      }
+      next();
+  };
+};
+
+const COST_FIELDS = new Set([
+  'cost', 'costPerUnit', 'purchaseUnitCost', 'saleUnitCost', 'convertedCostPerSaleUnit',
+  'unitCost', 'averageCost', 'totalCost', 'estimatedCost', 'costTotal',
+]);
+
+export const requireCostingWritePermission = () => {
+    return async (req: AuthRequest, res: Response, next: NextFunction) => {
+      const containsCost = (value: unknown): boolean => {
+        if (!value || typeof value !== 'object') return false;
+        if (Array.isArray(value)) return value.some(containsCost);
+        return Object.entries(value).some(([key, child]) => COST_FIELDS.has(key) || containsCost(child));
+      };
+      if (!containsCost(req.body)) return next();
+      if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+      await requireFeature('costing')(req, res, () => {
+        requirePermission('costing.manage')(req, res, next);
+      });
   };
 };
 

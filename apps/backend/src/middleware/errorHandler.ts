@@ -16,13 +16,13 @@ export const errorHandler = (
   }
 
   if (error.name === 'ValidationError') {
-    return res.status(400).json({
+    return res.status(error.statusCode || 400).json({
       error: 'Validation error',
       message: error.message,
     });
   }
 
-  res.status(error.status || 500).json({
+  res.status(error.statusCode || error.status || 500).json({
     error: error.message || 'Internal server error',
   });
 };

@@ -23,6 +23,8 @@ import platformRoutes from './routes/platform.routes';
 import permissionRoutes from './routes/permission.routes';
 import roleRoutes from './routes/roles.routes';
 import settingRoutes from './routes/settings.routes';
+import customerRoutes from './routes/customer.routes';
+import accountingRoutes from './routes/accounting.routes';
 import { backupService } from './services/backup.service';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/auth';
@@ -38,9 +40,14 @@ const envOrigins = (process.env.FRONTEND_URL || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const extraOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const allowedOrigins = [
   ...envOrigins,
+  ...extraOrigins,
   'http://localhost:3100',
   'http://localhost:3000',
   'http://127.0.0.1:3100',
@@ -54,7 +61,7 @@ const io = new Server(httpServer, {
       if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
         return callback(null, true);
       }
-      return callback(null, true);
+      return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
   },
@@ -100,7 +107,8 @@ const isOriginAllowed = (origin: string | undefined): boolean => {
   if (!origin) return true; // Electron, mobile apps, local file://, curl, server-to-server
   if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) return true;
   // Allow any local dev server, including IPv6 localhost and HTTPS dev servers.
-  if (/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?$/.test(origin)) return true;
+  if (process.env.NODE_ENV !== 'production' &&
+      /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?$/.test(origin)) return true;
   if (process.env.NODE_ENV !== 'production') return true;
   return false;
 };
@@ -138,12 +146,10 @@ app.use((req, res, next) => {
 // Health check endpoint for Render/Railway/Electron polling
 const handleHealthCheck = async (req: express.Request, res: express.Response) => {
   try {
-    const restaurantCount = await prisma.restaurant.count();
     res.json({
       status: 'ok',
       mode: process.env.DATABASE_PROVIDER || (process.env.DATABASE_URL?.startsWith('postgres') ? 'online-postgres' : 'offline-sqlite'),
       dbConnected: true,
-      tenants: restaurantCount,
       timestamp: new Date().toISOString(),
       env: process.env.NODE_ENV || 'development',
     });
@@ -172,11 +178,13 @@ app.use('/api/employees', authenticate, employeeRoutes);
 app.use('/api/inventory', authenticate, inventoryRoutes);
 app.use('/api/analytics', authenticate, analyticsRoutes);
 app.use('/api/payments', authenticate, paymentRoutes);
-app.use('/api/backups', authenticate, backupRoutes);
+app.use('/api/backups', backupRoutes);
 app.use('/api/deals', authenticate, dealRoutes);
 app.use('/api/sync', authenticate, syncRoutes);
 app.use('/api/roles', authenticate, roleRoutes);
 app.use('/api/settings', authenticate, settingRoutes);
+app.use('/api/customers', authenticate, customerRoutes);
+app.use('/api/accounting', authenticate, accountingRoutes);
 
 // WebSocket setup
 setupWebSocket(io);

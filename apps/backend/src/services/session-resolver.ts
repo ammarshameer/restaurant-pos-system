@@ -1,7 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/secrets';
-import { ALL_PERMISSIONS, DEFAULT_SYSTEM_ROLES } from '../permissions';
+import { ALL_PERMISSIONS, DEFAULT_SYSTEM_ROLES, FeatureKey } from '../permissions';
+import { getEnabledFeatures } from './feature.service';
 
 const prisma = new PrismaClient();
 
@@ -16,6 +17,7 @@ export interface AuthenticatedUser {
   firstName?: string;
   lastName?: string;
   permissions?: string[];
+  features?: FeatureKey[];
   supportMode?: boolean;
   impersonatedBy?: string;
   tokenUse?: 'tenant';
@@ -138,9 +140,9 @@ export async function resolveTenantSession(token: string): Promise<Authenticated
     firstName: dbEmp.firstName,
     lastName: dbEmp.lastName,
     permissions,
+    features: await getEnabledFeatures(dbEmp.restaurantId),
     supportMode: isSupportActive,
     impersonatedBy: decoded.impersonatedBy,
     tokenUse: 'tenant',
   };
 }
-

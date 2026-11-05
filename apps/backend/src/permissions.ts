@@ -22,12 +22,21 @@ export const PERMISSIONS = [
   'kitchen.manage',
   'employees.view',
   'employees.manage',
+  'customers.view',
+  'customers.manage',
   'roles.view',
   'roles.manage',
   'analytics.view',
+  'costing.view',
+  'costing.manage',
+  'accounting.view',
+  'accounting.manage',
   'settings.manage',
   'backups.manage',
 ] as const;
+
+export const FEATURES = ['costing', 'accounting'] as const;
+export type FeatureKey = typeof FEATURES[number];
 
 export type Permission = typeof PERMISSIONS[number];
 
@@ -144,6 +153,15 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     ],
   },
   {
+    id: 'customers',
+    name: 'Customers',
+    description: 'Customer directory and order history',
+    permissions: [
+      { key: 'customers.view', name: 'View Customers', description: 'View customer profiles and order history' },
+      { key: 'customers.manage', name: 'Manage Customers', description: 'Create, edit, and delete customers' },
+    ],
+  },
+  {
     id: 'roles',
     name: 'Roles & Permissions',
     description: 'Custom security roles and permission sets',
@@ -158,6 +176,24 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     description: 'Business metrics, revenue, and product sales',
     permissions: [
       { key: 'analytics.view', name: 'View Analytics', description: 'Access revenue reports and sales charts' },
+    ],
+  },
+  {
+    id: 'costing',
+    name: 'Costing',
+    description: 'Menu, recipe, and inventory cost data',
+    permissions: [
+      { key: 'costing.view', name: 'View Costs', description: 'View menu and inventory cost information' },
+      { key: 'costing.manage', name: 'Manage Costs', description: 'Update recipe and inventory costs' },
+    ],
+  },
+  {
+    id: 'accounting',
+    name: 'Accounting',
+    description: 'Financial accounting reports',
+    permissions: [
+      { key: 'accounting.view', name: 'View Accounting', description: 'View financial accounting reports' },
+      { key: 'accounting.manage', name: 'Manage Accounting', description: 'Manage accounting configuration and reports' },
     ],
   },
   {
@@ -218,6 +254,8 @@ export const DEFAULT_SYSTEM_ROLES: SystemRoleDefinition[] = [
     isOwnerRole: false,
     permissions: PERMISSIONS.filter(
       (p) => p !== 'roles.manage' && p !== 'settings.manage' && p !== 'backups.manage'
+        && p !== 'costing.view' && p !== 'costing.manage'
+        && p !== 'accounting.view' && p !== 'accounting.manage'
     ),
   },
   {
@@ -250,6 +288,8 @@ export const DEFAULT_SYSTEM_ROLES: SystemRoleDefinition[] = [
       'orders.update',
       'menu.view',
       'invoices.view',
+      'customers.view',
+      'customers.manage',
     ],
   },
   {
@@ -268,6 +308,8 @@ export const DEFAULT_SYSTEM_ROLES: SystemRoleDefinition[] = [
       'payments.process',
       'invoices.view',
       'menu.view',
+      'customers.view',
+      'customers.manage',
     ],
   },
 ];

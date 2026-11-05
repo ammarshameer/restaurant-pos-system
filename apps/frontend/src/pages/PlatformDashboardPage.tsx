@@ -32,6 +32,8 @@ export const PlatformDashboardPage: React.FC = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [resetPwModalOpen, setResetPwModalOpen] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<PlatformTenant | null>(null);
+  const [featuresModalOpen, setFeaturesModalOpen] = useState(false);
+  const [tenantFeatures, setTenantFeatures] = useState<Array<{ key: string; enabled: boolean; expiresAt?: string | null }>>([]);
 
   // Forms
   const initialCreateForm: CreateBusinessPayload = {
@@ -197,6 +199,29 @@ export const PlatformDashboardPage: React.FC = () => {
     }
   };
 
+  const openFeatureModal = async (tenant: PlatformTenant) => {
+    setSelectedTenant(tenant);
+    try {
+      const data = await platformApi.getTenantFeatures(tenant.id);
+      setTenantFeatures(data.features || []);
+      setFeaturesModalOpen(true);
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Failed to load tenant features');
+    }
+  };
+
+  const saveTenantFeatures = async () => {
+    if (!selectedTenant) return;
+    try {
+      await platformApi.updateTenantFeatures(selectedTenant.id, tenantFeatures);
+      showSuccess(`Features updated for "${selectedTenant.name}".`);
+      setFeaturesModalOpen(false);
+      setSelectedTenant(null);
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Failed to update tenant features');
+    }
+  };
+
   // Enter Support Mode (Impersonation)
   const handleEnterTenant = async (tenant: PlatformTenant) => {
     if (!tenant.isActive) {
@@ -204,14 +229,8 @@ export const PlatformDashboardPage: React.FC = () => {
       return;
     }
 
-    const reason = window.prompt(
-      `Enter support reason for accessing "${tenant.name}" (audited):`,
-      'System maintenance and technical audit'
-    );
-    if (reason === null) return;
-
     try {
-      const session = await platformApi.enterTenant(tenant.id, reason);
+      const session = await platformApi.enterTenant(tenant.id, 'Support session');
       enterSupportMode({
         accessToken: session.accessToken,
         user: session.user,
@@ -594,6 +613,23 @@ export const PlatformDashboardPage: React.FC = () => {
 
                           {isSuperAdmin && (
                             <>
+                              <button
+                                type="button"
+                                onClick={() => void openFeatureModal(t)}
+                                title={`Manage features for ${t.name}`}
+                                aria-label={`Manage features for ${t.name}`}
+                                className="platform-action-button"
+                                style={{
+                                  background: '#1d4ed8',
+                                  color: '#ffffff',
+                                  border: 'none',
+                                  padding: '5px',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ⚙
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1136,6 +1172,41 @@ export const PlatformDashboardPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: TENANT FEATURES */}
+      {featuresModalOpen && selectedTenant && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={() => setFeaturesModalOpen(false)}
+        >
+          <div
+            style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '12px', width: '420px', padding: '24px' }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 style={{ marginTop: 0 }}>Features: {selectedTenant.name}</h2>
+            {tenantFeatures.map((feature, index) => (
+              <label key={feature.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #1e293b' }}>
+                <span>{feature.key}</span>
+                <input
+                  type="checkbox"
+                  checked={feature.enabled}
+                  onChange={(event) => setTenantFeatures((current) => current.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, enabled: event.target.checked } : item
+                  ))}
+                />
+              </label>
+            ))}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+              <button type="button" onClick={() => setFeaturesModalOpen(false)} style={{ background: '#334155', color: '#fff', border: 0, padding: '9px 18px', borderRadius: 6 }}>
+                Cancel
+              </button>
+              <button type="button" onClick={() => void saveTenantFeatures()} style={{ background: '#2563eb', color: '#fff', border: 0, padding: '9px 18px', borderRadius: 6, fontWeight: 700 }}>
+                Save Features
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { FeatureKey } from '../../types/permissions';
 
 export interface User {
   id: string;
@@ -13,6 +14,8 @@ export interface User {
   restaurantSlug?: string;
   restaurantLogoUrl?: string | null;
   permissions?: string[];
+  features?: FeatureKey[];
+  isOwnerRole?: boolean;
   supportMode?: boolean;
   impersonatedBy?: string;
 }

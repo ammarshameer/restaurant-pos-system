@@ -32,8 +32,7 @@ export const MenuPage: React.FC = () => {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const canManageMenu =
-    user?.role === 'OWNER' ||
-    user?.role === 'ADMIN' ||
+    user?.isOwnerRole === true ||
     (user?.permissions || []).includes('menu.manage');
 
   const [selectedCategory, setSelectedCategory] = useState('All');

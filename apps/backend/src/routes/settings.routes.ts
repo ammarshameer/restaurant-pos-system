@@ -11,6 +11,20 @@ import { validateLogo } from '../utils/validateLogo';
 const router = Router();
 const prisma = new PrismaClient();
 
+router.get('/branding', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const restaurant = await prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: { id: true, name: true, slug: true, logoUrl: true, address: true, phone: true, timezone: true },
+    });
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
+    res.json(restaurant);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Get current tenant business profile
 router.get('/business', requirePermission('settings.manage'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

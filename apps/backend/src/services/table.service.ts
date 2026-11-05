@@ -132,10 +132,19 @@ export class TableService {
     if (!table) {
       throw new Error('Table not found or unauthorized');
     }
+    const updateData: any = {};
+    const allowed = ['number', 'floorPlanId', 'capacity', 'minCapacity', 'x', 'y', 'width', 'height', 'shape', 'section', 'status'];
+    for (const field of allowed) {
+      if ((data as any)[field] !== undefined) updateData[field] = (data as any)[field];
+    }
+    if (updateData.floorPlanId) {
+      const floorPlan = await prisma.floorPlan.findFirst({ where: { id: updateData.floorPlanId, restaurantId } });
+      if (!floorPlan) throw Object.assign(new Error('Floor plan not found in this business'), { name: 'ValidationError', statusCode: 400 });
+    }
 
     return prisma.table.update({
       where: { id },
-      data,
+      data: updateData,
     });
   }
 

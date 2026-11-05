@@ -22,6 +22,7 @@ export const TablesPage: React.FC = () => {
   const [selectedTable, setSelectedTable] = useState<PosTable | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [floorPlanId, setFloorPlanId] = useState<string>();
   const [newTable, setNewTable] = useState({
     number: '',
     capacity: 4,
@@ -31,7 +32,14 @@ export const TablesPage: React.FC = () => {
   const loadTables = async () => {
     setLoading(true);
     try {
-      const data: any = await tableApi.getTables();
+      let activeFloorPlanId = floorPlanId;
+      if (!activeFloorPlanId) {
+        const floorPlans = await tableApi.getFloorPlans();
+        activeFloorPlanId = floorPlans[0]?.id;
+        if (activeFloorPlanId) setFloorPlanId(activeFloorPlanId);
+      }
+      if (!activeFloorPlanId) return;
+      const data: any = await tableApi.getTables(activeFloorPlanId);
       if (Array.isArray(data)) {
         setTables(
           data.map((t: any) => ({
@@ -91,7 +99,7 @@ export const TablesPage: React.FC = () => {
         status: 'AVAILABLE' as any,
         x: 100 + (tables.length % 5) * 60,
         y: 100 + Math.floor(tables.length / 5) * 60,
-      });
+      }, floorPlanId);
 
       if (created) {
         setTables((prev) => [

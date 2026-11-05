@@ -1,4 +1,6 @@
 import { PrismaClient } from '@prisma/client';
+import { hasFeature } from './feature.service';
+import { redactCosting } from './cost-redaction.service';
 
 const prisma = new PrismaClient();
 
@@ -8,7 +10,7 @@ export class MenuService {
       throw new Error('restaurantId is required');
     }
 
-    return prisma.category.findMany({
+    const result = await prisma.category.findMany({
       where: { restaurantId },
       include: {
         menuItems: {
@@ -29,6 +31,7 @@ export class MenuService {
       },
       orderBy: { displayOrder: 'asc' },
     });
+    return await hasFeature(restaurantId, 'costing') ? result : redactCosting(result);
   }
 
   async getMenuItems(
@@ -92,13 +95,14 @@ export class MenuService {
 
     const hasMore = page * limit < totalCount;
 
-    return {
+    const result = {
       data: items,
       page,
       limit,
       totalCount,
       hasMore,
     };
+    return await hasFeature(restaurantId, 'costing') ? result : redactCosting(result);
   }
 
   async getMenuItem(id: string, restaurantId: string) {
@@ -106,7 +110,7 @@ export class MenuService {
       throw new Error('restaurantId is required');
     }
 
-    return prisma.menuItem.findFirst({
+    const item = await prisma.menuItem.findFirst({
       where: {
         id,
         restaurantId,
@@ -126,6 +130,7 @@ export class MenuService {
         inventoryItems: true,
       },
     });
+    return await hasFeature(restaurantId, 'costing') ? item : redactCosting(item);
   }
 
   async createMenuItem(data: {
@@ -199,6 +204,12 @@ export class MenuService {
     const validIngredients = (data.ingredients || []).filter(
       (ing) => ing && ing.inventoryItemId && Number(ing.quantityUsed) > 0
     );
+    for (const ingredient of validIngredients) {
+      const inventoryItem = await prisma.inventoryItem.findFirst({
+        where: { id: ingredient.inventoryItemId, restaurantId: data.restaurantId },
+      });
+      if (!inventoryItem) throw Object.assign(new Error('Inventory item not found in this business'), { name: 'ValidationError', statusCode: 400 });
+    }
 
     return prisma.menuItem.create({
       data: {
@@ -302,14 +313,18 @@ export class MenuService {
 
     return prisma.$transaction(async (tx) => {
       if (data.ingredients !== undefined && Array.isArray(data.ingredients)) {
-        // Remove existing relations
-        await tx.menuItemIngredient.deleteMany({
-          where: { menuItemId: id },
-        });
-
         const validIngredients = data.ingredients.filter(
           (ing: any) => ing && ing.inventoryItemId && Number(ing.quantityUsed) > 0
         );
+        for (const ingredient of validIngredients) {
+          const inventoryItem = await tx.inventoryItem.findFirst({
+            where: { id: ingredient.inventoryItemId, restaurantId },
+          });
+          if (!inventoryItem) throw Object.assign(new Error('Inventory item not found in this business'), { name: 'ValidationError', statusCode: 400 });
+        }
+        await tx.menuItemIngredient.deleteMany({
+          where: { menuItemId: id },
+        });
 
         if (validIngredients.length > 0) {
           await tx.menuItemIngredient.createMany({
@@ -392,7 +407,10 @@ export class MenuService {
       throw new Error('Category not found or unauthorized');
     }
 
-    const { restaurantId: _, ...updateFields } = data;
+    const updateFields: any = {};
+    for (const field of ['name', 'description', 'displayOrder', 'isActive', 'imageUrl']) {
+      if (data[field] !== undefined) updateFields[field] = data[field];
+    }
     return prisma.category.update({
       where: { id },
       data: updateFields,

@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { getIO } from '../websocket';
+import { hasFeature } from './feature.service';
+import { redactCosting } from './cost-redaction.service';
 
 const prisma = new PrismaClient();
 
@@ -87,13 +89,14 @@ export class InventoryService {
 
     const hasMore = page * limit < totalCount;
 
-    return {
+    const result = {
       data: items,
       page,
       limit,
       totalCount,
       hasMore,
     };
+    return await hasFeature(restaurantId, 'costing') ? result : redactCosting(result);
   }
 
   async getInventoryItem(id: string, restaurantId: string) {
@@ -101,7 +104,7 @@ export class InventoryService {
       throw new Error('restaurantId is required');
     }
 
-    return prisma.inventoryItem.findFirst({
+    const item = await prisma.inventoryItem.findFirst({
       where: {
         id,
         restaurantId,
@@ -114,6 +117,7 @@ export class InventoryService {
         },
       },
     });
+    return await hasFeature(restaurantId, 'costing') ? item : redactCosting(item);
   }
 
   async createInventoryItem(data: {
@@ -190,10 +194,18 @@ export class InventoryService {
       throw new Error('Inventory item not found or unauthorized');
     }
 
-    const { restaurantId: _, ...updateFields } = data;
+    const updateData: any = {};
+    const allowed = ['name', 'unit', 'quantity', 'reorderPoint', 'costPerUnit', 'sku', 'category', 'menuItemId'];
+    for (const field of allowed) {
+      if (data[field] !== undefined) updateData[field] = data[field];
+    }
+    if (updateData.menuItemId) {
+      const menuItem = await prisma.menuItem.findFirst({ where: { id: updateData.menuItemId, restaurantId } });
+      if (!menuItem) throw Object.assign(new Error('Menu item not found in this business'), { name: 'ValidationError', statusCode: 400 });
+    }
     const item = await prisma.inventoryItem.update({
       where: { id },
-      data: updateFields,
+      data: updateData,
     });
 
     // Check if stock is low

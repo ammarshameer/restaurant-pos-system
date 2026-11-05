@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { AuthService } from './auth.service';
 import { ALL_PERMISSIONS, slugify } from '../permissions';
+import { getEnabledFeatures } from './feature.service';
 import { JWT_SECRET, JWT_PLATFORM_SECRET, JWT_REFRESH_SECRET } from '../config/secrets';
 import { validateLogo } from '../utils/validateLogo';
 
@@ -464,6 +465,8 @@ export class PlatformService {
         restaurantSlug: restaurant.slug,
         restaurantLogoUrl: restaurant.logoUrl,
         permissions: [...ALL_PERMISSIONS],
+        features: await getEnabledFeatures(restaurant.id),
+        isOwnerRole: true,
         supportMode: true,
         impersonatedBy: platformUser.id,
         isPlatform: false,

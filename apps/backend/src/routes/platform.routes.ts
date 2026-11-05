@@ -6,9 +6,12 @@ import {
   authorizePlatform,
   AuthRequest,
 } from '../middleware/auth';
+import { PrismaClient } from '@prisma/client';
+import { FEATURES, FeatureKey } from '../permissions';
 
 const router = Router();
 const platformService = new PlatformService();
+const prisma = new PrismaClient();
 
 const platformLoginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -79,6 +82,75 @@ router.get('/restaurants', async (req: AuthRequest, res: Response, next: NextFun
     const restaurants = await platformService.listRestaurants();
     res.json(restaurants);
   } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/restaurants/:id/features', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const restaurant = await prisma.restaurant.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
+    const rows = await prisma.tenantFeature.findMany({ where: { restaurantId: req.params.id } });
+    const byKey = new Map(rows.map((row) => [row.featureKey, row]));
+    res.json({
+      catalog: FEATURES,
+      features: FEATURES.map((key) => {
+        const row = byKey.get(key);
+        return {
+          key,
+          enabled: row ? row.enabled && (!row.expiresAt || row.expiresAt > new Date()) : false,
+          expiresAt: row?.expiresAt ?? null,
+        };
+      }),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/restaurants/:id/features', authorizePlatform(['SUPER_ADMIN']), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const restaurant = await prisma.restaurant.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
+    const updates = Array.isArray(req.body?.features) ? req.body.features : null;
+    if (!updates) return res.status(400).json({ error: 'features must be an array' });
+
+    const result = await prisma.$transaction(async (tx) => {
+      const saved = [];
+      for (const update of updates) {
+        if (!FEATURES.includes(update.key as FeatureKey)) {
+          throw Object.assign(new Error(`Invalid feature key: ${update.key}`), { statusCode: 400 });
+        }
+        const expiresAt = update.expiresAt ? new Date(update.expiresAt) : null;
+        if (expiresAt && Number.isNaN(expiresAt.getTime())) {
+          throw Object.assign(new Error('Invalid expiresAt'), { statusCode: 400 });
+        }
+        const row = await tx.tenantFeature.upsert({
+          where: { restaurantId_featureKey: { restaurantId: req.params.id, featureKey: update.key } },
+          create: {
+            restaurantId: req.params.id,
+            featureKey: update.key,
+            enabled: Boolean(update.enabled),
+            expiresAt,
+            grantedByPlatformUserId: req.platformUser?.id,
+          },
+          update: { enabled: Boolean(update.enabled), expiresAt, grantedByPlatformUserId: req.platformUser?.id },
+        });
+        await tx.platformAuditLog.create({
+          data: {
+            platformUserId: req.platformUser!.id,
+            restaurantId: req.params.id,
+            action: 'TENANT_FEATURE_UPDATED',
+            details: JSON.stringify({ feature: update.key, enabled: Boolean(update.enabled), expiresAt }),
+          },
+        });
+        saved.push(row);
+      }
+      return saved;
+    });
+    res.json({ features: result });
+  } catch (error: any) {
+    if (error?.statusCode === 400) return res.status(400).json({ error: error.message });
     next(error);
   }
 });
@@ -265,4 +337,3 @@ router.get(
 );
 
 export default router;
-

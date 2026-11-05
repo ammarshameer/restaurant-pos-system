@@ -4,6 +4,7 @@ import {
   AuthRequest,
   getAuthenticatedRestaurantId,
   requirePermission,
+  requireCostingWritePermission,
 } from '../middleware/auth';
 
 const router = Router();
@@ -66,7 +67,7 @@ router.get('/:id', requirePermission('inventory.view'), async (req: AuthRequest,
 });
 
 // Create inventory item
-router.post('/', requirePermission('inventory.manage'), async (req: AuthRequest, res, next) => {
+router.post('/', requirePermission('inventory.manage'), requireCostingWritePermission(), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await inventoryService.createInventoryItem({
@@ -80,7 +81,7 @@ router.post('/', requirePermission('inventory.manage'), async (req: AuthRequest,
 });
 
 // Update inventory item
-router.patch('/:id', requirePermission('inventory.manage'), async (req: AuthRequest, res, next) => {
+router.patch('/:id', requirePermission('inventory.manage'), requireCostingWritePermission(), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await inventoryService.updateInventoryItem(req.params.id, req.body, restaurantId);

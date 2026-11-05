@@ -9,11 +9,11 @@ import { menuApi } from './api/menu.api';
 import { orderApi, mapOrderRecord } from './api/order.api';
 import { socketClient } from './lib/socket';
 import { syncEngine } from './lib/offline/syncEngine';
-import { clearSession, getRefreshToken, getPlatformAccessToken } from './lib/session';
+import { clearSession, exitSupportMode, getRefreshToken, getPlatformAccessToken, isSupportMode } from './lib/session';
 import { api } from './lib/api';
 import SyncStatusIndicator from './components/SyncStatusIndicator';
-import SupportBanner from './components/SupportBanner';
 import RequirePermission from './components/RequirePermission';
+import RequireFeature from './components/RequireFeature';
 import { settingsApi } from './api/settings.api';
 import { cacheReceiptBranding } from './lib/receiptBranding';
 import { formatPersonName } from './utils/format';
@@ -32,6 +32,8 @@ import DealsPage from './pages/DealsPage';
 import RolesPage from './pages/RolesPage';
 import SettingsPage from './pages/SettingsPage';
 import ForbiddenPage from './pages/ForbiddenPage';
+import CustomersPage from './pages/CustomersPage';
+import AccountingPage from './pages/AccountingPage';
 
 // Platform Pages
 import PlatformLoginPage from './pages/PlatformLoginPage';
@@ -48,7 +50,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    void settingsApi.getBusinessSettings()
+    void settingsApi.getBranding()
       .then((settings) => {
         cacheReceiptBranding(settings);
       })
@@ -164,12 +166,13 @@ export const App: React.FC = () => {
   const firstPermittedRoute = useMemo((): string => {
     if (!user) return '/login';
     const perms = new Set(user.permissions || []);
-    if (user.role === 'OWNER' || user.role === 'ADMIN' || perms.has('pos.use')) return '/pos';
+    if (user.isOwnerRole || perms.has('pos.use')) return '/pos';
     if (perms.has('kitchen.view')) return '/kitchen';
     if (perms.has('invoices.view') || perms.has('orders.view')) return '/invoices';
     if (perms.has('payments.view') || perms.has('payments.process')) return '/payments';
     if (perms.has('menu.view')) return '/menu';
     if (perms.has('deals.view')) return '/deals';
+    if (perms.has('customers.view') || perms.has('customers.manage')) return '/customers';
     if (perms.has('inventory.view')) return '/inventory';
     if (perms.has('employees.view')) return '/employees';
     if (perms.has('roles.view') || perms.has('roles.manage')) return '/roles';
@@ -179,7 +182,7 @@ export const App: React.FC = () => {
   }, [user]);
 
   // Permission helpers for sidebar
-  const isOwner = user?.role === 'OWNER' || user?.role === 'ADMIN';
+  const isOwner = user?.isOwnerRole === true;
   const permsSet = useMemo(() => new Set(user?.permissions || []), [user]);
 
   const canSeePos = isOwner || permsSet.has('pos.use');
@@ -189,6 +192,8 @@ export const App: React.FC = () => {
   const canSeeMenu = isOwner || permsSet.has('menu.view');
   const canSeeDeals = isOwner || permsSet.has('deals.view');
   const canSeeInventory = isOwner || permsSet.has('inventory.view');
+  const canSeeCustomers = isOwner || permsSet.has('customers.view') || permsSet.has('customers.manage');
+  const canSeeAccounting = (isOwner || permsSet.has('accounting.view')) && user?.features?.includes('accounting');
   const canSeeEmployees = isOwner || permsSet.has('employees.view');
   const canSeeRoles = isOwner || permsSet.has('roles.view') || permsSet.has('roles.manage');
   const canSeeSettings = isOwner || permsSet.has('settings.manage');
@@ -247,6 +252,10 @@ export const App: React.FC = () => {
         return '💵 Cash Register & Receipts';
       case '/inventory':
         return '📦 Inventory & Stock Adjustments';
+      case '/customers':
+        return '👤 Customers';
+      case '/accounting':
+        return '💰 Accounting';
       case '/employees':
         return '👥 Staff Directory & Time Clock';
       case '/roles':
@@ -271,9 +280,6 @@ export const App: React.FC = () => {
 
   return (
     <div className="app-layout">
-      {/* Support Impersonation Banner */}
-      <SupportBanner />
-
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         {/* Sidebar Navigation */}
         <aside className="sidebar no-print">
@@ -356,10 +362,24 @@ export const App: React.FC = () => {
               </NavLink>
             )}
 
-            {canSeeInventory && (
+            {canSeeInventory && user?.features?.includes('costing') && (
               <NavLink to="/inventory" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                 <span className="nav-icon">📦</span>
                 <span>Inventory Stock</span>
+              </NavLink>
+            )}
+
+            {canSeeCustomers && (
+              <NavLink to="/customers" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">👤</span>
+                <span>Customers</span>
+              </NavLink>
+            )}
+
+            {canSeeAccounting && (
+              <NavLink to="/accounting" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">💰</span>
+                <span>Accounting</span>
               </NavLink>
             )}
 
@@ -415,6 +435,19 @@ export const App: React.FC = () => {
             >
               🔒 Switch User / Logout
             </button>
+            {(user?.supportMode || isSupportMode()) && (
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ width: '100%', justifyContent: 'center', marginTop: '8px' }}
+                onClick={() => {
+                  exitSupportMode();
+                  dispatch(logout());
+                  navigate('/platform');
+                }}
+              >
+                Exit support mode
+              </button>
+            )}
             <div className="app-version">Version {appVersion}</div>
           </div>
         </aside>
@@ -514,9 +547,29 @@ export const App: React.FC = () => {
               <Route
                 path="/inventory"
                 element={
-                  <RequirePermission permissions={['inventory.view']}>
-                    <InventoryPage />
+                  <RequireFeature feature="costing">
+                    <RequirePermission permissions={['inventory.view']}>
+                      <InventoryPage />
+                    </RequirePermission>
+                  </RequireFeature>
+                }
+              />
+              <Route
+                path="/customers"
+                element={
+                  <RequirePermission permissions={['customers.view', 'customers.manage']}>
+                    <CustomersPage />
                   </RequirePermission>
+                }
+              />
+              <Route
+                path="/accounting"
+                element={
+                  <RequireFeature feature="accounting">
+                    <RequirePermission permissions={['accounting.view']}>
+                      <AccountingPage />
+                    </RequirePermission>
+                  </RequireFeature>
                 }
               />
               <Route

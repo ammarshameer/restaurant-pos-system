@@ -4,6 +4,7 @@ import {
   AuthRequest,
   getAuthenticatedRestaurantId,
   requirePermission,
+  requireCostingWritePermission,
 } from '../middleware/auth';
 
 const router = Router();
@@ -97,7 +98,7 @@ router.get('/items/:id', requirePermission('menu.view'), async (req: AuthRequest
 });
 
 // Create menu item
-router.post('/items', requirePermission('menu.manage'), async (req: AuthRequest, res, next) => {
+router.post('/items', requirePermission('menu.manage'), requireCostingWritePermission(), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await menuService.createMenuItem({
@@ -111,7 +112,7 @@ router.post('/items', requirePermission('menu.manage'), async (req: AuthRequest,
 });
 
 // Update menu item
-router.patch('/items/:id', requirePermission('menu.manage'), async (req: AuthRequest, res, next) => {
+router.patch('/items/:id', requirePermission('menu.manage'), requireCostingWritePermission(), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await menuService.updateMenuItem(req.params.id, req.body, restaurantId);
