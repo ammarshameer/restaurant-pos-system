@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from './store/store';
-import { logout, loginSuccess } from './store/slices/authSlice';
+import { logout, loginSuccess, updateUserPreferences } from './store/slices/authSlice';
 import { setMenuItems } from './store/slices/menuSlice';
 import { setOrders, updateOrder } from './store/slices/orderSlice';
 import { menuApi } from './api/menu.api';
@@ -17,6 +17,7 @@ import RequireFeature from './components/RequireFeature';
 import { settingsApi } from './api/settings.api';
 import { cacheReceiptBranding } from './lib/receiptBranding';
 import { formatPersonName } from './utils/format';
+import { PALETTE_OPTIONS } from './lib/themePalettes';
 
 // Tenant Pages
 import LoginPage from './pages/LoginPage';
@@ -48,6 +49,8 @@ export const App: React.FC = () => {
 
   const [liveAlert, setLiveAlert] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState(__APP_VERSION__);
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const themeMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -86,6 +89,25 @@ export const App: React.FC = () => {
     localStorage.setItem('pos_palette', palette);
   }, [palette]);
 
+  // Close the theme picker when clicking outside or pressing Escape.
+  useEffect(() => {
+    if (!themeMenuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (themeMenuRef.current && !themeMenuRef.current.contains(event.target as Node)) {
+        setThemeMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setThemeMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [themeMenuOpen]);
+
   useEffect(() => {
     const getVersion = window.electronAPI?.getVersion;
     if (getVersion) {
@@ -93,8 +115,14 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  const handleSelectThemeMode = (mode: 'dark' | 'light') => {
+    setTheme(mode);
+    dispatch(updateUserPreferences({ themeMode: mode }));
+  };
+
+  const handleSelectPalette = (paletteId: string) => {
+    setPalette(paletteId);
+    dispatch(updateUserPreferences({ themePalette: paletteId }));
   };
 
   // Restore stored auth session on mount
@@ -490,15 +518,135 @@ export const App: React.FC = () => {
             <div className="page-title">{getPageTitle()}</div>
 
             <div className="topbar-actions">
-              {/* Light / Dark Mode Toggle */}
-              <button
-                className="theme-toggle-btn"
-                onClick={toggleTheme}
-                title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-              >
-                <span className="theme-icon-anim">{theme === 'dark' ? '☀️' : '🌙'}</span>
-                <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
-              </button>
+              {/* Theme Picker: display mode + accent palettes */}
+              <div ref={themeMenuRef} style={{ position: 'relative' }}>
+                <button
+                  className="theme-toggle-btn"
+                  onClick={() => setThemeMenuOpen((open) => !open)}
+                  title="Change theme and accent palette"
+                  aria-haspopup="true"
+                  aria-expanded={themeMenuOpen}
+                >
+                  <span className="theme-icon-anim">{theme === 'dark' ? '🌙' : '☀️'}</span>
+                  <span>{theme === 'dark' ? 'Dark' : 'Light'}</span>
+                  <span style={{ fontSize: '10px', opacity: 0.7 }}>▾</span>
+                </button>
+
+                {themeMenuOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 8px)',
+                      right: 0,
+                      zIndex: 1000,
+                      width: '300px',
+                      padding: '14px',
+                      borderRadius: '12px',
+                      border: '1px solid var(--border-color)',
+                      background: 'var(--bg-card)',
+                      boxShadow: '0 12px 30px rgba(0, 0, 0, 0.35)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        color: 'var(--text-muted)',
+                        marginBottom: '8px',
+                      }}
+                    >
+                      Display Mode
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                      {(['dark', 'light'] as const).map((mode) => {
+                        const selected = theme === mode;
+                        return (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => handleSelectThemeMode(mode)}
+                            style={{
+                              flex: 1,
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              border: selected
+                                ? '1px solid var(--primary)'
+                                : '1px solid var(--border-color)',
+                              background: selected ? 'var(--primary-tint)' : 'transparent',
+                              color: selected ? 'var(--primary)' : 'var(--text-secondary)',
+                              fontWeight: 700,
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {mode === 'dark' ? '🌙 Dark' : '☀️ Light'} {selected ? '✓' : ''}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        color: 'var(--text-muted)',
+                        marginBottom: '8px',
+                      }}
+                    >
+                      Accent Theme
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      {PALETTE_OPTIONS.map((pal) => {
+                        const selected = palette === pal.id;
+                        return (
+                          <button
+                            key={pal.id}
+                            type="button"
+                            title={pal.desc}
+                            onClick={() => handleSelectPalette(pal.id)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '7px',
+                              padding: '8px 9px',
+                              borderRadius: '8px',
+                              border: selected
+                                ? '1px solid var(--primary)'
+                                : '1px solid var(--border-color)',
+                              background: selected ? 'var(--primary-tint)' : 'transparent',
+                              color: selected ? 'var(--primary)' : 'var(--text-secondary)',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: '14px',
+                                height: '14px',
+                                borderRadius: '50%',
+                                background: pal.hex,
+                                flexShrink: 0,
+                                boxShadow: `0 0 6px ${pal.hex}66`,
+                              }}
+                            />
+                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {pal.name}
+                            </span>
+                            {selected && <span style={{ fontWeight: 800 }}>✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {liveAlert && (
                 <div

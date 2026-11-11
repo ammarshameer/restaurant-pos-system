@@ -4,17 +4,7 @@ import { RootState } from '../store/store';
 import { loginSuccess } from '../store/slices/authSlice';
 import { settingsApi } from '../api/settings.api';
 import { cacheReceiptBranding } from '../lib/receiptBranding';
-
-const PALETTE_OPTIONS = [
-  { id: 'espresso', name: 'Espresso & Gold', hex: '#e0a93f', desc: 'Warm coffee roast & amber gold' },
-  { id: 'wine', name: 'Merlot & Rose', hex: '#e11d48', desc: 'Deep burgundy & rose gold' },
-  { id: 'ocean', name: 'Ocean & Cyan', hex: '#0284c7', desc: 'Deep oceanic slate & rich cyan' },
-  { id: 'emerald', name: 'Emerald & Mint', hex: '#059669', desc: 'Lush forest green & mint' },
-  { id: 'royal', name: 'Royal & Lilac', hex: '#7c3aed', desc: 'Regal amethyst plum & lilac' },
-  { id: 'sunset', name: 'Sunset Amber', hex: '#ea580c', desc: 'Warm charcoal & terracotta amber' },
-  { id: 'rose', name: 'Dusty Rose', hex: '#db2777', desc: 'Charcoal with ruby pink accent' },
-  { id: 'midnight', name: 'Midnight Slate', hex: '#64748b', desc: 'Modern dark slate with silver tone' },
-];
+import { PALETTE_OPTIONS } from '../lib/themePalettes';
 
 export const SettingsPage: React.FC = () => {
   const dispatch = useDispatch();
