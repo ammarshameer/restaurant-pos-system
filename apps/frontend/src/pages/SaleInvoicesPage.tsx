@@ -19,7 +19,7 @@ export const SaleInvoicesPage: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrderType, setSelectedOrderType] = useState<'ALL' | 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY'>('ALL');
-  const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<'ALL' | 'PAID' | 'UNPAID'>('ALL');
+  const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<'ALL' | 'PAID' | 'PARTIAL' | 'UDHAAR' | 'UNPAID'>('ALL');
 
   // Receipt Modal State
   const [receiptOpen, setReceiptOpen] = useState(false);
@@ -131,10 +131,22 @@ export const SaleInvoicesPage: React.FC = () => {
 
   // KPI calculations
   const totalInvoiced = orders.reduce((sum, o) => sum + (o.total || 0), 0);
-  const paidOrders = orders.filter((o) => o.paymentStatus === 'PAID');
-  const unpaidOrders = orders.filter((o) => o.paymentStatus === 'UNPAID');
-  const paidRevenue = paidOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-  const unpaidRevenue = unpaidOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+  const paidOrders = orders.filter((o) => o.paymentStatus === 'PAID' && !o.settledToCredit);
+  const udhaarOrders = orders.filter((o) => Boolean(o.settledToCredit));
+  const partialOrders = orders.filter((o) => o.paymentStatus === 'PARTIAL' && !o.settledToCredit);
+  const unpaidOrders = orders.filter((o) => o.paymentStatus === 'UNPAID' && !o.settledToCredit);
+
+  const paidRevenue = orders.reduce(
+    (sum, o) => sum + (o.totalPaid !== undefined ? o.totalPaid : (o.paymentStatus === 'PAID' ? o.total : 0)),
+    0
+  );
+  const udhaarAmount = udhaarOrders.reduce(
+    (sum, o) => sum + (o.amountDue !== undefined ? o.amountDue : Math.max(0, o.total - (o.totalPaid || 0))),
+    0
+  );
+  const unpaidRevenue = orders
+    .filter((o) => !o.settledToCredit)
+    .reduce((sum, o) => sum + (o.amountDue !== undefined ? o.amountDue : (o.paymentStatus === 'PAID' ? 0 : o.total)), 0);
 
   const handleOpenReceipt = (order: Order) => {
     const isDineIn = order.orderType === 'DINE_IN';
@@ -175,9 +187,11 @@ export const SaleInvoicesPage: React.FC = () => {
       tax: isDineIn ? order.tax : 0,
       taxRate: isDineIn ? order.taxRate : 0,
       total: order.total,
-      totalPaid: order.totalPaid || order.total,
+      totalPaid: order.totalPaid !== undefined ? order.totalPaid : (order.paymentStatus === 'PAID' ? order.total : 0),
+      amountDue: order.amountDue !== undefined ? order.amountDue : Math.max(0, order.total - (order.totalPaid || 0)),
+      settledToCredit: Boolean(order.settledToCredit),
       change: order.change || 0,
-      paymentMethod: order.paymentMethod || 'CASH',
+      paymentMethod: order.paymentMethod || (order.settledToCredit ? 'UDHAAR / CREDIT' : 'CASH'),
     };
 
     setReceiptData(receipt);
@@ -301,7 +315,18 @@ export const SaleInvoicesPage: React.FC = () => {
       tax: isEditDineIn ? editTax : 0,
       taxRate: isEditDineIn ? editTaxRate : 0,
       total: editTotal,
-      totalPaid: editPaymentStatus === 'PAID' ? editTotal : 0,
+      totalPaid:
+        editPaymentStatus === 'PAID'
+          ? editTotal
+          : editPaymentStatus === 'PARTIAL'
+          ? Math.min(editingOrder.totalPaid || 0, editTotal)
+          : 0,
+      amountDue:
+        editPaymentStatus === 'PAID'
+          ? 0
+          : editPaymentStatus === 'PARTIAL'
+          ? Math.max(0, +(editTotal - Math.min(editingOrder.totalPaid || 0, editTotal)).toFixed(2))
+          : editTotal,
       status: editPaymentStatus === 'PAID' ? 'paid' : editingOrder.status,
     };
 
@@ -324,6 +349,165 @@ export const SaleInvoicesPage: React.FC = () => {
       default:
         return <span className="badge badge-open">{type}</span>;
     }
+  };
+
+  const renderPaymentBadge = (order: Order) => {
+    const isSettledCredit = Boolean(order.settledToCredit);
+    const totalPaid = Number(order.totalPaid || 0);
+    const total = Number(order.total || 0);
+    const amountDue = Number(
+      order.amountDue !== undefined
+        ? order.amountDue
+        : Math.max(0, +(total - totalPaid).toFixed(2))
+    );
+    const isPaidInFull =
+      order.paymentStatus === 'PAID' || (totalPaid >= total - 0.01 && total > 0);
+    const isPartial =
+      order.paymentStatus === 'PARTIAL' || (totalPaid > 0 && amountDue > 0);
+
+    // 1. Settled to Udhaar / Customer Credit
+    if (isSettledCredit) {
+      if (isPaidInFull && amountDue <= 0.01) {
+        return (
+          <div>
+            <span
+              className="badge badge-ready"
+              style={{
+                background: 'rgba(16, 185, 129, 0.2)',
+                color: '#34d399',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              ✓ PAID (UDHAAR CLEARED)
+            </span>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+              Full: {formatPKR(totalPaid || total)}
+            </div>
+          </div>
+        );
+      }
+
+      if (totalPaid > 0) {
+        return (
+          <div>
+            <span
+              className="badge"
+              style={{
+                background: 'rgba(99, 102, 241, 0.2)',
+                color: '#818cf8',
+                border: '1px solid rgba(99, 102, 241, 0.4)',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              💳 PARTIAL + UDHAAR
+            </span>
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              Paid: <strong style={{ color: '#34d399' }}>{formatPKR(totalPaid)}</strong> • Udhaar: <strong style={{ color: '#f59e0b' }}>{formatPKR(amountDue)}</strong>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div>
+          <span
+            className="badge"
+            style={{
+              background: 'rgba(99, 102, 241, 0.2)',
+              color: '#818cf8',
+              border: '1px solid rgba(99, 102, 241, 0.4)',
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            💳 UDHAAR / CREDIT
+          </span>
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+            Udhaar Due: <strong style={{ color: '#f59e0b' }}>{formatPKR(total)}</strong>
+          </div>
+        </div>
+      );
+    }
+
+    // 2. Paid in full
+    if (isPaidInFull) {
+      return (
+        <div>
+          <span
+            className="badge badge-ready"
+            style={{
+              background: 'rgba(16, 185, 129, 0.2)',
+              color: '#34d399',
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            ✓ PAID
+          </span>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+            {order.paymentMethod || 'CASH'} • {formatPKR(totalPaid || total)}
+          </div>
+        </div>
+      );
+    }
+
+    // 3. Partial cash payment (not transferred to udhaar)
+    if (isPartial) {
+      return (
+        <div>
+          <span
+            className="badge badge-open"
+            style={{
+              background: 'rgba(245, 158, 11, 0.2)',
+              color: '#fbbf24',
+              border: '1px solid rgba(245, 158, 11, 0.4)',
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            ⚠️ PARTIAL
+          </span>
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+            Paid: <strong style={{ color: '#34d399' }}>{formatPKR(totalPaid)}</strong> • Due: <strong style={{ color: '#f87171' }}>{formatPKR(amountDue)}</strong>
+          </div>
+        </div>
+      );
+    }
+
+    // 4. Completely unpaid
+    return (
+      <div>
+        <span
+          className="badge"
+          style={{
+            background: 'rgba(239, 68, 68, 0.18)',
+            color: '#f87171',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            fontWeight: 700,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}
+        >
+          ⏳ UNPAID
+        </span>
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+          Due: {formatPKR(amountDue || total)}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -406,17 +590,17 @@ export const SaleInvoicesPage: React.FC = () => {
           </div>
           <div>
             <div className="stat-val" style={{ color: '#38bdf8' }}>{formatPKR(paidRevenue)}</div>
-            <div className="stat-label">Settled Paid ({paidOrders.length})</div>
+            <div className="stat-label">Paid Collected ({paidOrders.length})</div>
           </div>
         </div>
 
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'var(--warning-glow)', color: 'var(--warning)' }}>
-            ⏳
+          <div className="stat-icon" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8' }}>
+            💳
           </div>
           <div>
-            <div className="stat-val" style={{ color: '#fbbf24' }}>{formatPKR(unpaidRevenue)}</div>
-            <div className="stat-label">Unpaid / Pending ({unpaidOrders.length})</div>
+            <div className="stat-val" style={{ color: '#818cf8' }}>{formatPKR(udhaarAmount)}</div>
+            <div className="stat-label">Udhaar ({udhaarOrders.length}) • Due: {formatPKR(unpaidRevenue)}</div>
           </div>
         </div>
       </div>
@@ -447,7 +631,7 @@ export const SaleInvoicesPage: React.FC = () => {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           {/* Order Type Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>Type:</span>
             {(['ALL', 'DINE_IN', 'TAKE_AWAY', 'DELIVERY'] as const).map((type) => (
               <button
@@ -468,16 +652,24 @@ export const SaleInvoicesPage: React.FC = () => {
           </div>
 
           {/* Payment Status Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>Payment:</span>
-            {(['ALL', 'PAID', 'UNPAID'] as const).map((status) => (
+            {(['ALL', 'PAID', 'PARTIAL', 'UDHAAR', 'UNPAID'] as const).map((status) => (
               <button
                 key={status}
                 type="button"
                 className={`btn btn-sm ${selectedPaymentStatus === status ? 'btn-primary' : 'btn-secondary'}`}
                 onClick={() => setSelectedPaymentStatus(status)}
               >
-                {status === 'ALL' ? 'All Status' : status === 'PAID' ? '🟢 Paid' : '⏳ Unpaid'}
+                {status === 'ALL'
+                  ? 'All Status'
+                  : status === 'PAID'
+                  ? '🟢 Paid'
+                  : status === 'PARTIAL'
+                  ? '🟡 Partial'
+                  : status === 'UDHAAR'
+                  ? '💳 Udhaar'
+                  : '⏳ Unpaid'}
               </button>
             ))}
           </div>
@@ -594,18 +786,7 @@ export const SaleInvoicesPage: React.FC = () => {
                         {formatPKR(order.total)}
                       </span>
                     </td>
-                    <td>
-                      <span
-                        className={`badge ${isPaid ? 'badge-ready' : 'badge-open'}`}
-                        style={{
-                          background: isPaid ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
-                          color: isPaid ? '#34d399' : '#fbbf24',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {isPaid ? '✓ PAID' : '⏳ UNPAID'}
-                      </span>
-                    </td>
+                    <td>{renderPaymentBadge(order)}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
                         <button
@@ -859,7 +1040,14 @@ export const SaleInvoicesPage: React.FC = () => {
 
                 {/* 3. Payment Status */}
                 <div className="form-group">
-                  <label className="form-label">Payment Status</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label className="form-label" style={{ margin: 0 }}>Payment Status</label>
+                    {editingOrder.settledToCredit && (
+                      <span style={{ fontSize: '11px', color: '#818cf8', fontWeight: 700 }}>
+                        💳 Settled to Udhaar / Customer Credit
+                      </span>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <button
                       type="button"
@@ -868,6 +1056,14 @@ export const SaleInvoicesPage: React.FC = () => {
                       onClick={() => setEditPaymentStatus('PAID')}
                     >
                       ✓ PAID
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${editPaymentStatus === 'PARTIAL' ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ flex: 1 }}
+                      onClick={() => setEditPaymentStatus('PARTIAL')}
+                    >
+                      🟡 PARTIAL
                     </button>
                     <button
                       type="button"

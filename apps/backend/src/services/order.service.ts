@@ -420,13 +420,20 @@ export class OrderService {
     }
 
     if (options?.paymentStatus && options.paymentStatus !== 'ALL') {
-      if (options.paymentStatus.includes(',')) {
-        whereClause.paymentStatus = { in: options.paymentStatus.split(',').map((s) => s.trim()) };
-      } else if (options.paymentStatus === 'UNPAID') {
+      const ps = options.paymentStatus.toUpperCase();
+      if (ps === 'UDHAAR' || ps === 'CREDIT') {
+        whereClause.settledToCredit = true;
+      } else if (ps === 'PARTIAL') {
+        whereClause.paymentStatus = 'PARTIAL';
+      } else if (ps === 'PAID') {
+        whereClause.paymentStatus = 'PAID';
+      } else if (ps === 'UNPAID') {
         whereClause.paymentStatus = { in: ['UNPAID', 'PARTIAL'] };
         // Orders settled to customer credit are collected from the Dues page,
         // not from the cash register, so they must not appear here.
         whereClause.settledToCredit = false;
+      } else if (options.paymentStatus.includes(',')) {
+        whereClause.paymentStatus = { in: options.paymentStatus.split(',').map((s) => s.trim()) };
       } else {
         whereClause.paymentStatus = options.paymentStatus;
       }
