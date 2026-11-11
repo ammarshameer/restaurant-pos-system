@@ -186,15 +186,21 @@ export class PlatformService {
             createdAt: true,
           },
         },
+        tenantFeatures: true,
       },
     });
 
+    const now = new Date();
     return restaurants.map((r) => {
       // Find owner employee
       const owner =
         r.employees.find((e) => e.role === 'OWNER' || e.role === 'ADMIN') ||
         r.employees[0] ||
         null;
+
+      const enabledFeatures = ((r as any).tenantFeatures || [])
+        .filter((f: any) => f.enabled && (!f.expiresAt || new Date(f.expiresAt) > now))
+        .map((f: any) => f.featureKey);
 
       return {
         id: r.id,
@@ -209,6 +215,7 @@ export class PlatformService {
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
         userCount: r.employees.length,
+        enabledFeatures,
         owner: owner
           ? {
               id: owner.id,
@@ -238,6 +245,8 @@ export class PlatformService {
       ownerPhone?: string;
       ownerPassword: string;
       ownerPin?: string;
+      features?: Array<{ key: string; enabled: boolean; expiresAt?: string | Date | null }> | string[];
+      featureExpiresAt?: string | Date | null;
     },
     platformUserId: string,
     reqContext?: { ip?: string; userAgent?: string }

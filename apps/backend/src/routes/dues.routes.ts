@@ -39,14 +39,15 @@ router.get('/:customerId', requirePermission('dues.view'), async (req: AuthReque
 router.post('/:customerId/payments', requirePermission('dues.manage'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
-    const { amount, method, note } = req.body;
+    const { amount, method, note, clientId, idempotencyKey } = req.body;
     const result = await creditService.receivePayment(
       restaurantId,
       req.params.customerId,
       Number(amount),
       method || 'CASH',
       note,
-      req.user?.id
+      req.user?.id,
+      clientId || idempotencyKey
     );
     res.json(result);
   } catch (error: any) {

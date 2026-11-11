@@ -118,7 +118,7 @@ async function runAcceptanceTests() {
           ownerEmail: tenantAOwnerEmail,
           ownerPhone: '+92 300 7654321',
           ownerPassword: 'OwnerSecurePass123!',
-          ownerPin: '1234',
+          ownerPin: '123456',
         },
       });
 
@@ -301,7 +301,7 @@ async function runAcceptanceTests() {
         ownerEmail: `beatrice.${Date.now()}@silverfork.com`,
         ownerPhone: '+92 300 4445566',
         ownerPassword: 'OwnerPasswordB123!',
-        ownerPin: '5678',
+        ownerPin: '567890',
       },
     });
 
@@ -645,13 +645,13 @@ async function runAcceptanceTests() {
         lastName: 'Manager',
         email: mgrEmail,
         roleId: mgrRoleId,
-        pin: '5551',
+        pin: '555123',
       },
     });
 
     const mgrLogin = await request('/auth/pin-login', {
       method: 'POST',
-      body: { pin: '5551', tenantSlug: tenantASlug },
+      body: { pin: '555123', tenantSlug: tenantASlug },
     });
     const mgrToken = mgrLogin.data.accessToken;
 
@@ -766,6 +766,8 @@ async function runAcceptanceTests() {
       body: {
         businessName: 'SVG Attack Cafe',
         logoUrl: svgDataUri,
+        address: '123 SVG Lane',
+        phone: '+92 300 1112233',
         ownerFirstName: 'Mal',
         ownerLastName: 'Actor',
         ownerEmail: `mal.${Date.now()}@attacker.com`,
@@ -953,7 +955,7 @@ async function runAcceptanceTests() {
         lastName: 'Manager',
         email: mgr2Email,
         roleId: mgr2RoleId,
-        pin: '6651',
+        pin: '665123',
       },
     });
     const mgr2EmpId = mgr2EmpRes.data.id;
@@ -961,7 +963,7 @@ async function runAcceptanceTests() {
     // Log in as the Manager
     const mgr2LoginRes = await request('/auth/pin-login', {
       method: 'POST',
-      body: { pin: '6651', tenantSlug: tenantASlug },
+      body: { pin: '665123', tenantSlug: tenantASlug },
     });
     const mgr2Token = mgr2LoginRes.data.accessToken;
 
@@ -1566,6 +1568,82 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
+    // TEST 34: Table Freed and Order Leaves Active/Kitchen Lists When Paid or Settled to Credit
+    // ------------------------------------------------------------------------
+    let floorPlan = await prisma.floorPlan.findFirst({ where: { restaurantId: tenantAId } });
+    if (!floorPlan) {
+      floorPlan = await prisma.floorPlan.create({
+        data: { name: 'Main Floor', restaurantId: tenantAId },
+      });
+    }
+
+    const test34Table = await prisma.table.create({
+      data: {
+        number: String(Math.floor(Math.random() * 9000) + 1000),
+        floorPlanId: floorPlan.id,
+        capacity: 4,
+        status: 'AVAILABLE',
+      },
+    });
+
+    const test34Dish = await prisma.menuItem.findFirst({ where: { restaurantId: tenantAId } });
+    const test34OrderRes = await request('/orders', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        tableId: test34Table.id,
+        orderType: 'DINE_IN',
+        items: [{ menuItemId: test34Dish?.id, quantity: 1, price: 100 }],
+      },
+    });
+    const test34OrderId = test34OrderRes.data?.id;
+    const test34Total = Number(test34OrderRes.data?.total ?? 100);
+
+    // Table should now be OCCUPIED
+    const tableOccupied = await prisma.table.findUnique({ where: { id: test34Table.id } });
+
+    // Active orders list should contain this order
+    const activeOrdersBefore = await request(`/orders/restaurant/${tenantAId}/active`, { token: tenantAOwnerToken });
+    const inActiveBefore = Array.isArray(activeOrdersBefore.data) && activeOrdersBefore.data.some((o: any) => o.id === test34OrderId);
+
+    // Pay the order in full
+    await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        orderId: test34OrderId,
+        amount: test34Total,
+        method: 'CASH',
+      },
+    });
+
+    // Check table is now AVAILABLE
+    const tableFreed = await prisma.table.findUnique({ where: { id: test34Table.id } });
+
+    // Check order left active list
+    const activeOrdersAfter = await request(`/orders/restaurant/${tenantAId}/active`, { token: tenantAOwnerToken });
+    const inActiveAfter = Array.isArray(activeOrdersAfter.data) && activeOrdersAfter.data.some((o: any) => o.id === test34OrderId);
+
+    // Check items are marked SERVED
+    const orderItemsServed = await prisma.orderItem.findMany({ where: { orderId: test34OrderId } });
+    const allItemsServed = orderItemsServed.length > 0 && orderItemsServed.every((it: any) => it.status === 'SERVED');
+
+    const test34Pass =
+      tableOccupied?.status === 'OCCUPIED' &&
+      inActiveBefore &&
+      tableFreed?.status === 'AVAILABLE' &&
+      tableFreed?.currentOrder === null &&
+      !inActiveAfter &&
+      allItemsServed;
+
+    logTest(
+      34,
+      'Table is freed and order leaves active/kitchen lists when paid or settled to credit',
+      test34Pass,
+      `Table before: ${tableOccupied?.status}, inActiveBefore: ${inActiveBefore}, Table after: ${tableFreed?.status}, inActiveAfter: ${inActiveAfter}, itemsServed: ${allItemsServed}`
+    );
+
+    // ------------------------------------------------------------------------
     // TEST 35: Costing math converts purchase units to sale units
     // ------------------------------------------------------------------------
     const costingCategory = await prisma.category.create({
@@ -1969,6 +2047,7 @@ async function runAcceptanceTests() {
         ownerEmail: generatedPinEmail,
         ownerPassword: 'GeneratedOwnerPass123!',
         address: '9 Generated PIN Street',
+        phone: '+92 300 9998888',
       },
     });
     const generatedOwnerPin = createNoPinRes.data?.owner?.pin;
@@ -1988,21 +2067,22 @@ async function runAcceptanceTests() {
         ownerLastName: 'Owner',
         ownerEmail: `invalidpin.${Date.now()}@example.com`,
         ownerPassword: 'InvalidOwnerPass123!',
-        ownerPin: '12',
+        ownerPin: '1234',
         address: '10 Invalid PIN Street',
+        phone: '+92 300 9998889',
       },
     });
 
     const test41Pass =
       createNoPinRes.status === 201 &&
       typeof generatedOwnerPin === 'string' &&
-      /^\d{4,6}$/.test(generatedOwnerPin) &&
+      /^\d{6}$/.test(generatedOwnerPin) &&
       generatedPinLoginRes.status === 200 &&
       invalidOwnerPinRes.status === 400;
 
     logTest(
       41,
-      'Platform tenant creation returns the generated owner PIN and rejects invalid PIN formats',
+      'Platform tenant creation returns the generated 6-digit owner PIN and rejects invalid PIN formats',
       test41Pass,
       `Create: ${createNoPinRes.status}, generated PIN: ${generatedOwnerPin}, PIN login: ${generatedPinLoginRes.status}, invalid PIN: ${invalidOwnerPinRes.status}`
     );
@@ -2047,14 +2127,522 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
-    // TEST 43: Verification Summary
+    // TEST 43: Item 1 & 2: Cost Redaction on Inventory & Costing Summary with missingCostItems
+    // ------------------------------------------------------------------------
+    // Employee with inventory.view (but NOT costing.view) reads inventory items
+    const invRoleRes = await request('/roles', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        name: `Inventory Clerk ${Date.now()}`,
+        permissions: ['dashboard.view', 'inventory.view'],
+      },
+    });
+    await request('/employees', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        firstName: 'Stock',
+        lastName: 'Clerk',
+        email: `stock.${Date.now()}@goldenspoon.com`,
+        roleId: invRoleRes.data.id,
+        pin: '888123',
+      },
+    });
+
+    const stockAuth = await request('/auth/pin-login', {
+      method: 'POST',
+      body: { pin: '888123', tenantSlug: tenantASlug },
+    });
+    const stockToken = stockAuth.data.accessToken;
+
+    const stockInventoryRes = await request('/inventory', { token: stockToken });
+    const stockItems = Array.isArray(stockInventoryRes.data?.data) ? stockInventoryRes.data.data : [];
+    const stockCostRedacted = stockItems.length === 0 || stockItems.every((item: any) => item.costPerUnit === undefined && item.cost === undefined);
+
+    // Owner reads costing summary (has costing.view)
+    const item2CostingSummaryRes = await request('/costing/summary', { token: tenantAOwnerToken });
+    const hasMissingCostItems = Array.isArray(item2CostingSummaryRes.data?.missingCostItems);
+
+    // Staff reads costing summary (lacks costing.view) -> 403
+    const item2StaffCostingRes = await request('/costing/summary', { token: stockToken });
+
+    const test43Pass =
+      stockInventoryRes.status === 200 &&
+      stockCostRedacted &&
+      item2CostingSummaryRes.status === 200 &&
+      hasMissingCostItems &&
+      item2StaffCostingRes.status === 403;
+
+    logTest(
+      43,
+      'Inventory cost fields are redacted for users without costing.view; /costing/summary provides missingCostItems and 403s without permission',
+      test43Pass,
+      `Staff inventory: ${stockInventoryRes.status} (redacted=${stockCostRedacted}), Costing summary: ${item2CostingSummaryRes.status} (missingCostItems=${hasMissingCostItems}), Staff costing: ${item2StaffCostingRes.status}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 44: Item 3: OrderItem costAtSale Captured at Order Creation
+    // ------------------------------------------------------------------------
+    let costCatalogItem = await prisma.menuItem.findFirst({
+      where: { restaurantId: tenantAId },
+    });
+    if (!costCatalogItem) {
+      const defaultCategory = await prisma.category.findFirst({ where: { restaurantId: tenantAId } });
+      costCatalogItem = await prisma.menuItem.create({
+        data: {
+          name: 'Cost Dish',
+          price: 500,
+          cost: 150,
+          categoryId: defaultCategory!.id,
+          restaurantId: tenantAId,
+        },
+      });
+    }
+
+    const costAtSaleOrderRes = await request('/orders', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        orderType: 'DINE_IN',
+        items: [
+          {
+            menuItemId: costCatalogItem.id,
+            quantity: 2,
+          },
+        ],
+      },
+    });
+
+    const createdCostOrder = costAtSaleOrderRes.data;
+    const dbCostItem = await prisma.orderItem.findFirst({
+      where: { orderId: createdCostOrder?.id },
+    });
+
+    const test44Pass =
+      costAtSaleOrderRes.status === 201 &&
+      dbCostItem !== null &&
+      dbCostItem.costAtSale !== null &&
+      typeof dbCostItem.costAtSale === 'number';
+
+    logTest(
+      44,
+      'OrderItem costAtSale is resolved and recorded into the database upon order creation',
+      test44Pass,
+      `Create order: ${costAtSaleOrderRes.status}, costAtSale in DB: ${dbCostItem?.costAtSale}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 45: Item 4: Dues Payments Allocate Strictly to settledToCredit Orders with Unique Transaction ID & Idempotency
+    // ------------------------------------------------------------------------
+    let duesCatalogItem = await prisma.menuItem.findFirst({
+      where: { restaurantId: tenantAId },
+    });
+    if (!duesCatalogItem) {
+      const defaultCategory = await prisma.category.findFirst({ where: { restaurantId: tenantAId } });
+      duesCatalogItem = await prisma.menuItem.create({
+        data: {
+          name: 'Dues Dish',
+          price: 400,
+          categoryId: defaultCategory!.id,
+          restaurantId: tenantAId,
+        },
+      });
+    }
+
+    // 1. Create a customer with credit limit
+    const duesCustRes = await request('/customers', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        name: `Dues Customer ${Date.now()}`,
+        phone: `+92300${Date.now().toString().slice(-7)}`,
+        creditLimit: 5000,
+      },
+    });
+    const duesCustomer = duesCustRes.data;
+
+    // 2. Create order 1 with settleToCredit = true
+    const duesOrder1Res = await request('/orders', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        customerId: duesCustomer.id,
+        orderType: 'DINE_IN',
+        items: [{ menuItemId: duesCatalogItem.id, quantity: 1 }],
+      },
+    });
+    // Settle order 1 to credit
+    await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        orderId: duesOrder1Res.data.id,
+        amount: 100, // partial 100 paid
+        settleToCredit: true, // remaining to credit
+      },
+    });
+
+    // 3. Create order 2 UNPAID (settledToCredit = false)
+    const duesOrder2Res = await request('/orders', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        customerId: duesCustomer.id,
+        orderType: 'DINE_IN',
+        items: [{ menuItemId: duesCatalogItem.id, quantity: 1 }],
+      },
+    });
+
+    // 4. Pay dues via /dues/:customerId/payments
+    const duesClientId = `dues-idemp-${Date.now()}`;
+    const duesPayRes1 = await request(`/dues/${duesCustomer.id}/payments`, {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        amount: 200,
+        method: 'CASH',
+        clientId: duesClientId,
+      },
+    });
+
+    // 5. Send idempotent replay with the same clientId
+    const duesPayRes2 = await request(`/dues/${duesCustomer.id}/payments`, {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        amount: 200,
+        method: 'CASH',
+        clientId: duesClientId,
+      },
+    });
+
+    const reloadedOrder1 = await prisma.order.findUnique({ where: { id: duesOrder1Res.data.id } });
+    const reloadedOrder2 = await prisma.order.findUnique({ where: { id: duesOrder2Res.data.id } });
+    const transactionId = duesPayRes1.data?.entry?.transactionId;
+
+    const expectedOrder1Due = duesCatalogItem.price - 100 - 200;
+    const test45Pass =
+      (duesPayRes1.status === 200 || duesPayRes1.status === 201) &&
+      typeof transactionId === 'string' &&
+      transactionId.startsWith('DUES-') &&
+      duesPayRes2.status === 200 &&
+      duesPayRes2.data?.duplicate === true &&
+      reloadedOrder1?.amountDue === expectedOrder1Due &&
+      reloadedOrder2?.amountDue === duesCatalogItem.price;
+
+    logTest(
+      45,
+      'Dues payments allocate strictly to settledToCredit orders, assign unique transactionId, and support idempotent replay',
+      test45Pass,
+      `Pay: ${duesPayRes1.status} (txn: ${transactionId}), Replay: ${duesPayRes2.status} (dup: ${duesPayRes2.data?.duplicate}), Order1 due: ${reloadedOrder1?.amountDue}, Order2 due: ${reloadedOrder2?.amountDue}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 46: Item 5: Staff Username Login, Bcrypt Hashed PIN, Hidden in List, Reset PIN, Time Clock
+    // ------------------------------------------------------------------------
+    const staffUsername = `waiter_${Date.now()}`;
+    const staffPassword = 'StaffSecretPass123!';
+    const staffCreateRes = await request('/employees', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        firstName: 'NoEmail',
+        lastName: 'Staff',
+        username: staffUsername,
+        password: staffPassword,
+        role: 'WAITER',
+      },
+    });
+    const createdStaff = staffCreateRes.data;
+    const initialPlainPin = createdStaff?.pin;
+
+    // Direct DB check: PIN is stored as bcrypt hash
+    const dbStaff = await prisma.employee.findUnique({ where: { id: createdStaff.id } });
+    const pinIsBcryptHash = Boolean(dbStaff?.pin && dbStaff.pin.startsWith('$2'));
+
+    // Staff list check: PIN is completely absent/undefined in returned employee object
+    const staffListRes = await request('/employees', { token: tenantAOwnerToken });
+    const foundInList = (staffListRes.data?.data || []).find((e: any) => e.id === createdStaff.id);
+    const pinHiddenInList = foundInList && foundInList.pin === undefined;
+
+    // Login using Business Code (slug) + username + password
+    const usernameLoginRes = await request('/auth/login', {
+      method: 'POST',
+      body: {
+        username: staffUsername,
+        password: staffPassword,
+        businessCode: tenantASlug,
+      },
+    });
+
+    // Time clock punch via server
+    const clockPunchRes = await request('/employees/time-clock/punch', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { pin: initialPlainPin },
+    });
+
+    // Reset PIN via server endpoint
+    const resetPinRes = await request(`/employees/${createdStaff.id}/reset-pin`, {
+      method: 'POST',
+      token: tenantAOwnerToken,
+    });
+    const newPlainPin = resetPinRes.data?.pin;
+
+    const test46Pass =
+      staffCreateRes.status === 201 &&
+      pinIsBcryptHash &&
+      pinHiddenInList &&
+      usernameLoginRes.status === 200 &&
+      clockPunchRes.status === 200 &&
+      clockPunchRes.data?.action === 'clockIn' &&
+      resetPinRes.status === 200 &&
+      typeof newPlainPin === 'string' &&
+      /^\d{4,6}$/.test(newPlainPin);
+
+    logTest(
+      46,
+      'Staff username login, bcrypt hashed PIN, PIN concealed in lists, time-clock server punch, and reset PIN endpoint',
+      test46Pass,
+      `Create: ${staffCreateRes.status}, DB bcrypt: ${pinIsBcryptHash}, Hidden in list: ${pinHiddenInList}, Username login: ${usernameLoginRes.status}, Clock punch: ${clockPunchRes.status} (${clockPunchRes.data?.action}), Reset PIN: ${resetPinRes.status} (${newPlainPin})`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 47: Item 5: Lock Attempts for 15 Minutes After 5 Failures (Status 429)
+    // ------------------------------------------------------------------------
+    const lockRestRes = await request('/platform/restaurants', {
+      method: 'POST',
+      token: superAdminToken,
+      body: {
+        businessName: `Lockout Bistro ${Date.now()}`,
+        address: '55 Lockout St',
+        phone: '+92 300 1239999',
+        ownerFirstName: 'Lock',
+        ownerLastName: 'Tester',
+        ownerEmail: `locktester.${Date.now()}@example.com`,
+        ownerPassword: 'LockPassword123!',
+      },
+    });
+    const lockSlug = lockRestRes.data?.restaurant?.slug;
+
+    // Send 5 failed PIN attempts
+    for (let i = 0; i < 5; i++) {
+      await request('/auth/pin-login', {
+        method: 'POST',
+        body: { pin: '000000', tenantSlug: lockSlug },
+      });
+    }
+
+    // 6th attempt should be blocked with 429 Too Many Requests / Locked
+    const lockedRes = await request('/auth/pin-login', {
+      method: 'POST',
+      body: { pin: '000000', tenantSlug: lockSlug },
+    });
+
+    const test47Pass = lockedRes.status === 429;
+
+    logTest(
+      47,
+      'PIN and password login attempts lock for 15 minutes after 5 consecutive failures per business and IP (429 expected)',
+      test47Pass,
+      `6th failed attempt response status: ${lockedRes.status} (expected 429), body: ${JSON.stringify(lockedRes.data)}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 48: Item 6: Super Admin Tenant Creation Requires Address and Phone
+    // ------------------------------------------------------------------------
+    const missingAddrRes = await request('/platform/restaurants', {
+      method: 'POST',
+      token: superAdminToken,
+      body: {
+        businessName: `Missing Addr Bistro ${Date.now()}`,
+        phone: '+92 300 4445555',
+        ownerFirstName: 'No',
+        ownerLastName: 'Address',
+        ownerEmail: `noaddr.${Date.now()}@example.com`,
+        ownerPassword: 'Password123!',
+      },
+    });
+
+    const missingPhoneRes = await request('/platform/restaurants', {
+      method: 'POST',
+      token: superAdminToken,
+      body: {
+        businessName: `Missing Phone Bistro ${Date.now()}`,
+        address: '123 Required Address St',
+        ownerFirstName: 'No',
+        ownerLastName: 'Phone',
+        ownerEmail: `nophone.${Date.now()}@example.com`,
+        ownerPassword: 'Password123!',
+      },
+    });
+
+    const test48Pass = missingAddrRes.status === 400 && missingPhoneRes.status === 400;
+
+    logTest(
+      48,
+      'Super admin tenant creation strictly requires business address and phone number (no default placeholders)',
+      test48Pass,
+      `Missing address status: ${missingAddrRes.status}, Missing phone status: ${missingPhoneRes.status}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 49: Disabled Module Gives 403 for the Owner
+    // ------------------------------------------------------------------------
+    const disableAnalyticsRes = await request(`/platform/restaurants/${tenantAId}/features`, {
+      method: 'PUT',
+      token: superAdminToken,
+      body: {
+        features: [{ key: 'analytics', enabled: false }],
+      },
+    });
+
+    const ownerAnalyticsBlockedRes = await request('/analytics/sales', {
+      token: tenantAOwnerToken,
+    });
+
+    const test49Pass =
+      disableAnalyticsRes.status === 200 &&
+      ownerAnalyticsBlockedRes.status === 403;
+
+    logTest(
+      49,
+      'Disabled module returns 403 FORBIDDEN even for direct API calls by the business Owner',
+      test49Pass,
+      `Disable analytics status: ${disableAnalyticsRes.status}, Owner /analytics/sales status: ${ownerAnalyticsBlockedRes.status} (expected 403)`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 50: Re-Enabling the Module Restores Owner Access (200 OK)
+    // ------------------------------------------------------------------------
+    const enableAnalyticsRes = await request(`/platform/restaurants/${tenantAId}/features`, {
+      method: 'PUT',
+      token: superAdminToken,
+      body: {
+        features: [{ key: 'analytics', enabled: true }],
+      },
+    });
+
+    const ownerAnalyticsRestoredRes = await request('/analytics/sales', {
+      token: tenantAOwnerToken,
+    });
+
+    const test50Pass =
+      enableAnalyticsRes.status === 200 &&
+      ownerAnalyticsRestoredRes.status === 200;
+
+    logTest(
+      50,
+      'Re-enabling the module restores Owner access and returns 200 OK',
+      test50Pass,
+      `Re-enable status: ${enableAnalyticsRes.status}, Owner /analytics/sales status: ${ownerAnalyticsRestoredRes.status} (expected 200)`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 51: Expired Module is Automatically Disabled (403 for Owner)
+    // ------------------------------------------------------------------------
+    const pastDate = new Date(Date.now() - 3600000).toISOString();
+    const expireDealsRes = await request(`/platform/restaurants/${tenantAId}/features`, {
+      method: 'PUT',
+      token: superAdminToken,
+      body: {
+        features: [{ key: 'deals', enabled: true, expiresAt: pastDate }],
+      },
+    });
+
+    const ownerDealsExpiredRes = await request('/deals', {
+      token: tenantAOwnerToken,
+    });
+
+    // Restore deals so subsequent tests or operations are unaffected
+    await request(`/platform/restaurants/${tenantAId}/features`, {
+      method: 'PUT',
+      token: superAdminToken,
+      body: {
+        features: [{ key: 'deals', enabled: true, expiresAt: null }],
+      },
+    });
+
+    const test51Pass =
+      expireDealsRes.status === 200 &&
+      ownerDealsExpiredRes.status === 403;
+
+    logTest(
+      51,
+      'Expired module is treated as disabled and returns 403 for the Owner',
+      test51Pass,
+      `Expire deals status: ${expireDealsRes.status}, Owner /deals status: ${ownerDealsExpiredRes.status} (expected 403)`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 52: Super Admin Business Creation with Starter Preset Stores 19 Rows and Enforces Scoping
+    // ------------------------------------------------------------------------
+    const starterPreset = ['pos', 'tables', 'orders', 'payments', 'invoices', 'menu', 'kitchen', 'settings'];
+    const starterRestRes = await request('/platform/restaurants', {
+      method: 'POST',
+      token: superAdminToken,
+      body: {
+        businessName: `Starter Cafe ${Date.now()}`,
+        address: '100 Starter Lane',
+        phone: '+92 300 8881234',
+        ownerFirstName: 'Starter',
+        ownerLastName: 'Owner',
+        ownerEmail: `starter.${Date.now()}@example.com`,
+        ownerPassword: 'StarterPassword123!',
+        ownerPin: '654321',
+        features: starterPreset,
+      },
+    });
+
+    const starterTenantId = starterRestRes.data?.restaurant?.id;
+    const starterLoginRes = await request('/auth/login', {
+      method: 'POST',
+      body: {
+        email: starterRestRes.data?.owner?.email,
+        password: 'StarterPassword123!',
+      },
+    });
+
+    const starterToken = starterLoginRes.data?.accessToken;
+    const starterUser = starterLoginRes.data?.user;
+
+    // Direct API calls by starter owner: menu works (200), analytics is blocked (403), dues is blocked (403)
+    const starterMenuRes = await request('/menu/items', { token: starterToken });
+    const starterAnalyticsRes = await request('/analytics/sales', { token: starterToken });
+    const starterDuesRes = await request('/dues', { token: starterToken });
+
+    // DB verification: 19 TenantFeature rows exist
+    const dbFeatureCount = await prisma.tenantFeature.count({
+      where: { restaurantId: starterTenantId },
+    });
+
+    const test52Pass =
+      starterRestRes.status === 201 &&
+      starterLoginRes.status === 200 &&
+      starterMenuRes.status === 200 &&
+      starterAnalyticsRes.status === 403 &&
+      starterDuesRes.status === 403 &&
+      dbFeatureCount === 19 &&
+      starterUser.features.includes('pos') &&
+      !starterUser.features.includes('analytics');
+
+    logTest(
+      52,
+      'Super Admin business creation with module presets records 19 module rows and limits Owner to enabled modules',
+      test52Pass,
+      `Created: ${starterRestRes.status}, DB rows: ${dbFeatureCount}/19, Enabled menu: ${starterMenuRes.status}, Disabled analytics: ${starterAnalyticsRes.status}, Disabled dues: ${starterDuesRes.status}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 53: Verification Summary
     // ------------------------------------------------------------------------
     const passedCount = results.filter((r) => r.passed).length;
     logTest(
-      43,
+      53,
       'All Acceptance Verification Criteria Met',
-      passedCount === 41,
-      `Passed ${passedCount} / 41 criteria (100% test pass rate)`
+      passedCount === 52,
+      `Passed ${passedCount} / 52 criteria (100% test pass rate)`
     );
 
   } catch (err: any) {

@@ -3,6 +3,7 @@ import { getIO } from '../websocket';
 import { InventoryService } from './inventory.service';
 import { hasFeature } from './feature.service';
 import { redactCosting } from './cost-redaction.service';
+import { getRecipeUnitCost } from '../lib/costing';
 import { ValidationError } from '../lib/errors';
 import { CustomerService } from './customer.service';
 import { CustomerCreditService } from './customer-credit.service';
@@ -13,6 +14,54 @@ const customerService = new CustomerService();
 const customerCreditService = new CustomerCreditService();
 
 export class OrderService {
+  private async resolveCostAtSale(
+    restaurantId: string,
+    menuItemId?: string | null,
+    dealId?: string | null
+  ): Promise<number | null> {
+    try {
+      if (dealId) {
+        const deal = await (prisma as any).deal.findFirst({
+          where: { id: dealId, restaurantId },
+          include: {
+            items: {
+              include: {
+                menuItem: {
+                  include: {
+                    ingredients: {
+                      include: { inventoryItem: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+        if (deal && Array.isArray(deal.items)) {
+          const dealCost = deal.items.reduce((sum: number, di: any) => {
+            return sum + Number(di.quantity || 1) * getRecipeUnitCost(di.menuItem);
+          }, 0);
+          return +dealCost.toFixed(2);
+        }
+      } else if (menuItemId) {
+        const item = await prisma.menuItem.findFirst({
+          where: { id: menuItemId, restaurantId },
+          include: {
+            ingredients: {
+              include: { inventoryItem: true },
+            },
+          },
+        });
+        if (item) {
+          return +getRecipeUnitCost(item).toFixed(2);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to resolve costAtSale for order item:', e);
+    }
+    return null;
+  }
+
   private async redactOrder<T>(restaurantId: string, payload: T): Promise<T> {
     return await hasFeature(restaurantId, 'costing') ? payload : redactCosting(payload);
   }
@@ -219,6 +268,7 @@ export class OrderService {
         if ((validMenuItemId || validDealId) && unitPrice !== undefined) {
           const total = unitPrice * quantity;
           subtotal += total;
+          const costAtSale = await this.resolveCostAtSale(restaurantId, validMenuItemId, validDealId);
           return {
             menuItemId: validMenuItemId,
             dealId: validDealId,
@@ -227,6 +277,7 @@ export class OrderService {
             unitPrice,
             price: unitPrice,
             total,
+            costAtSale,
             specialInstructions: item.notes || null,
             notes: item.notes || null,
             status: item.status || 'PENDING',
@@ -322,10 +373,24 @@ export class OrderService {
       include: this.orderInclude,
     });
 
+    if (data.tableId) {
+      await prisma.table.update({
+        where: { id: data.tableId },
+        data: { status: 'OCCUPIED', currentOrder: order.id },
+      }).catch((err) => console.warn('Could not mark table occupied:', err));
+    }
+
     // Notify connected kitchen & client WebSockets
     const io = getIO();
     io?.to(`restaurant:${restaurantId}`).emit('order:created', order);
     io?.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:new', order);
+    if (data.tableId) {
+      io?.to(`restaurant:${restaurantId}`).emit('table:status', {
+        tableId: data.tableId,
+        status: 'OCCUPIED',
+        currentOrder: order.id,
+      });
+    }
 
     // Deduct stock for each ordered item or deal
     for (const item of data.items) {
@@ -828,19 +893,25 @@ export class OrderService {
       throw new Error('Order not found or unauthorized');
     }
 
-    const orderItemsData = items.map((item) => ({
-      orderId,
-      menuItemId: item.menuItemId || null,
-      dealId: item.dealId || null,
-      name: item.name || 'Custom Item',
-      quantity: item.quantity || 1,
-      unitPrice: item.unitPrice || item.price || 0,
-      price: item.unitPrice || item.price || 0,
-      total: (item.unitPrice || item.price || 0) * (item.quantity || 1),
-      notes: item.notes || null,
-      status: 'PENDING',
-      inventoryDeducted: true,
-    }));
+    const orderItemsData = await Promise.all(
+      items.map(async (item) => {
+        const costAtSale = await this.resolveCostAtSale(restaurantId, item.menuItemId || null, item.dealId || null);
+        return {
+          orderId,
+          menuItemId: item.menuItemId || null,
+          dealId: item.dealId || null,
+          name: item.name || 'Custom Item',
+          quantity: item.quantity || 1,
+          unitPrice: item.unitPrice || item.price || 0,
+          price: item.unitPrice || item.price || 0,
+          total: (item.unitPrice || item.price || 0) * (item.quantity || 1),
+          costAtSale,
+          notes: item.notes || null,
+          status: 'PENDING',
+          inventoryDeducted: true,
+        };
+      })
+    );
 
     await prisma.orderItem.createMany({
       data: orderItemsData,
@@ -878,7 +949,45 @@ export class OrderService {
     if (!restaurantId || !restaurantId.trim()) {
       throw new Error('restaurantId is required to complete an order');
     }
-    return this.updateOrderStatus(orderId, 'paid', restaurantId);
+
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, restaurantId },
+    });
+    if (!order) {
+      throw new Error('Order not found or unauthorized');
+    }
+
+    // Mark items as SERVED so they leave the kitchen display
+    await prisma.orderItem.updateMany({
+      where: { orderId },
+      data: { status: 'SERVED' },
+    });
+
+    // Free table if assigned
+    if (order.tableId) {
+      await prisma.table.update({
+        where: { id: order.tableId },
+        data: { status: 'AVAILABLE', currentOrder: null },
+      }).catch(() => {});
+    }
+    await prisma.table.updateMany({
+      where: { currentOrder: orderId },
+      data: { status: 'AVAILABLE', currentOrder: null },
+    }).catch(() => {});
+
+    const updated = await this.updateOrderStatus(orderId, 'paid', restaurantId);
+
+    const io = getIO();
+    if (order.tableId) {
+      io?.to(`restaurant:${restaurantId}`).emit('table:status', {
+        tableId: order.tableId,
+        status: 'AVAILABLE',
+        currentOrder: null,
+      });
+    }
+    io?.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:updated', updated);
+
+    return updated;
   }
 
   async cancelOrder(orderId: string, reason: string | undefined, restaurantId: string) {
@@ -912,6 +1021,18 @@ export class OrderService {
     if (!order) {
       throw new Error('Order not found or unauthorized');
     }
+
+    // Free table if assigned
+    if (order.tableId) {
+      await prisma.table.update({
+        where: { id: order.tableId },
+        data: { status: 'AVAILABLE', currentOrder: null },
+      }).catch(() => {});
+    }
+    await prisma.table.updateMany({
+      where: { currentOrder: orderId },
+      data: { status: 'AVAILABLE', currentOrder: null },
+    }).catch(() => {});
 
     // Prevent restocking an order twice if cancelled more than once
     if (order.status === 'cancelled') {

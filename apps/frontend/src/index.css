@@ -128,6 +128,7 @@
   --primary: #e0a93f;
   --primary-hover: #ebbf62;
   --primary-pressed: #c8922e;
+  --primary-text: #ebbf62;
   --primary-glow: rgba(224, 169, 63, 0.35);
   --primary-rgb: 224, 169, 63;
   --primary-tint: rgba(224, 169, 63, 0.14);
@@ -139,30 +140,32 @@
 }
 [data-theme="light"][data-palette="espresso"],
 [data-theme="light"]:not([data-palette]) {
-  --primary: #b47a16;
-  --primary-hover: #96630f;
-  --primary-pressed: #7a5009;
-  --primary-glow: rgba(180, 122, 22, 0.25);
-  --primary-rgb: 180, 122, 22;
-  --primary-tint: rgba(180, 122, 22, 0.12);
-  --primary-tint-strong: rgba(180, 122, 22, 0.28);
-  --accent: #8a5a00;
-  --border-active: #8a5a00;
+  --primary: #8A5A00;
+  --primary-hover: #6e4700;
+  --primary-pressed: #523500;
+  --primary-text: #8A5A00;
+  --primary-glow: rgba(138, 90, 0, 0.25);
+  --primary-rgb: 138, 90, 0;
+  --primary-tint: rgba(138, 90, 0, 0.12);
+  --primary-tint-strong: rgba(138, 90, 0, 0.28);
+  --accent: #8A5A00;
+  --border-active: #8A5A00;
   --on-primary: #ffffff;
-  --brand-title-grad: linear-gradient(to right, #1f1a14, #8a5a00);
+  --brand-title-grad: linear-gradient(to right, #1f1a14, #8A5A00);
 }
 
 /* 2. WINE (Deep Crimson / Merlot & Rose) */
 [data-palette="wine"] {
   --primary: #e11d48;
-  --primary-hover: #f43f5e;
-  --primary-pressed: #be123c;
+  --primary-hover: #be123c;
+  --primary-pressed: #9f1239;
+  --primary-text: #fb7185;
   --primary-glow: rgba(225, 29, 72, 0.35);
   --primary-rgb: 225, 29, 72;
   --primary-tint: rgba(225, 29, 72, 0.14);
   --primary-tint-strong: rgba(225, 29, 72, 0.35);
   --accent: #fb7185;
-  --border-active: #f43f5e;
+  --border-active: #e11d48;
   --on-primary: #ffffff;
   --brand-title-grad: linear-gradient(to right, #ffffff, #fb7185);
 }
@@ -170,6 +173,7 @@
   --primary: #be123c;
   --primary-hover: #9f1239;
   --primary-pressed: #881337;
+  --primary-text: #be123c;
   --primary-glow: rgba(190, 18, 60, 0.25);
   --primary-rgb: 190, 18, 60;
   --primary-tint: rgba(190, 18, 60, 0.12);
@@ -182,15 +186,16 @@
 
 /* 3. OCEAN (Sapphire Blue & Vibrant Cyan) */
 [data-palette="ocean"] {
-  --primary: #0284c7;
-  --primary-hover: #38bdf8;
-  --primary-pressed: #0369a1;
-  --primary-glow: rgba(2, 132, 199, 0.35);
-  --primary-rgb: 2, 132, 199;
-  --primary-tint: rgba(2, 132, 199, 0.14);
-  --primary-tint-strong: rgba(2, 132, 199, 0.35);
+  --primary: #0369a1;
+  --primary-hover: #075985;
+  --primary-pressed: #0c4a6e;
+  --primary-text: #38bdf8;
+  --primary-glow: rgba(3, 105, 161, 0.35);
+  --primary-rgb: 3, 105, 161;
+  --primary-tint: rgba(3, 105, 161, 0.14);
+  --primary-tint-strong: rgba(3, 105, 161, 0.35);
   --accent: #38bdf8;
-  --border-active: #38bdf8;
+  --border-active: #0369a1;
   --on-primary: #ffffff;
   --brand-title-grad: linear-gradient(to right, #ffffff, #38bdf8);
 }
@@ -198,6 +203,7 @@
   --primary: #0369a1;
   --primary-hover: #075985;
   --primary-pressed: #0c4a6e;
+  --primary-text: #0369a1;
   --primary-glow: rgba(3, 105, 161, 0.25);
   --primary-rgb: 3, 105, 161;
   --primary-tint: rgba(3, 105, 161, 0.12);
@@ -210,15 +216,16 @@
 
 /* 4. EMERALD (Lush Forest Green & Mint) */
 [data-palette="emerald"] {
-  --primary: #059669;
-  --primary-hover: #10b981;
-  --primary-pressed: #047857;
-  --primary-glow: rgba(5, 150, 105, 0.35);
-  --primary-rgb: 5, 150, 105;
-  --primary-tint: rgba(5, 150, 105, 0.14);
-  --primary-tint-strong: rgba(5, 150, 105, 0.35);
+  --primary: #047857;
+  --primary-hover: #065f46;
+  --primary-pressed: #064e3b;
+  --primary-text: #34d399;
+  --primary-glow: rgba(4, 120, 87, 0.35);
+  --primary-rgb: 4, 120, 87;
+  --primary-tint: rgba(4, 120, 87, 0.14);
+  --primary-tint-strong: rgba(4, 120, 87, 0.35);
   --accent: #34d399;
-  --border-active: #10b981;
+  --border-active: #047857;
   --on-primary: #ffffff;
   --brand-title-grad: linear-gradient(to right, #ffffff, #34d399);
 }
@@ -226,6 +233,7 @@
   --primary: #047857;
   --primary-hover: #065f46;
   --primary-pressed: #064e3b;
+  --primary-text: #047857;
   --primary-glow: rgba(4, 120, 87, 0.25);
   --primary-rgb: 4, 120, 87;
   --primary-tint: rgba(4, 120, 87, 0.12);
@@ -239,14 +247,15 @@
 /* 5. ROYAL (Amethyst Purple & Lilac) */
 [data-palette="royal"] {
   --primary: #7c3aed;
-  --primary-hover: #8b5cf6;
-  --primary-pressed: #6d28d9;
+  --primary-hover: #6d28d9;
+  --primary-pressed: #5b21b6;
+  --primary-text: #a78bfa;
   --primary-glow: rgba(124, 58, 237, 0.35);
   --primary-rgb: 124, 58, 237;
   --primary-tint: rgba(124, 58, 237, 0.14);
   --primary-tint-strong: rgba(124, 58, 237, 0.35);
   --accent: #a78bfa;
-  --border-active: #8b5cf6;
+  --border-active: #7c3aed;
   --on-primary: #ffffff;
   --brand-title-grad: linear-gradient(to right, #ffffff, #a78bfa);
 }
@@ -254,6 +263,7 @@
   --primary: #6d28d9;
   --primary-hover: #5b21b6;
   --primary-pressed: #4c1d95;
+  --primary-text: #6d28d9;
   --primary-glow: rgba(109, 40, 217, 0.25);
   --primary-rgb: 109, 40, 217;
   --primary-tint: rgba(109, 40, 217, 0.12);
@@ -266,15 +276,16 @@
 
 /* 6. SUNSET (Coral Orange & Amber) */
 [data-palette="sunset"] {
-  --primary: #ea580c;
-  --primary-hover: #f97316;
-  --primary-pressed: #c2410c;
-  --primary-glow: rgba(234, 88, 12, 0.35);
-  --primary-rgb: 234, 88, 12;
-  --primary-tint: rgba(234, 88, 12, 0.14);
-  --primary-tint-strong: rgba(234, 88, 12, 0.35);
+  --primary: #c2410c;
+  --primary-hover: #9a3412;
+  --primary-pressed: #7c2d12;
+  --primary-text: #fb923c;
+  --primary-glow: rgba(194, 65, 12, 0.35);
+  --primary-rgb: 194, 65, 12;
+  --primary-tint: rgba(194, 65, 12, 0.14);
+  --primary-tint-strong: rgba(194, 65, 12, 0.35);
   --accent: #fb923c;
-  --border-active: #f97316;
+  --border-active: #c2410c;
   --on-primary: #ffffff;
   --brand-title-grad: linear-gradient(to right, #ffffff, #fb923c);
 }
@@ -282,6 +293,7 @@
   --primary: #c2410c;
   --primary-hover: #9a3412;
   --primary-pressed: #7c2d12;
+  --primary-text: #c2410c;
   --primary-glow: rgba(194, 65, 12, 0.25);
   --primary-rgb: 194, 65, 12;
   --primary-tint: rgba(194, 65, 12, 0.12);
@@ -295,14 +307,15 @@
 /* 7. ROSE (Ruby Pink & Blush) */
 [data-palette="rose"] {
   --primary: #db2777;
-  --primary-hover: #ec4899;
-  --primary-pressed: #be185d;
+  --primary-hover: #be185d;
+  --primary-pressed: #9d174d;
+  --primary-text: #f472b6;
   --primary-glow: rgba(219, 39, 119, 0.35);
   --primary-rgb: 219, 39, 119;
   --primary-tint: rgba(219, 39, 119, 0.14);
   --primary-tint-strong: rgba(219, 39, 119, 0.35);
   --accent: #f472b6;
-  --border-active: #ec4899;
+  --border-active: #db2777;
   --on-primary: #ffffff;
   --brand-title-grad: linear-gradient(to right, #ffffff, #f472b6);
 }
@@ -310,6 +323,7 @@
   --primary: #be185d;
   --primary-hover: #9d174d;
   --primary-pressed: #831843;
+  --primary-text: #be185d;
   --primary-glow: rgba(190, 24, 93, 0.25);
   --primary-rgb: 190, 24, 93;
   --primary-tint: rgba(190, 24, 93, 0.12);
@@ -323,14 +337,15 @@
 /* 8. MIDNIGHT (Charcoal & Cool Slate) */
 [data-palette="midnight"] {
   --primary: #64748b;
-  --primary-hover: #94a3b8;
-  --primary-pressed: #475569;
+  --primary-hover: #475569;
+  --primary-pressed: #334155;
+  --primary-text: #cbd5e1;
   --primary-glow: rgba(100, 116, 139, 0.35);
   --primary-rgb: 100, 116, 139;
   --primary-tint: rgba(100, 116, 139, 0.14);
   --primary-tint-strong: rgba(100, 116, 139, 0.35);
   --accent: #cbd5e1;
-  --border-active: #94a3b8;
+  --border-active: #64748b;
   --on-primary: #ffffff;
   --brand-title-grad: linear-gradient(to right, #ffffff, #cbd5e1);
 }
@@ -338,6 +353,7 @@
   --primary: #334155;
   --primary-hover: #1e293b;
   --primary-pressed: #0f172a;
+  --primary-text: #334155;
   --primary-glow: rgba(51, 65, 85, 0.25);
   --primary-rgb: 51, 65, 85;
   --primary-tint: rgba(51, 65, 85, 0.12);

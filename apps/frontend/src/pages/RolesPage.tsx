@@ -1,8 +1,16 @@
 import React, { useState, useEffect } from 'react';
+import { useSelector } from 'react-redux';
+import { RootState } from '../store/store';
 import { rolesApi, RoleItem } from '../api/roles.api';
-import { PERMISSION_MODULES, Permission } from '../types/permissions';
+import { PERMISSION_MODULES, Permission, FeatureKey } from '../types/permissions';
 
 export const RolesPage: React.FC = () => {
+  const currentUser = useSelector((state: RootState) => state.auth.user);
+  const enabledFeatures = new Set(currentUser?.features || []);
+  const enabledModules = PERMISSION_MODULES.filter(
+    (m) => m.id === 'dashboard' || enabledFeatures.has(m.id as FeatureKey)
+  );
+
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -495,7 +503,7 @@ export const RolesPage: React.FC = () => {
                       type="button"
                       className="btn btn-secondary btn-sm"
                       onClick={() => {
-                        const allKeys = PERMISSION_MODULES.flatMap((m) => m.permissions.map((p) => p.key));
+                        const allKeys = enabledModules.flatMap((m) => m.permissions.map((p) => p.key));
                         setSelectedPermissions(new Set(allKeys));
                       }}
                     >
@@ -511,8 +519,12 @@ export const RolesPage: React.FC = () => {
                   </div>
                 </div>
 
+                <div style={{ padding: '8px 12px', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: '6px', color: '#93c5fd', fontSize: '12px', marginBottom: '14px' }}>
+                  ℹ️ Contact support to add more modules.
+                </div>
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {PERMISSION_MODULES.map((module) => {
+                  {enabledModules.map((module) => {
                     const modulePermKeys = module.permissions.map((p) => p.key);
                     const allSelected = modulePermKeys.every((p) => selectedPermissions.has(p));
                     const someSelected = modulePermKeys.some((p) => selectedPermissions.has(p));

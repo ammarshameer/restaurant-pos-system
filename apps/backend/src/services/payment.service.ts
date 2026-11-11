@@ -175,6 +175,9 @@ export class PaymentService {
         customerBalance = customer ? Number(customer.balanceDue || 0) : null;
       }
 
+      const isSettled = isSettledToCredit || order.settledToCredit;
+      const isFullySettledOrPaid = paymentStatus === 'PAID' || isSettled;
+
       const updatedOrder = await tx.order.update({
         where: { id: order.id },
         data: {
@@ -182,8 +185,8 @@ export class PaymentService {
           amountDue,
           paymentStatus,
           paymentMethod: data.method || order.paymentMethod || 'CASH',
-          settledToCredit: isSettledToCredit || order.settledToCredit,
-          ...(paymentStatus === 'PAID' && !isSettledToCredit ? { status: 'paid', completedAt: new Date() } : {}),
+          settledToCredit: isSettled,
+          ...(isFullySettledOrPaid ? { status: 'paid', completedAt: new Date() } : {}),
         },
         include: {
           items: true,
@@ -191,7 +194,24 @@ export class PaymentService {
         },
       });
 
-      if (paymentStatus === 'PAID' && !isSettledToCredit) {
+      if (isFullySettledOrPaid) {
+        await tx.orderItem.updateMany({
+          where: { orderId: order.id },
+          data: { status: 'SERVED' },
+        });
+
+        const tableId = order.tableId || updatedOrder.tableId;
+        if (tableId) {
+          await tx.table.update({
+            where: { id: tableId },
+            data: { status: 'AVAILABLE', currentOrder: null },
+          }).catch((err) => console.warn('Could not free table:', err));
+        }
+        await tx.table.updateMany({
+          where: { currentOrder: order.id },
+          data: { status: 'AVAILABLE', currentOrder: null },
+        }).catch((err) => console.warn('Could not free table by currentOrder:', err));
+
         shouldComplete = true;
         orderToCompleteId = updatedOrder.id;
       }
@@ -216,6 +236,14 @@ export class PaymentService {
     if (!result.duplicate) {
       if (result.order) {
         io?.to(`restaurant:${restaurantId}`).emit('order:updated', result.order);
+        io?.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:updated', result.order);
+        if (result.order.tableId) {
+          io?.to(`restaurant:${restaurantId}`).emit('table:status', {
+            tableId: result.order.tableId,
+            status: 'AVAILABLE',
+            currentOrder: null,
+          });
+        }
       }
       io?.to(`restaurant:${restaurantId}`).emit('payment:completed', result.payment);
     }

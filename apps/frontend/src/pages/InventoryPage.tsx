@@ -129,6 +129,7 @@ export const InventoryPage: React.FC = () => {
   }, [queryClient]);
 
   const lowStockItems = inventory.filter((item) => item.quantity <= item.reorderPoint);
+  const hasCostData = inventory.some((item) => item.costPerUnit !== undefined && item.costPerUnit !== null);
   const totalValuation = inventory.reduce((sum, item) => sum + item.quantity * getCostPerSaleUnit(item), 0);
 
   const categories = ['All', 'Meat', 'Dairy', 'Bakery', 'Frozen', 'Grocery', 'Beverage'];
@@ -274,15 +275,17 @@ export const InventoryPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)' }}>
-            💰
+        {hasCostData && (
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)' }}>
+              💰
+            </div>
+            <div>
+              <div className="stat-val" style={{ color: '#34d399' }}>{formatPKR(totalValuation)}</div>
+              <div className="stat-label">Total Inventory Valuation</div>
+            </div>
           </div>
-          <div>
-            <div className="stat-val" style={{ color: '#34d399' }}>{formatPKR(totalValuation)}</div>
-            <div className="stat-label">Total Inventory Valuation</div>
-          </div>
-        </div>
+        )}
 
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
@@ -346,8 +349,8 @@ export const InventoryPage: React.FC = () => {
                   <th>Category</th>
                   <th>Current Stock</th>
                   <th>Reorder Point</th>
-                  <th>Cost / Purchase Unit</th>
-                  <th>Stock Valuation</th>
+                  {hasCostData && <th>Cost / Purchase Unit</th>}
+                  {hasCostData && <th>Stock Valuation</th>}
                   <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
@@ -374,8 +377,8 @@ export const InventoryPage: React.FC = () => {
                       <td style={{ color: 'var(--text-secondary)' }}>
                         {item.reorderPoint} {item.unit}
                       </td>
-                      <td style={{ fontWeight: 700 }}>{formatPKR(item.costPerUnit)} / {item.purchaseUnit || item.unit}</td>
-                      <td style={{ fontWeight: 800, color: '#34d399' }}>{formatPKR(itemValuation)}</td>
+                      {hasCostData && <td style={{ fontWeight: 700 }}>{formatPKR(item.costPerUnit)} / {item.purchaseUnit || item.unit}</td>}
+                      {hasCostData && <td style={{ fontWeight: 800, color: '#34d399' }}>{formatPKR(itemValuation)}</td>}
                       <td>
                         {isLow ? (
                           <span className="badge badge-cancelled">⚠️ Low Stock</span>
@@ -678,21 +681,23 @@ export const InventoryPage: React.FC = () => {
                     />
                   </div>
 
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="input-label">
-                      <span>Cost per Purchase Unit (PKR)</span>
-                      <span className="label-hint">{newItem.purchaseUnit}</span>
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      required
-                      className="input-field"
-                      value={newItem.costPerUnit}
-                      onChange={(e) => setNewItem({ ...newItem, costPerUnit: Number(e.target.value) })}
-                    />
-                  </div>
+                  {hasCostData && (
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="input-label">
+                        <span>Cost per Purchase Unit (PKR)</span>
+                        <span className="label-hint">{newItem.purchaseUnit}</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        required
+                        className="input-field"
+                        value={newItem.costPerUnit}
+                        onChange={(e) => setNewItem({ ...newItem, costPerUnit: Number(e.target.value) })}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -760,10 +765,12 @@ export const InventoryPage: React.FC = () => {
                     <label className="input-label">Reorder Point ({editItem.unit})</label>
                     <input type="number" min="0" step="any" className="input-field" value={editItem.reorderPoint} onChange={(e) => setEditItem({ ...editItem, reorderPoint: Number(e.target.value) })} />
                   </div>
-                  <div className="form-group">
-                    <label className="input-label">Cost per Purchase Unit (PKR)</label>
-                    <input type="number" min="0" step="any" className="input-field" value={editItem.costPerUnit} onChange={(e) => setEditItem({ ...editItem, costPerUnit: Number(e.target.value) })} />
-                  </div>
+                  {hasCostData && (
+                    <div className="form-group">
+                      <label className="input-label">Cost per Purchase Unit (PKR)</label>
+                      <input type="number" min="0" step="any" className="input-field" value={editItem.costPerUnit} onChange={(e) => setEditItem({ ...editItem, costPerUnit: Number(e.target.value) })} />
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="modal-footer">

@@ -2,6 +2,8 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { PERMISSIONS, ALL_PERMISSIONS, DEFAULT_SYSTEM_ROLES } from '../permissions';
+import { attemptLockService } from './attempt-lock.service';
+import { ValidationError } from '../lib/errors';
 
 export type EmployeeRole = 'OWNER' | 'MANAGER' | 'CHEF' | 'WAITER' | 'CASHIER' | string;
 
@@ -10,21 +12,49 @@ const prisma = new PrismaClient();
 const FORBIDDEN_STAFF_ROLE_KEYS = ['SUPER_ADMIN', 'SUPPORT'];
 
 export class EmployeeService {
-  async generateUniquePin(restaurantId: string): Promise<string> {
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const candidate = crypto.randomInt(1000, 10000).toString();
-      const conflict = await prisma.employee.findFirst({
-        where: {
-          restaurantId,
-          pin: candidate,
-          isActive: true,
-        },
-      });
-      if (!conflict) {
+  async generateUniquePin(restaurantId: string, digits = 4): Promise<string> {
+    const min = digits === 6 ? 100000 : 1000;
+    const max = digits === 6 ? 1000000 : 10000;
+
+    const activeStaff = await prisma.employee.findMany({
+      where: { restaurantId, isActive: true },
+      select: { pin: true },
+    });
+
+    for (let attempt = 0; attempt < 25; attempt++) {
+      const candidate = crypto.randomInt(min, max).toString();
+      let hasConflict = false;
+      for (const staff of activeStaff) {
+        if (!staff.pin) continue;
+        const matches = (await bcrypt.compare(candidate, staff.pin).catch(() => false)) || staff.pin === candidate;
+        if (matches) {
+          hasConflict = true;
+          break;
+        }
+      }
+      if (!hasConflict) {
         return candidate;
       }
     }
     throw new Error('Unable to generate unique PIN after multiple attempts. Please provide a PIN.');
+  }
+
+  async checkPinConflict(restaurantId: string, candidatePin: string, excludeEmployeeId?: string): Promise<boolean> {
+    const activeStaff = await prisma.employee.findMany({
+      where: {
+        restaurantId,
+        isActive: true,
+        ...(excludeEmployeeId ? { id: { not: excludeEmployeeId } } : {}),
+      },
+      select: { pin: true },
+    });
+
+    for (const staff of activeStaff) {
+      if (!staff.pin) continue;
+      const matches = (await bcrypt.compare(candidatePin, staff.pin).catch(() => false)) || staff.pin === candidatePin;
+      if (matches) return true;
+    }
+    return false;
   }
 
   /**
@@ -90,6 +120,7 @@ export class EmployeeService {
         { firstName: { contains: q } },
         { lastName: { contains: q } },
         { email: { contains: q } },
+        { username: { contains: q } },
         { phone: { contains: q } },
       ];
     }
@@ -103,12 +134,12 @@ export class EmployeeService {
         select: {
           id: true,
           email: true,
+          username: true,
           firstName: true,
           lastName: true,
           role: true,
           roleId: true,
           isActive: true,
-          pin: true,
           hourlyRate: true,
           phone: true,
           createdAt: true,
@@ -126,14 +157,13 @@ export class EmployeeService {
       }),
     ]);
 
-    // Strip PIN if requester lacks employees.manage permission
+    // Strip PIN completely: PIN is secret and never shown in employee lists
     const sanitized = employees.map((emp) => {
-      const { pin, roleRecord, ...rest } = emp;
+      const { roleRecord, ...rest } = emp;
       return {
         ...rest,
         roleName: roleRecord?.name || rest.role,
         isOwner: roleRecord ? roleRecord.isOwnerRole === true : rest.role === 'OWNER',
-        ...(options?.canManage ? { pin } : {}),
       };
     });
 
@@ -161,12 +191,12 @@ export class EmployeeService {
       select: {
         id: true,
         email: true,
+        username: true,
         firstName: true,
         lastName: true,
         role: true,
         roleId: true,
         isActive: true,
-        pin: true,
         hourlyRate: true,
         phone: true,
         createdAt: true,
@@ -184,18 +214,18 @@ export class EmployeeService {
 
     if (!emp) return null;
 
-    const { pin, roleRecord, ...rest } = emp;
+    const { roleRecord, ...rest } = emp;
     return {
       ...rest,
       roleName: roleRecord?.name || rest.role,
       isOwner: roleRecord ? roleRecord.isOwnerRole === true : rest.role === 'OWNER',
-      ...(canManage ? { pin } : {}),
     };
   }
 
   async createEmployee(
     data: {
-      email: string;
+      email?: string;
+      username?: string;
       password?: string;
       firstName: string;
       lastName: string;
@@ -213,16 +243,29 @@ export class EmployeeService {
       throw new Error('restaurantId is required to create an employee');
     }
 
-    const emailNorm = data.email.trim().toLowerCase();
+    let emailNorm: string | null = null;
+    if (data.email && data.email.trim()) {
+      emailNorm = data.email.trim().toLowerCase();
+      // Prevent collision across PlatformUser and Employee
+      const [existingPlatform, existingEmployee] = await Promise.all([
+        prisma.platformUser.findUnique({ where: { email: emailNorm } }),
+        prisma.employee.findUnique({ where: { email: emailNorm } }),
+      ]);
 
-    // Prevent collision across PlatformUser and Employee
-    const [existingPlatform, existingEmployee] = await Promise.all([
-      prisma.platformUser.findUnique({ where: { email: emailNorm } }),
-      prisma.employee.findUnique({ where: { email: emailNorm } }),
-    ]);
+      if (existingPlatform || existingEmployee) {
+        throw new Error('An account with this email address already exists');
+      }
+    }
 
-    if (existingPlatform || existingEmployee) {
-      throw new Error('An account with this email address already exists');
+    let usernameNorm: string | null = null;
+    if (data.username && data.username.trim()) {
+      usernameNorm = data.username.trim().toLowerCase();
+      const existingUsername = await prisma.employee.findFirst({
+        where: { restaurantId: data.restaurantId, username: usernameNorm },
+      });
+      if (existingUsername) {
+        throw new Error('An employee with this username already exists in this restaurant');
+      }
     }
 
     // Resolve and validate role
@@ -302,26 +345,36 @@ export class EmployeeService {
       );
     }
 
-    // Resolve PIN: validate provided PIN or auto-generate unique 4-digit PIN
+    const isManagerOrOwner =
+      targetRole.isOwnerRole ||
+      targetRole.key.toUpperCase() === 'OWNER' ||
+      targetRole.key.toUpperCase() === 'MANAGER' ||
+      String(targetRole.name).toLowerCase().includes('manager') ||
+      String(targetRole.name).toLowerCase().includes('owner');
+
+    // Resolve PIN: validate provided PIN or auto-generate unique PIN
+    // Owner and Manager PINs must be 6 digits!
     let finalPin: string;
     if (data.pin && data.pin.trim()) {
       finalPin = data.pin.trim();
-      if (!/^\d{4,6}$/.test(finalPin)) {
-        throw Object.assign(new Error('PIN must be 4 to 6 digits'), { statusCode: 400 });
+      if (isManagerOrOwner) {
+        if (!/^\d{6}$/.test(finalPin)) {
+          throw Object.assign(new Error('Owner and Manager PINs must be exactly 6 digits'), { statusCode: 400 });
+        }
+      } else {
+        if (!/^\d{4,6}$/.test(finalPin)) {
+          throw Object.assign(new Error('PIN must be 4 to 6 digits'), { statusCode: 400 });
+        }
       }
-      const pinConflict = await prisma.employee.findFirst({
-        where: {
-          restaurantId: data.restaurantId,
-          pin: finalPin,
-          isActive: true,
-        },
-      });
+      const pinConflict = await this.checkPinConflict(data.restaurantId, finalPin);
       if (pinConflict) {
         throw new Error('This PIN is already assigned to another staff member in your restaurant');
       }
     } else {
-      finalPin = await this.generateUniquePin(data.restaurantId);
+      finalPin = await this.generateUniquePin(data.restaurantId, isManagerOrOwner ? 6 : 4);
     }
+
+    const hashedPin = await bcrypt.hash(finalPin, 10);
 
     // Set password hash: if omitted, generate an unguessable disabled hash
     const passwordHash =
@@ -332,13 +385,14 @@ export class EmployeeService {
     const employee = await prisma.employee.create({
       data: {
         email: emailNorm,
+        username: usernameNorm,
         passwordHash,
         firstName: data.firstName.trim(),
         lastName: data.lastName.trim(),
         restaurantId: data.restaurantId,
         role: targetRole.key,
         roleId: targetRole.id,
-        pin: finalPin,
+        pin: hashedPin,
         hourlyRate: data.hourlyRate || null,
         phone: data.phone?.trim() || null,
         isActive: true,
@@ -356,19 +410,22 @@ export class EmployeeService {
       select: {
         id: true,
         email: true,
+        username: true,
         firstName: true,
         lastName: true,
         role: true,
         roleId: true,
         isActive: true,
-        pin: true,
         hourlyRate: true,
         phone: true,
         createdAt: true,
       },
     });
 
-    return employee;
+    return {
+      ...employee,
+      pin: finalPin, // Plain PIN shown only when created or reset
+    };
   }
 
   async updateEmployee(
@@ -427,37 +484,77 @@ export class EmployeeService {
     if (data.phone !== undefined) updateData.phone = data.phone?.trim() || null;
     if (data.hourlyRate !== undefined) updateData.hourlyRate = Number(data.hourlyRate) || null;
 
-    if (data.email && data.email.trim().toLowerCase() !== existing.email) {
-      const emailNorm = data.email.trim().toLowerCase();
-      const [platformConflict, employeeConflict] = await Promise.all([
-        prisma.platformUser.findUnique({ where: { email: emailNorm } }),
-        prisma.employee.findFirst({
-          where: { email: emailNorm, id: { not: id } },
-        }),
-      ]);
-      if (platformConflict || employeeConflict) {
-        throw new Error('An account with this email address already exists');
+    if (data.username !== undefined) {
+      if (data.username && data.username.trim()) {
+        const usernameNorm = data.username.trim().toLowerCase();
+        const conflict = await prisma.employee.findFirst({
+          where: {
+            restaurantId,
+            username: usernameNorm,
+            id: { not: id },
+          },
+        });
+        if (conflict) {
+          throw new Error('An employee with this username already exists in this restaurant');
+        }
+        updateData.username = usernameNorm;
+      } else {
+        updateData.username = null;
       }
-      updateData.email = emailNorm;
     }
 
-    if (data.pin && data.pin.trim() && data.pin.trim() !== existing.pin) {
-      const pinNorm = data.pin.trim();
-      if (!/^\d{4,6}$/.test(pinNorm)) {
-        throw Object.assign(new Error('PIN must be 4 to 6 digits'), { statusCode: 400 });
+    if (data.email !== undefined) {
+      if (data.email && data.email.trim()) {
+        const emailNorm = data.email.trim().toLowerCase();
+        if (emailNorm !== existing.email) {
+          const [platformConflict, employeeConflict] = await Promise.all([
+            prisma.platformUser.findUnique({ where: { email: emailNorm } }),
+            prisma.employee.findFirst({
+              where: { email: emailNorm, id: { not: id } },
+            }),
+          ]);
+          if (platformConflict || employeeConflict) {
+            throw new Error('An account with this email address already exists');
+          }
+          updateData.email = emailNorm;
+        }
+      } else {
+        if (isTargetOwner) {
+          throw new Error('Owner account must have an email address');
+        }
+        updateData.email = null;
       }
-      const conflict = await prisma.employee.findFirst({
-        where: {
-          restaurantId,
-          pin: pinNorm,
-          id: { not: id },
-          isActive: true,
-        },
-      });
+    }
+
+    let plainPinToReturn: string | undefined = undefined;
+    if (data.pin && data.pin.trim()) {
+      const pinNorm = data.pin.trim();
+      const isManagerOrOwner =
+        isTargetOwner ||
+        existing.role === 'MANAGER' ||
+        (existing.roleRecord && (
+          existing.roleRecord.key.toUpperCase() === 'OWNER' ||
+          existing.roleRecord.key.toUpperCase() === 'MANAGER' ||
+          String(existing.roleRecord.name).toLowerCase().includes('manager') ||
+          String(existing.roleRecord.name).toLowerCase().includes('owner')
+        ));
+
+      if (isManagerOrOwner) {
+        if (!/^\d{6}$/.test(pinNorm)) {
+          throw Object.assign(new Error('Owner and Manager PINs must be exactly 6 digits'), { statusCode: 400 });
+        }
+      } else {
+        if (!/^\d{4,6}$/.test(pinNorm)) {
+          throw Object.assign(new Error('PIN must be 4 to 6 digits'), { statusCode: 400 });
+        }
+      }
+
+      const conflict = await this.checkPinConflict(restaurantId, pinNorm, id);
       if (conflict) {
         throw new Error('This PIN is already assigned to another staff member');
       }
-      updateData.pin = pinNorm;
+      updateData.pin = await bcrypt.hash(pinNorm, 10);
+      plainPinToReturn = pinNorm;
     }
 
     if (data.password && data.password.trim()) {
@@ -539,12 +636,12 @@ export class EmployeeService {
       select: {
         id: true,
         email: true,
+        username: true,
         firstName: true,
         lastName: true,
         role: true,
         roleId: true,
         isActive: true,
-        pin: true,
         hourlyRate: true,
         phone: true,
         updatedAt: true,
@@ -559,12 +656,12 @@ export class EmployeeService {
       },
     });
 
-    const { pin, roleRecord, ...rest } = updated;
+    const { roleRecord, ...rest } = updated;
     return {
       ...rest,
       roleName: roleRecord?.name || rest.role,
       isOwner: roleRecord ? roleRecord.isOwnerRole === true : rest.role === 'OWNER',
-      pin,
+      ...(plainPinToReturn ? { pin: plainPinToReturn } : {}),
     };
   }
 
@@ -733,6 +830,140 @@ export class EmployeeService {
         },
       },
     });
+  }
+
+  async resetPin(employeeId: string, restaurantId: string, customPin?: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, restaurantId },
+      include: { roleRecord: true },
+    });
+    if (!employee) {
+      throw new Error('Employee not found or unauthorized');
+    }
+
+    const isManagerOrOwner =
+      employee.roleRecord?.isOwnerRole ||
+      employee.role === 'OWNER' ||
+      employee.role === 'MANAGER' ||
+      (employee.roleRecord && (
+        employee.roleRecord.key.toUpperCase() === 'OWNER' ||
+        employee.roleRecord.key.toUpperCase() === 'MANAGER' ||
+        String(employee.roleRecord.name).toLowerCase().includes('manager') ||
+        String(employee.roleRecord.name).toLowerCase().includes('owner')
+      ));
+
+    let finalPin: string;
+    if (customPin && customPin.trim()) {
+      finalPin = customPin.trim();
+      if (isManagerOrOwner) {
+        if (!/^\d{6}$/.test(finalPin)) {
+          throw Object.assign(new Error('Owner and Manager PINs must be exactly 6 digits'), { statusCode: 400 });
+        }
+      } else {
+        if (!/^\d{4,6}$/.test(finalPin)) {
+          throw Object.assign(new Error('PIN must be 4 to 6 digits'), { statusCode: 400 });
+        }
+      }
+      const conflict = await this.checkPinConflict(restaurantId, finalPin, employeeId);
+      if (conflict) {
+        throw new Error('This PIN is already assigned to another staff member');
+      }
+    } else {
+      finalPin = await this.generateUniquePin(restaurantId, isManagerOrOwner ? 6 : 4);
+    }
+
+    const hashedPin = await bcrypt.hash(finalPin, 10);
+    await prisma.employee.update({
+      where: { id: employeeId },
+      data: { pin: hashedPin },
+    });
+
+    return {
+      success: true,
+      pin: finalPin,
+    };
+  }
+
+  async punchTimeClock(pin: string, restaurantId: string, ip = '0.0.0.0') {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required to punch time clock');
+    }
+    if (!pin || !pin.trim()) {
+      throw Object.assign(new Error('PIN is required'), { statusCode: 400 });
+    }
+
+    attemptLockService.assertNotLocked(restaurantId, ip);
+
+    const activeStaff = await prisma.employee.findMany({
+      where: { restaurantId, isActive: true },
+      include: { roleRecord: true },
+    });
+
+    let matchedEmployee: any = null;
+    const cleanPin = pin.trim();
+    for (const staff of activeStaff) {
+      if (!staff.pin) continue;
+      const isMatch = (await bcrypt.compare(cleanPin, staff.pin).catch(() => false)) || staff.pin === cleanPin;
+      if (isMatch) {
+        matchedEmployee = staff;
+        break;
+      }
+    }
+
+    if (!matchedEmployee) {
+      attemptLockService.recordFailure(restaurantId, ip);
+      throw Object.assign(new Error('Invalid PIN or inactive employee'), { statusCode: 401 });
+    }
+
+    attemptLockService.recordSuccess(restaurantId, ip);
+
+    const activeShift = await prisma.timeEntry.findFirst({
+      where: {
+        employeeId: matchedEmployee.id,
+        clockOut: null,
+      },
+    });
+
+    let action: 'clockIn' | 'clockOut';
+    let shift: any;
+
+    if (activeShift) {
+      action = 'clockOut';
+      const clockOut = new Date();
+      const hoursWorked = +(
+        (clockOut.getTime() - activeShift.clockIn.getTime()) /
+        (1000 * 60 * 60)
+      ).toFixed(2);
+      shift = await prisma.timeEntry.update({
+        where: { id: activeShift.id },
+        data: {
+          clockOut,
+          hoursWorked,
+        },
+      });
+    } else {
+      action = 'clockIn';
+      shift = await prisma.timeEntry.create({
+        data: {
+          employeeId: matchedEmployee.id,
+          clockIn: new Date(),
+        },
+      });
+    }
+
+    return {
+      action,
+      shift,
+      employee: {
+        id: matchedEmployee.id,
+        firstName: matchedEmployee.firstName,
+        lastName: matchedEmployee.lastName,
+        role: matchedEmployee.roleRecord?.name || matchedEmployee.role,
+      },
+    };
   }
 
   async getEmployeeShifts(employeeId: string, startDate: Date | undefined, endDate: Date | undefined, restaurantId: string) {

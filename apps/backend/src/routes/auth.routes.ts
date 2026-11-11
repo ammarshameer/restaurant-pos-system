@@ -8,7 +8,7 @@ const authService = new AuthService();
 // Rate limiting on sensitive auth endpoints to prevent brute-force attacks
 const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30, // Limit each IP to 30 requests per windowMs
+  max: process.env.NODE_ENV === 'test' ? 1000 : 30, // Limit each IP to 30 requests per windowMs (relaxed in test)
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -82,16 +82,21 @@ router.post('/onboard', onboardRateLimiter, async (req, res, next) => {
   }
 });
 
-// Login with email & password
+// Login with email & password or businessCode + username
 router.post('/login', authRateLimiter, async (req, res, next) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    const { email, username, identifier, password, businessCode, tenantSlug } = req.body;
+    const loginIdentifier = username || email || identifier;
+    if (!loginIdentifier || !password) {
+      return res.status(400).json({ error: 'Username/email and password are required' });
     }
-    const result = await authService.login(email, password);
+    const ip = req.ip || (req.socket?.remoteAddress as string) || '0.0.0.0';
+    const result = await authService.login(loginIdentifier, password, businessCode || tenantSlug, ip);
     res.json(result);
   } catch (error: any) {
+    if (error.statusCode === 429) {
+      return res.status(429).json({ error: error.message, code: 'LOCKED' });
+    }
     if (error.message?.includes('suspended')) {
       return res.status(403).json({ error: error.message, code: 'BUSINESS_SUSPENDED' });
     }
@@ -102,19 +107,23 @@ router.post('/login', authRateLimiter, async (req, res, next) => {
 // Scoped PIN login (for POS terminal users within a specific tenant)
 router.post('/pin-login', authRateLimiter, async (req, res, next) => {
   try {
-    const { pin, tenantSlug, restaurantId } = req.body;
+    const { pin, tenantSlug, restaurantId, businessCode } = req.body;
     if (!pin) {
       return res.status(400).json({ error: 'PIN is required' });
     }
-    if (!tenantSlug && !restaurantId) {
+    if (!tenantSlug && !restaurantId && !businessCode) {
       return res.status(400).json({
-        error: 'Tenant identifier (tenantSlug or restaurantId) is required for PIN login',
+        error: 'Tenant identifier (tenantSlug, businessCode or restaurantId) is required for PIN login',
       });
     }
 
-    const result = await authService.loginWithPin(pin, { tenantSlug, restaurantId });
+    const ip = req.ip || (req.socket?.remoteAddress as string) || '0.0.0.0';
+    const result = await authService.loginWithPin(pin, { tenantSlug, restaurantId, businessCode }, ip);
     res.json(result);
   } catch (error: any) {
+    if (error.statusCode === 429) {
+      return res.status(429).json({ error: error.message, code: 'LOCKED' });
+    }
     if (error.message?.includes('suspended')) {
       return res.status(403).json({ error: error.message, code: 'BUSINESS_SUSPENDED' });
     }

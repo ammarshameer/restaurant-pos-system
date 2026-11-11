@@ -2,9 +2,12 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { ALL_PERMISSIONS, DEFAULT_SYSTEM_ROLES } from '../permissions';
+import { ALL_PERMISSIONS, DEFAULT_SYSTEM_ROLES, filterPermissionsByFeatures, FEATURES } from '../permissions';
+import { REQUIRED_MODULES } from './feature.service';
 import { JWT_SECRET, JWT_REFRESH_SECRET } from '../config/secrets';
 import { getEnabledFeatures } from './feature.service';
+import { attemptLockService } from './attempt-lock.service';
+import { ValidationError } from '../lib/errors';
 
 export type EmployeeRole = 'OWNER' | 'MANAGER' | 'CHEF' | 'WAITER' | 'CASHIER' | string;
 
@@ -72,6 +75,8 @@ export class AuthService {
     ownerPhone?: string;
     ownerPassword: string;
     ownerPin?: string;
+    features?: Array<{ key: string; enabled: boolean; expiresAt?: string | Date | null }> | string[];
+    featureExpiresAt?: string | Date | null;
   }) {
     const emailNormalized = data.ownerEmail.trim().toLowerCase();
 
@@ -85,11 +90,26 @@ export class AuthService {
       throw new Error('An account with this email address already exists.');
     }
 
+    if (!data.address || !data.address.trim()) {
+      throw new ValidationError('Restaurant address is required');
+    }
+    const businessPhone = data.phone?.trim() || data.ownerPhone?.trim();
+    if (!businessPhone) {
+      throw new ValidationError('Restaurant phone number is required');
+    }
+
+    let plainOwnerPin: string;
+    if (data.ownerPin && data.ownerPin.trim()) {
+      plainOwnerPin = data.ownerPin.trim();
+      if (!/^\d{6}$/.test(plainOwnerPin)) {
+        throw new ValidationError('Owner PIN must be exactly 6 digits');
+      }
+    } else {
+      plainOwnerPin = crypto.randomInt(100000, 1000000).toString();
+    }
+
     const hashedPassword = await bcrypt.hash(data.ownerPassword, 10);
-    const pin =
-      data.ownerPin && data.ownerPin.trim()
-        ? data.ownerPin.trim()
-        : crypto.randomInt(1000, 10000).toString();
+    const hashedOwnerPin = await bcrypt.hash(plainOwnerPin, 10);
     const slug = await this.generateUniqueSlug(data.businessName);
 
     return prisma.$transaction(async (tx) => {
@@ -100,19 +120,70 @@ export class AuthService {
           slug,
           logoUrl: data.logoUrl || null,
           isActive: true,
-          address: data.address?.trim() || 'Default Address',
-          phone: data.phone?.trim() || data.ownerPhone?.trim() || '+1234567890',
+          address: data.address.trim(),
+          phone: businessPhone,
           email: data.businessEmail?.trim() || emailNormalized,
           timezone: data.timezone || 'Asia/Karachi',
           createdByPlatformUserId: data.createdByPlatformUserId || null,
         },
       });
 
-      await tx.tenantFeature.createMany({
-        data: [
-          { restaurantId: restaurant.id, featureKey: 'costing', enabled: true },
-        ],
+      // 1b. Create module features for restaurant
+      const featureRows = FEATURES.map((key) => {
+        let enabled = false;
+        let expiresAt: Date | null = data.featureExpiresAt ? new Date(data.featureExpiresAt) : null;
+
+        if (Array.isArray(data.features)) {
+          if (data.features.length > 0 && typeof data.features[0] === 'string') {
+            enabled = (data.features as string[]).includes(key);
+          } else {
+            const match = (data.features as Array<{ key: string; enabled: boolean; expiresAt?: any }>).find(
+              (f) => f.key === key
+            );
+            if (match) {
+              enabled = Boolean(match.enabled);
+              if (match.expiresAt) expiresAt = new Date(match.expiresAt);
+            }
+          }
+        } else {
+          // Default preset: all standard modules + costing enabled, expenses & payroll off
+          if (key === 'expenses' || key === 'payroll') {
+            enabled = false;
+          } else {
+            enabled = true;
+          }
+        }
+
+        // Required modules are ALWAYS enabled
+        if (REQUIRED_MODULES.includes(key)) {
+          enabled = true;
+        }
+
+        return {
+          restaurantId: restaurant.id,
+          featureKey: key,
+          enabled,
+          expiresAt,
+          grantedByPlatformUserId: data.createdByPlatformUserId || null,
+        };
       });
+
+      await tx.tenantFeature.createMany({
+        data: featureRows,
+      });
+
+      if (data.createdByPlatformUserId) {
+        await tx.platformAuditLog.create({
+          data: {
+            platformUserId: data.createdByPlatformUserId,
+            restaurantId: restaurant.id,
+            action: 'TENANT_FEATURES_INITIALIZED',
+            details: JSON.stringify({
+              enabledFeatures: featureRows.filter((f) => f.enabled).map((f) => f.featureKey),
+            }),
+          },
+        });
+      }
 
       // 2. Create Default System Roles with Permissions
       let ownerRoleRecord: any = null;
@@ -146,7 +217,7 @@ export class AuthService {
           restaurantId: restaurant.id,
           role: 'OWNER',
           roleId: ownerRoleRecord?.id || null,
-          pin,
+          pin: hashedOwnerPin,
           phone: data.ownerPhone || data.phone || null,
           hourlyRate: 0,
           isActive: true,
@@ -200,7 +271,7 @@ export class AuthService {
           roleId: ownerRoleRecord?.id,
           phone: ownerUser.phone,
           restaurantId: restaurant.id,
-          pin,
+          pin: plainOwnerPin,
           createdAt: ownerUser.createdAt,
         },
       };
@@ -284,9 +355,50 @@ export class AuthService {
     };
   }
 
-  async login(email: string, password: string) {
-    const user = await prisma.employee.findUnique({
-      where: { email: email.trim().toLowerCase() },
+  async login(
+    identifier: string,
+    password: string,
+    businessCode?: string,
+    ip = '0.0.0.0'
+  ) {
+    if (!identifier || !password) {
+      throw new Error('Email/username and password are required');
+    }
+
+    const cleanIdentifier = identifier.trim().toLowerCase();
+    const lockKey = (businessCode || cleanIdentifier).trim().toLowerCase();
+    attemptLockService.assertNotLocked(lockKey, ip);
+
+    let restaurant: any = null;
+    if (businessCode && businessCode.trim()) {
+      restaurant = await prisma.restaurant.findFirst({
+        where: {
+          OR: [
+            { slug: businessCode.trim().toLowerCase() },
+            { id: businessCode.trim() },
+          ],
+        },
+      });
+      if (!restaurant) {
+        attemptLockService.recordFailure(lockKey, ip);
+        throw new Error('Restaurant not found with the specified code');
+      }
+    }
+
+    const whereClause: any = {
+      isActive: true,
+      OR: [
+        { email: cleanIdentifier },
+        { username: cleanIdentifier },
+      ],
+    };
+
+    if (restaurant) {
+      whereClause.restaurantId = restaurant.id;
+    }
+
+    const user = await prisma.employee.findFirst({
+      where: whereClause,
       include: {
         restaurant: true,
         roleRecord: {
@@ -299,6 +411,7 @@ export class AuthService {
     });
 
     if (!user || !user.isActive) {
+      attemptLockService.recordFailure(lockKey, ip);
       throw new Error('Invalid credentials');
     }
 
@@ -308,8 +421,11 @@ export class AuthService {
 
     const isValidPassword = await bcrypt.compare(password, user.passwordHash);
     if (!isValidPassword) {
+      attemptLockService.recordFailure(lockKey, ip);
       throw new Error('Invalid credentials');
     }
+
+    attemptLockService.recordSuccess(lockKey, ip);
 
     const isOwner = user.roleRecord
       ? user.roleRecord.isOwnerRole === true
@@ -339,6 +455,9 @@ export class AuthService {
       permissions = Array.from(permSet);
     }
 
+    const enabledFeatures = await getEnabledFeatures(user.restaurantId);
+    const effectivePermissions = filterPermissionsByFeatures(permissions, enabledFeatures);
+
     const { accessToken, refreshToken } = this.generateTokens({
       id: user.id,
       email: user.email,
@@ -347,7 +466,7 @@ export class AuthService {
       restaurantId: user.restaurantId,
       firstName: user.firstName,
       lastName: user.lastName,
-      permissions,
+      permissions: effectivePermissions,
     });
 
     await this.saveRefreshToken(user.id, refreshToken);
@@ -356,6 +475,7 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
+        username: user.username,
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
@@ -367,8 +487,8 @@ export class AuthService {
         restaurantLogoUrl: user.restaurant.logoUrl,
         themePalette: user.restaurant.themePalette || 'espresso',
         themeMode: user.restaurant.themeMode || 'dark',
-        permissions,
-        features: await getEnabledFeatures(user.restaurantId),
+        permissions: effectivePermissions,
+        features: enabledFeatures,
         isOwnerRole: isOwner,
         isPlatform: false,
       },
@@ -377,21 +497,38 @@ export class AuthService {
     };
   }
 
-  async loginWithPin(pin: string, tenantIdentifier: { tenantSlug?: string; restaurantId?: string }) {
-    const { tenantSlug, restaurantId } = tenantIdentifier;
+  async loginWithPin(
+    pin: string,
+    tenantIdentifier: { tenantSlug?: string; restaurantId?: string; businessCode?: string },
+    ip = '0.0.0.0'
+  ) {
+    const { tenantSlug, restaurantId, businessCode } = tenantIdentifier;
+    const identifier = tenantSlug || businessCode || restaurantId;
 
-    if (!tenantSlug && !restaurantId) {
+    if (!identifier || !identifier.trim()) {
       throw new Error('Tenant identifier (restaurant code or ID) is required for PIN login');
     }
 
+    const cleanPin = pin ? pin.trim() : '';
+    if (!cleanPin) {
+      throw new Error('PIN is required');
+    }
+
+    const lockKey = identifier.trim().toLowerCase();
+    attemptLockService.assertNotLocked(lockKey, ip);
+
     // Resolve tenant
     const restaurant = await prisma.restaurant.findFirst({
-      where: tenantSlug
-        ? { slug: tenantSlug.trim().toLowerCase() }
-        : { id: restaurantId },
+      where: {
+        OR: [
+          { slug: identifier.trim().toLowerCase() },
+          { id: identifier.trim() },
+        ],
+      },
     });
 
     if (!restaurant) {
+      attemptLockService.recordFailure(lockKey, ip);
       throw new Error('Restaurant not found with the specified code');
     }
 
@@ -399,11 +536,10 @@ export class AuthService {
       throw new Error('Business account suspended. Please contact platform support.');
     }
 
-    // Find active employee within that tenant matching the PIN
-    const user = await prisma.employee.findFirst({
+    // Find active employees within that tenant matching the PIN
+    const candidates = await prisma.employee.findMany({
       where: {
         restaurantId: restaurant.id,
-        pin: pin.trim(),
         isActive: true,
       },
       include: {
@@ -416,9 +552,23 @@ export class AuthService {
       },
     });
 
-    if (!user) {
+    let matchedUser: any = null;
+    for (const cand of candidates) {
+      if (!cand.pin) continue;
+      const isMatch = (await bcrypt.compare(cleanPin, cand.pin).catch(() => false)) || cand.pin === cleanPin;
+      if (isMatch) {
+        matchedUser = cand;
+        break;
+      }
+    }
+
+    if (!matchedUser) {
+      attemptLockService.recordFailure(lockKey, ip);
       throw new Error('Invalid PIN or staff account not found');
     }
+
+    attemptLockService.recordSuccess(lockKey, ip);
+    const user = matchedUser;
 
     const isOwner = user.roleRecord
       ? user.roleRecord.isOwnerRole === true
@@ -448,6 +598,9 @@ export class AuthService {
       permissions = Array.from(permSet);
     }
 
+    const enabledFeatures = await getEnabledFeatures(restaurant.id);
+    const effectivePermissions = filterPermissionsByFeatures(permissions, enabledFeatures);
+
     const { accessToken, refreshToken } = this.generateTokens({
       id: user.id,
       email: user.email,
@@ -456,7 +609,7 @@ export class AuthService {
       restaurantId: restaurant.id,
       firstName: user.firstName,
       lastName: user.lastName,
-      permissions,
+      permissions: effectivePermissions,
     });
 
     await this.saveRefreshToken(user.id, refreshToken);
@@ -476,8 +629,8 @@ export class AuthService {
         restaurantLogoUrl: restaurant.logoUrl,
         themePalette: restaurant.themePalette || 'espresso',
         themeMode: restaurant.themeMode || 'dark',
-        permissions,
-        features: await getEnabledFeatures(restaurant.id),
+        permissions: effectivePermissions,
+        features: enabledFeatures,
         isOwnerRole: isOwner,
         isPlatform: false,
       },

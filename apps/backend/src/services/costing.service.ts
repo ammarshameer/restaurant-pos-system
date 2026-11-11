@@ -111,6 +111,28 @@ export class CostingService {
         ? +(orders.reduce((sum, order) => sum + Number(order.total || 0), 0) / transactionCount).toFixed(2)
         : 0;
 
+    const missingCostMap = new Map<string, { id: string; name: string; type: 'DISH' | 'DEAL'; count: number }>();
+    for (const order of orders) {
+      for (const item of order.items) {
+        const unitCost = getOrderItemUnitCost(item);
+        if (!unitCost || unitCost <= 0) {
+          const key = item.dealId ? `deal:${item.dealId}` : `item:${item.menuItemId || item.name}`;
+          const existing = missingCostMap.get(key);
+          if (existing) {
+            existing.count += Number(item.quantity || 1);
+          } else {
+            missingCostMap.set(key, {
+              id: item.dealId || item.menuItemId || key,
+              name: item.name || (item.dealId ? 'Unnamed Deal' : 'Unnamed Item'),
+              type: item.dealId ? 'DEAL' : 'DISH',
+              count: Number(item.quantity || 1),
+            });
+          }
+        }
+      }
+    }
+    const missingCostItems = Array.from(missingCostMap.values());
+
     return {
       grossSales,
       netSales,
@@ -125,6 +147,7 @@ export class CostingService {
       foodCostPercent,
       averageTicket,
       transactionCount,
+      missingCostItems,
     };
   }
 

@@ -63,6 +63,31 @@ router.get('/restaurant/:restaurantId', requirePermission('employees.view'), asy
   }
 });
 
+// Time clock PIN punch (server-side PIN verification)
+router.post('/time-clock/punch', async (req: AuthRequest, res, next) => {
+  try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const { pin } = req.body;
+    const ip = req.ip || (req.socket?.remoteAddress as string) || '0.0.0.0';
+    const result = await employeeService.punchTimeClock(pin, restaurantId, ip);
+    res.json(result);
+  } catch (error: any) {
+    res.status(error.statusCode || 400).json({ error: error.message || 'Time clock punch failed' });
+  }
+});
+
+router.post('/punch', async (req: AuthRequest, res, next) => {
+  try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const { pin } = req.body;
+    const ip = req.ip || (req.socket?.remoteAddress as string) || '0.0.0.0';
+    const result = await employeeService.punchTimeClock(pin, restaurantId, ip);
+    res.json(result);
+  } catch (error: any) {
+    res.status(error.statusCode || 400).json({ error: error.message || 'Time clock punch failed' });
+  }
+});
+
 // Get single employee
 router.get('/:id', requirePermission('employees.view'), async (req: AuthRequest, res, next) => {
   try {
@@ -137,6 +162,18 @@ router.post('/:id/reset-password', requirePermission('employees.manage'), async 
     res.json(result);
   } catch (error: any) {
     res.status(error.statusCode || 400).json({ error: error.message || 'Failed to reset password' });
+  }
+});
+
+// Reset employee PIN
+router.post('/:id/reset-pin', requirePermission('employees.manage'), async (req: AuthRequest, res, next) => {
+  try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const { pin } = req.body;
+    const result = await employeeService.resetPin(req.params.id, restaurantId, pin);
+    res.json(result);
+  } catch (error: any) {
+    res.status(error.statusCode || 400).json({ error: error.message || 'Failed to reset PIN' });
   }
 });
 

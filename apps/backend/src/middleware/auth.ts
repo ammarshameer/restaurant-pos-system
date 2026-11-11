@@ -95,11 +95,6 @@ export const requirePermission = (...requiredPermissions: string[]) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Owner role unconditionally bypasses permission checks (strictly DB-derived)
-    if (req.user.isOwnerRole) {
-      return next();
-    }
-
     const userPermissions = new Set(req.user.permissions || []);
     const missing = requiredPermissions.filter((p) => !userPermissions.has(p));
 
@@ -116,17 +111,18 @@ export const requirePermission = (...requiredPermissions: string[]) => {
 };
 
 export const requireAnyPermission = (permissions: Permission[]) => {
-    return (req: AuthRequest, res: Response, next: NextFunction) => {
-      if (!req.user) return res.status(401).json({ error: 'Authentication required' });
-      if (req.user.isOwnerRole || permissions.some((permission) => req.user?.permissions?.includes(permission))) {
-        return next();
-      }
-      return res.status(403).json({
-        error: `Insufficient permissions: requires one of ${permissions.join(', ')}`,
-        code: 'FORBIDDEN',
-        required: permissions,
-      });
-    };
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    const userPermissions = new Set(req.user.permissions || []);
+    if (permissions.some((permission) => userPermissions.has(permission))) {
+      return next();
+    }
+    return res.status(403).json({
+      error: `Insufficient permissions: requires one of ${permissions.join(', ')}`,
+      code: 'FORBIDDEN',
+      required: permissions,
+    });
+  };
 };
 
 export const requireFeature = (feature: FeatureKey) => {

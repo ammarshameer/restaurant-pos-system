@@ -13,7 +13,121 @@ import {
 } from '../lib/session';
 import { loginSuccess } from '../store/slices/authSlice';
 import PlatformThemeToggle from '../components/PlatformThemeToggle';
-import { FEATURES } from '../types/permissions';
+import { FEATURES, FeatureKey } from '../types/permissions';
+
+const REQUIRED_MODULE_KEYS = ['pos', 'orders', 'payments', 'settings'];
+
+const PRESET_MODULES: Record<'starter' | 'standard' | 'full', string[]> = {
+  starter: ['pos', 'tables', 'orders', 'payments', 'invoices', 'menu', 'kitchen', 'settings'],
+  standard: [
+    'pos',
+    'tables',
+    'orders',
+    'payments',
+    'invoices',
+    'menu',
+    'kitchen',
+    'settings',
+    'deals',
+    'customers',
+    'dues',
+    'inventory',
+    'employees',
+    'roles',
+    'backups',
+  ],
+  full: [
+    'pos',
+    'tables',
+    'orders',
+    'payments',
+    'invoices',
+    'menu',
+    'kitchen',
+    'settings',
+    'deals',
+    'customers',
+    'dues',
+    'inventory',
+    'employees',
+    'roles',
+    'backups',
+    'analytics',
+    'costing',
+    'expenses',
+    'payroll',
+  ],
+};
+
+const MODULE_GROUPS = [
+  {
+    title: 'Operations & Floor',
+    modules: [
+      { key: 'pos', name: 'POS Terminal', required: true },
+      { key: 'tables', name: 'Floor Plan & Tables' },
+      { key: 'orders', name: 'Orders & Tickets', required: true },
+      { key: 'payments', name: 'Cash Register & Payments', required: true },
+      { key: 'invoices', name: 'Sale Invoices' },
+      { key: 'kitchen', name: 'Kitchen Display (KDS)' },
+    ],
+  },
+  {
+    title: 'Menu & Inventory',
+    modules: [
+      { key: 'menu', name: 'Menu & Recipes' },
+      { key: 'deals', name: 'Deals & Combos' },
+      { key: 'inventory', name: 'Inventory Stock' },
+      { key: 'costing', name: 'Food Costing', hint: 'Auto-enables inventory & menu' },
+    ],
+  },
+  {
+    title: 'Staff & Customers',
+    modules: [
+      { key: 'customers', name: 'Customer Directory' },
+      { key: 'dues', name: 'Dues & Udhaar', hint: 'Auto-enables customers' },
+      { key: 'employees', name: 'Staff & Time Clock' },
+      { key: 'payroll', name: 'Payroll & Salaries', hint: 'Auto-enables staff' },
+      { key: 'roles', name: 'Roles & Permissions' },
+    ],
+  },
+  {
+    title: 'Analytics & Administration',
+    modules: [
+      { key: 'analytics', name: 'Analytics & Reports', hint: 'Auto-enables orders' },
+      { key: 'expenses', name: 'Business Expenses' },
+      { key: 'settings', name: 'Store Settings', required: true },
+      { key: 'backups', name: 'Database Backups' },
+    ],
+  },
+];
+
+function applyModuleToggle(currentKeys: Set<string>, key: string, nextChecked: boolean): Set<string> {
+  const next = new Set(currentKeys);
+  if (REQUIRED_MODULE_KEYS.includes(key) && !nextChecked) {
+    return next;
+  }
+
+  if (nextChecked) {
+    next.add(key);
+    if (key === 'dues') next.add('customers');
+    if (key === 'costing') {
+      next.add('inventory');
+      next.add('menu');
+    }
+    if (key === 'payroll') next.add('employees');
+    if (key === 'analytics') next.add('orders');
+  } else {
+    next.delete(key);
+    if (key === 'customers') next.delete('dues');
+    if (key === 'inventory' || key === 'menu') next.delete('costing');
+    if (key === 'employees') next.delete('payroll');
+  }
+
+  for (const req of REQUIRED_MODULE_KEYS) {
+    next.add(req);
+  }
+  return next;
+}
 
 export const PlatformDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -42,7 +156,12 @@ export const PlatformDashboardPage: React.FC = () => {
   const [resetPwModalOpen, setResetPwModalOpen] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<PlatformTenant | null>(null);
   const [featuresModalOpen, setFeaturesModalOpen] = useState(false);
-  const [tenantFeatures, setTenantFeatures] = useState<Array<{ key: string; enabled: boolean; expiresAt?: string | null }>>([]);
+  const [tenantFeatureKeys, setTenantFeatureKeys] = useState<Set<string>>(new Set());
+  const [tenantExpiresAt, setTenantExpiresAt] = useState<string>('');
+
+  // Module checklist in create business modal
+  const [createModules, setCreateModules] = useState<Set<string>>(new Set(PRESET_MODULES.standard));
+  const [createExpiresAt, setCreateExpiresAt] = useState<string>('');
 
   // Forms
   const initialCreateForm: CreateBusinessPayload = {
@@ -151,7 +270,16 @@ export const PlatformDashboardPage: React.FC = () => {
     e.preventDefault();
     setCreateError(null);
     try {
-      const res: any = await platformApi.createRestaurant(createForm);
+      const payload: CreateBusinessPayload = {
+        ...createForm,
+        features: Array.from(createModules).map((key) => ({
+          key,
+          enabled: true,
+          expiresAt: createExpiresAt ? new Date(createExpiresAt).toISOString() : null,
+        })),
+        featureExpiresAt: createExpiresAt || null,
+      };
+      const res: any = await platformApi.createRestaurant(payload);
       setCreatedSuccessData({
         businessName: res?.restaurant?.name || createForm.businessName,
         slug: res?.restaurant?.slug || '',
@@ -161,6 +289,8 @@ export const PlatformDashboardPage: React.FC = () => {
       });
       setCreateModalOpen(false);
       setCreateForm(initialCreateForm);
+      setCreateModules(new Set(PRESET_MODULES.standard));
+      setCreateExpiresAt('');
       loadTenants();
     } catch (err: any) {
       setCreateError(err?.response?.data?.error || err?.response?.data?.message || 'Failed to create business');
@@ -219,13 +349,19 @@ export const PlatformDashboardPage: React.FC = () => {
     setSelectedTenant(tenant);
     try {
       const data = await platformApi.getTenantFeatures(tenant.id);
-      const filtered = (data.features || []).filter((f: any) =>
-        (FEATURES as readonly string[]).includes(f.key)
-      );
-      if (!filtered.some((f: any) => f.key === 'costing')) {
-        filtered.push({ key: 'costing', enabled: false });
+      const activeKeys = new Set<string>();
+      let foundExpiry = '';
+      for (const f of data.features || []) {
+        if (f.enabled) activeKeys.add(f.key);
+        if (f.expiresAt && !foundExpiry) {
+          foundExpiry = String(f.expiresAt).slice(0, 10);
+        }
       }
-      setTenantFeatures(filtered);
+      for (const req of REQUIRED_MODULE_KEYS) {
+        activeKeys.add(req);
+      }
+      setTenantFeatureKeys(activeKeys);
+      setTenantExpiresAt(foundExpiry);
       setFeaturesModalOpen(true);
     } catch (err: any) {
       alert(err?.response?.data?.error || 'Failed to load tenant features');
@@ -235,10 +371,16 @@ export const PlatformDashboardPage: React.FC = () => {
   const saveTenantFeatures = async () => {
     if (!selectedTenant) return;
     try {
-      await platformApi.updateTenantFeatures(selectedTenant.id, tenantFeatures);
-      showSuccess(`Features updated for "${selectedTenant.name}".`);
+      const updates = (FEATURES as readonly string[]).map((key) => ({
+        key,
+        enabled: REQUIRED_MODULE_KEYS.includes(key) ? true : tenantFeatureKeys.has(key),
+        expiresAt: tenantExpiresAt ? new Date(tenantExpiresAt).toISOString() : null,
+      }));
+      await platformApi.updateTenantFeatures(selectedTenant.id, updates);
+      showSuccess(`Modules updated for "${selectedTenant.name}".`);
       setFeaturesModalOpen(false);
       setSelectedTenant(null);
+      loadTenants();
     } catch (err: any) {
       alert(err?.response?.data?.error || 'Failed to update tenant features');
     }
@@ -519,6 +661,7 @@ export const PlatformDashboardPage: React.FC = () => {
                   <th style={{ padding: '12px 16px' }}>Business Code</th>
                   <th style={{ padding: '12px 16px' }}>Owner Details</th>
                   <th style={{ padding: '12px 16px' }}>Staff</th>
+                  <th style={{ padding: '12px 16px' }}>Enabled Modules</th>
                   <th style={{ padding: '12px 16px' }}>Status</th>
                   <th style={{ padding: '12px 16px' }}>Created</th>
                   <th style={{ padding: '12px 16px', textAlign: 'right' }}>Actions</th>
@@ -527,13 +670,13 @@ export const PlatformDashboardPage: React.FC = () => {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>
+                    <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>
                       Loading businesses...
                     </td>
                   </tr>
                 ) : filteredTenants.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>
+                    <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>
                       No business tenants found.
                     </td>
                   </tr>
@@ -611,6 +754,40 @@ export const PlatformDashboardPage: React.FC = () => {
 
                       <td style={{ padding: '12px 16px' }}>
                         <span style={{ fontWeight: 600 }}>{t.userCount}</span> staff
+                      </td>
+
+                      <td style={{ padding: '12px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span
+                            style={{
+                              background: 'rgba(59, 130, 246, 0.15)',
+                              color: '#60a5fa',
+                              padding: '3px 8px',
+                              borderRadius: '12px',
+                              fontWeight: 700,
+                              fontSize: '11px',
+                            }}
+                          >
+                            {(t.enabledFeatures || []).length} / {FEATURES.length} active
+                          </span>
+                          {isSuperAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => openFeatureModal(t)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#94a3b8',
+                                cursor: 'pointer',
+                                fontSize: '11px',
+                                textDecoration: 'underline',
+                                padding: 0,
+                              }}
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </div>
                       </td>
 
                       <td style={{ padding: '12px 16px' }}>
@@ -1073,7 +1250,7 @@ export const PlatformDashboardPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '12px', color: '#cbd5e1' }}>POS Quick PIN (4 Digits, auto-generated if blank)</label>
+                  <label style={{ fontSize: '12px', color: '#cbd5e1' }}>POS Quick PIN (6 Digits, auto-generated if blank)</label>
                   <input
                     type="text"
                     maxLength={6}
@@ -1083,6 +1260,127 @@ export const PlatformDashboardPage: React.FC = () => {
                     style={{ width: '100%', padding: '8px 12px', background: '#1e293b', border: '1px solid #334155', color: '#f8fafc', borderRadius: '6px', marginTop: '4px' }}
                   />
                 </div>
+              </div>
+
+              <h3 style={{ fontSize: '14px', color: '#60a5fa', borderBottom: '1px solid #1e293b', paddingBottom: '6px', marginBottom: '14px' }}>
+                3. Business Modules &amp; Package Preset
+              </h3>
+
+              <div style={{ marginBottom: '14px' }}>
+                <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: 600 }}>
+                  Choose Package Preset:
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setCreateModules(new Set(PRESET_MODULES.starter))}
+                    style={{
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Starter (8 modules)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreateModules(new Set(PRESET_MODULES.standard))}
+                    style={{
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Standard (15 modules)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreateModules(new Set(PRESET_MODULES.full))}
+                    style={{
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Full (19 modules)
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ fontSize: '12px', color: '#cbd5e1' }}>Module Access Expiry Date (Optional)</label>
+                <input
+                  type="date"
+                  value={createExpiresAt}
+                  onChange={(e) => setCreateExpiresAt(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', background: '#1e293b', border: '1px solid #334155', color: '#f8fafc', borderRadius: '6px', marginTop: '4px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                {MODULE_GROUPS.map((group) => (
+                  <div
+                    key={group.title}
+                    style={{
+                      border: '1px solid #1e293b',
+                      borderRadius: '8px',
+                      background: 'rgba(255,255,255,0.02)',
+                      padding: '10px 14px',
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#60a5fa', marginBottom: '6px' }}>
+                      {group.title}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      {group.modules.map((m) => {
+                        const isChecked = createModules.has(m.key);
+                        const isRequired = m.required;
+                        return (
+                          <label
+                            key={m.key}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              fontSize: '11px',
+                              color: isChecked ? '#f8fafc' : '#94a3b8',
+                              cursor: isRequired ? 'default' : 'pointer',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={isRequired}
+                              onChange={(e) =>
+                                setCreateModules((prev) => applyModuleToggle(prev, m.key, e.target.checked))
+                              }
+                            />
+                            <span>
+                              {m.name}
+                              {isRequired && <span style={{ color: '#eab308', fontSize: '10px', marginLeft: '4px' }}>*req</span>}
+                              {m.hint && <span style={{ color: '#64748b', fontSize: '9px', display: 'block' }}>{m.hint}</span>}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
@@ -1347,28 +1645,192 @@ export const PlatformDashboardPage: React.FC = () => {
           onClick={() => setFeaturesModalOpen(false)}
         >
           <div
-            style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '12px', width: '420px', padding: '24px' }}
+            style={{
+              background: '#0f172a',
+              border: '1px solid #334155',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '600px',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              padding: '24px',
+            }}
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 style={{ marginTop: 0 }}>Features: {selectedTenant.name}</h2>
-            {tenantFeatures.map((feature, index) => (
-              <label key={feature.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #1e293b' }}>
-                <span>{feature.key}</span>
-                <input
-                  type="checkbox"
-                  checked={feature.enabled}
-                  onChange={(event) => setTenantFeatures((current) => current.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, enabled: event.target.checked } : item
-                  ))}
-                />
-              </label>
-            ))}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
-              <button type="button" onClick={() => setFeaturesModalOpen(false)} style={{ background: '#334155', color: '#fff', border: 0, padding: '9px 18px', borderRadius: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800 }}>Modules: {selectedTenant.name}</h2>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+                  Enable or disable modules for this business. Required modules and dependencies are enforced.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFeaturesModalOpen(false)}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '18px', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
+              {/* Presets */}
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '6px', fontWeight: 600 }}>
+                  Apply Package Preset:
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setTenantFeatureKeys(new Set(PRESET_MODULES.starter))}
+                    style={{
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Starter (8 modules)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTenantFeatureKeys(new Set(PRESET_MODULES.standard))}
+                    style={{
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Standard (15 modules)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTenantFeatureKeys(new Set(PRESET_MODULES.full))}
+                    style={{
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Full (19 modules)
+                  </button>
+                </div>
+              </div>
+
+              {/* Expiry Date */}
+              <div style={{ marginBottom: '16px', padding: '12px', background: '#1e293b', borderRadius: '8px' }}>
+                <label style={{ display: 'block', fontSize: '12px', color: '#cbd5e1', marginBottom: '4px', fontWeight: 600 }}>
+                  Module Access Expiration Date (Optional)
+                </label>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <input
+                    type="date"
+                    value={tenantExpiresAt}
+                    onChange={(e) => setTenantExpiresAt(e.target.value)}
+                    style={{
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                    }}
+                  />
+                  {tenantExpiresAt && (
+                    <button
+                      type="button"
+                      onClick={() => setTenantExpiresAt('')}
+                      style={{ background: 'none', border: 'none', color: '#f87171', fontSize: '11px', cursor: 'pointer' }}
+                    >
+                      Clear Expiry
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Grouped Modules */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {MODULE_GROUPS.map((group) => (
+                  <div
+                    key={group.title}
+                    style={{
+                      border: '1px solid #1e293b',
+                      borderRadius: '8px',
+                      background: 'rgba(255,255,255,0.02)',
+                      padding: '10px 14px',
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#60a5fa', marginBottom: '6px' }}>
+                      {group.title}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      {group.modules.map((m) => {
+                        const isChecked = tenantFeatureKeys.has(m.key);
+                        const isRequired = m.required;
+                        return (
+                          <label
+                            key={m.key}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              fontSize: '11px',
+                              color: isChecked ? '#f8fafc' : '#94a3b8',
+                              cursor: isRequired ? 'default' : 'pointer',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={isRequired}
+                              onChange={(e) =>
+                                setTenantFeatureKeys((prev) => applyModuleToggle(prev, m.key, e.target.checked))
+                              }
+                            />
+                            <span>
+                              {m.name}
+                              {isRequired && <span style={{ color: '#eab308', fontSize: '10px', marginLeft: '4px' }}>*req</span>}
+                              {m.hint && <span style={{ color: '#64748b', fontSize: '9px', display: 'block' }}>{m.hint}</span>}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #1e293b' }}>
+              <button
+                type="button"
+                onClick={() => setFeaturesModalOpen(false)}
+                style={{ background: '#334155', color: '#f8fafc', border: 0, padding: '9px 18px', borderRadius: 6, cursor: 'pointer' }}
+              >
                 Cancel
               </button>
-              <button type="button" onClick={() => void saveTenantFeatures()} style={{ background: '#2563eb', color: '#fff', border: 0, padding: '9px 18px', borderRadius: 6, fontWeight: 700 }}>
-                Save Features
+              <button
+                type="button"
+                onClick={() => void saveTenantFeatures()}
+                style={{ background: '#2563eb', color: '#fff', border: 0, padding: '9px 20px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}
+              >
+                Save Modules
               </button>
             </div>
           </div>

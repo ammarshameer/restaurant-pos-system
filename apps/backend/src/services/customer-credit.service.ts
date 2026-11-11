@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import crypto from 'crypto';
 import { ValidationError } from '../lib/errors';
 import { getIO } from '../websocket';
 
@@ -161,7 +162,8 @@ export class CustomerCreditService {
     amount: number,
     method = 'CASH',
     note?: string,
-    createdById?: string
+    createdById?: string,
+    clientId?: string
   ) {
     if (!restaurantId || !restaurantId.trim()) {
       throw new Error('restaurantId is required');
@@ -172,6 +174,22 @@ export class CustomerCreditService {
     const paymentAmount = +Number(amount).toFixed(2);
     if (paymentAmount <= 0) {
       throw new ValidationError('Payment amount must be greater than zero');
+    }
+
+    if (clientId) {
+      const existing = await prisma.customerLedgerEntry.findFirst({
+        where: { restaurantId, customerId, clientId },
+        include: { customer: true },
+      });
+      if (existing) {
+        return {
+          customer: existing.customer,
+          entry: existing,
+          balanceAfter: existing.balanceAfter,
+          allocatedOrdersCount: 0,
+          duplicate: true,
+        };
+      }
     }
 
     return prisma.$transaction(async (tx) => {
@@ -189,11 +207,12 @@ export class CustomerCreditService {
         );
       }
 
-      // FIFO allocation to customer's oldest orders with amountDue > 0
+      // FIFO allocation to customer's oldest orders with settledToCredit = true and amountDue > 0
       const unpaidOrders = await tx.order.findMany({
         where: {
           restaurantId,
           customerId,
+          settledToCredit: true,
           amountDue: { gt: 0.01 },
         },
         orderBy: { createdAt: 'asc' },
@@ -208,13 +227,14 @@ export class CustomerCreditService {
         const allocated = Math.min(remainingToAllocate, currentOrderDue);
 
         if (allocated > 0) {
+          const uniqueTxId = `DUES-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
           await tx.payment.create({
             data: {
               orderId: order.id,
               amount: +allocated.toFixed(2),
               method: method || 'CASH',
               status: 'COMPLETED',
-              transactionId: `DUES-${Date.now().toString().slice(-6)}`,
+              transactionId: uniqueTxId,
               processedAt: new Date(),
             },
           });
@@ -245,6 +265,7 @@ export class CustomerCreditService {
         data: { balanceDue: balanceAfter },
       });
 
+      const entryTxId = `DUES-TX-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
       const entry = await tx.customerLedgerEntry.create({
         data: {
           restaurantId,
@@ -255,6 +276,8 @@ export class CustomerCreditService {
           method: method || 'CASH',
           note: note || 'Dues payment received',
           createdById: createdById || null,
+          clientId: clientId || null,
+          transactionId: entryTxId,
         },
       });
 
@@ -268,6 +291,7 @@ export class CustomerCreditService {
         entry,
         balanceAfter,
         allocatedOrdersCount: updatedOrders.length,
+        duplicate: false,
       };
     });
   }

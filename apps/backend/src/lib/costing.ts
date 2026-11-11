@@ -107,10 +107,14 @@ export function getRecipeUnitCost(menuItem: any): number {
 }
 
 /**
- * Cost of one unit of an order line. Deals are expanded into their component
- * menu items; regular lines use the menu item recipe.
+ * Cost of one unit of an order line. Uses `costAtSale` when recorded,
+ * falling back to expanding deals into dishes or the live recipe cost.
  */
 export function getOrderItemUnitCost(orderItem: any): number {
+  if (orderItem?.costAtSale !== null && orderItem?.costAtSale !== undefined) {
+    return Number(orderItem.costAtSale);
+  }
+
   const dealItems = orderItem?.deal?.items;
   if (Array.isArray(dealItems) && dealItems.length > 0) {
     return dealItems.reduce(

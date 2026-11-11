@@ -84,6 +84,7 @@ export interface PlatformTenant {
   createdAt: string;
   updatedAt: string;
   userCount: number;
+  enabledFeatures?: string[];
   owner?: {
     id: string;
     name: string;
@@ -108,6 +109,8 @@ export interface CreateBusinessPayload {
   ownerPhone?: string;
   ownerPassword: string;
   ownerPin?: string;
+  features?: Array<{ key: string; enabled: boolean; expiresAt?: string | null }> | string[];
+  featureExpiresAt?: string | null;
 }
 
 export const platformApi = {

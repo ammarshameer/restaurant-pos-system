@@ -102,7 +102,8 @@ model Employee {
   id              String              @id @default(cuid())
   firstName       String
   lastName        String
-  email           String              @unique
+  email           String?             @unique
+  username        String?
   phone           String?
   role            String              @default("SERVER")
   roleId          String?
@@ -121,6 +122,8 @@ model Employee {
   modifications       OrderModification[]
   refreshTokens       RefreshToken[]
   permissionOverrides EmployeePermission[]
+
+  @@unique([restaurantId, username])
 }
 
 model EmployeePermission {
@@ -327,23 +330,26 @@ model Customer {
 }
 
 model CustomerLedgerEntry {
-  id           String   @id @default(cuid())
-  restaurantId String
-  customerId   String
-  orderId      String?
-  type         String   // CHARGE | PAYMENT | ADJUSTMENT | REFUND
-  amount       Float
-  balanceAfter Float
-  method       String?
-  note         String?
-  createdById  String?
-  createdAt    DateTime @default(now())
+  id            String   @id @default(cuid())
+  restaurantId  String
+  customerId    String
+  orderId       String?
+  type          String   // CHARGE | PAYMENT | ADJUSTMENT | REFUND
+  amount        Float
+  balanceAfter  Float
+  method        String?
+  note          String?
+  createdById   String?
+  clientId      String?
+  transactionId String?
+  createdAt     DateTime @default(now())
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   order    Order?   @relation(fields: [orderId], references: [id])
 
   @@index([restaurantId, customerId, createdAt])
   @@index([restaurantId, type])
+  @@index([restaurantId, clientId])
 }
 
 model OrderItem {
@@ -356,6 +362,7 @@ model OrderItem {
   unitPrice           Float             @default(0)
   price               Float             @default(0)
   total               Float             @default(0)
+  costAtSale          Float?
   seatNumber          Int?
   status              String            @default("PENDING")
   course              String            @default("ENTREE")

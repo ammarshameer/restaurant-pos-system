@@ -7,11 +7,15 @@ import { rolesApi, RoleItem } from '../api/roles.api';
 import { RootState } from '../store/store';
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPersonName, formatPKR } from '../utils/format';
-import { PERMISSION_MODULES } from '../types/permissions';
+import { PERMISSION_MODULES, FeatureKey } from '../types/permissions';
 
 export const EmployeesPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { user } = useSelector((state: RootState) => state.auth);
+  const enabledFeatures = new Set(user?.features || []);
+  const enabledModules = PERMISSION_MODULES.filter(
+    (m) => m.id === 'dashboard' || enabledFeatures.has(m.id as FeatureKey)
+  );
 
   const canManageEmployees =
     user?.isOwnerRole === true ||
@@ -34,6 +38,7 @@ export const EmployeesPage: React.FC = () => {
     firstName: '',
     lastName: '',
     email: '',
+    username: '',
     password: '',
     role: 'WAITER' as EmployeeItem['role'],
     roleId: '',
@@ -49,6 +54,7 @@ export const EmployeesPage: React.FC = () => {
     firstName: '',
     lastName: '',
     email: '',
+    username: '',
     phone: '',
     hourlyRate: 600,
     role: 'WAITER',
@@ -131,26 +137,18 @@ export const EmployeesPage: React.FC = () => {
     loadShifts();
   }, []);
 
-  // Handle Clock In/Out via Fast PIN
+  // Handle Clock In/Out via Fast PIN (Server-side PIN verification)
   const handlePinTimeClock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clockPin || clockPin.length < 4) return;
 
-    const matchedEmp = employees.find((emp) => emp.pin === clockPin && emp.isActive);
-    if (!matchedEmp) {
-      setClockMessage('❌ Invalid PIN or inactive employee. Please try again.');
-      setTimeout(() => setClockMessage(null), 4000);
-      setClockPin('');
-      return;
-    }
-
     try {
-      if (matchedEmp.isClockedIn) {
-        await employeeApi.clockOut(matchedEmp.id);
-        setClockMessage(`👋 ${formatPersonName(`${matchedEmp.firstName} ${matchedEmp.lastName}`)} clocked out successfully.`);
+      const res = await employeeApi.punchTimeClock(clockPin);
+      const name = res.employee ? `${res.employee.firstName} ${res.employee.lastName}` : 'Staff';
+      if (res.action === 'clockOut') {
+        setClockMessage(`👋 ${formatPersonName(name)} clocked out successfully.`);
       } else {
-        await employeeApi.clockIn(matchedEmp.id);
-        setClockMessage(`✅ ${formatPersonName(`${matchedEmp.firstName} ${matchedEmp.lastName}`)} clocked in successfully.`);
+        setClockMessage(`✅ ${formatPersonName(name)} clocked in successfully.`);
       }
       queryClient.invalidateQueries({ queryKey: ['employees'] });
       const updatedShifts = await employeeApi.getActiveShifts();
@@ -160,6 +158,8 @@ export const EmployeesPage: React.FC = () => {
       setTimeout(() => setClockMessage(null), 5000);
     } catch (err: any) {
       setClockMessage(`❌ Error: ${err?.response?.data?.error || err.message}`);
+      setClockPin('');
+      setTimeout(() => setClockMessage(null), 5000);
     }
   };
 
@@ -183,25 +183,28 @@ export const EmployeesPage: React.FC = () => {
 
   const handleCreateEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEmployee.firstName || !newEmployee.lastName || !newEmployee.email) return;
+    if (!newEmployee.firstName || !newEmployee.lastName) return;
 
     try {
       const created = await employeeApi.createEmployee({
         ...newEmployee,
+        email: newEmployee.email.trim() || undefined,
+        username: newEmployee.username.trim() || undefined,
         password: newEmployee.password.trim() || undefined,
         isActive: true,
       });
       queryClient.invalidateQueries({ queryKey: ['employees'] });
       setAddModalOpen(false);
-      if (created?.pin && !newEmployee.pin.trim()) {
+      if (created?.pin) {
         alert(
-          `${created.firstName} ${created.lastName} was created.\n\nTerminal PIN (auto-generated): ${created.pin}\nShare this with the staff member so they can sign in and clock in.`
+          `${created.firstName} ${created.lastName} was created.\n\nTerminal PIN: ${created.pin}\nPlease write this down or share with the staff member. It will not be shown again.`
         );
       }
       setNewEmployee({
         firstName: '',
         lastName: '',
         email: '',
+        username: '',
         password: '',
         role: (availableRoles.find((r) => !r.isOwnerRole)?.key || 'WAITER') as any,
         roleId: availableRoles.find((r) => !r.isOwnerRole)?.id || '',
@@ -220,12 +223,13 @@ export const EmployeesPage: React.FC = () => {
     setEditForm({
       firstName: emp.firstName,
       lastName: emp.lastName,
-      email: emp.email,
+      email: emp.email || '',
+      username: emp.username || '',
       phone: emp.phone || '',
       hourlyRate: emp.hourlyRate || 0,
       role: emp.role,
       roleId: emp.roleId || '',
-      pin: emp.pin || '',
+      pin: '',
       password: '',
       isActive: emp.isActive,
     });
@@ -261,7 +265,8 @@ export const EmployeesPage: React.FC = () => {
       const updatePayload: any = {
         firstName: editForm.firstName.trim(),
         lastName: editForm.lastName.trim(),
-        email: editForm.email.trim(),
+        email: editForm.email.trim() || undefined,
+        username: editForm.username.trim() || undefined,
         phone: editForm.phone.trim() || undefined,
         hourlyRate: editForm.hourlyRate,
         roleId: editForm.roleId || undefined,
@@ -273,7 +278,10 @@ export const EmployeesPage: React.FC = () => {
         updatePayload.password = editForm.password.trim();
       }
 
-      await employeeApi.updateEmployee(editingEmployee.id, updatePayload);
+      const updated = await employeeApi.updateEmployee(editingEmployee.id, updatePayload);
+      if (updated?.pin) {
+        alert(`New Terminal PIN: ${updated.pin}\nPlease write this down or share with the staff member. It will not be shown again.`);
+      }
 
       // 2. Update permission overrides if not owner
       if (!editingEmployee.isOwner) {
@@ -292,6 +300,18 @@ export const EmployeesPage: React.FC = () => {
       setEditError(err?.response?.data?.error || err?.message || 'Failed to update employee');
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  // Reset PIN for staff member
+  const handleResetPin = async (emp: EmployeeItem) => {
+    if (!confirm(`Reset terminal PIN for ${emp.firstName} ${emp.lastName}?`)) return;
+    try {
+      const res = await employeeApi.resetPin(emp.id);
+      alert(`Terminal PIN for ${emp.firstName} ${emp.lastName}: ${res.pin}\nPlease write this down or share with the staff member. It will not be shown again.`);
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err.message || 'Failed to reset PIN');
     }
   };
 
@@ -589,15 +609,26 @@ export const EmployeesPage: React.FC = () => {
                       ✏️ Edit & Access
                     </button>
                     {!emp.isOwner && (
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ fontSize: '11px', fontWeight: 600 }}
-                        onClick={() => handleResetPassword(emp)}
-                        title="Generate temporary login password"
-                      >
-                        🔑 Reset PW
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ fontSize: '11px', fontWeight: 600 }}
+                          onClick={() => handleResetPassword(emp)}
+                          title="Generate temporary login password"
+                        >
+                          🔑 Reset PW
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ fontSize: '11px', fontWeight: 600 }}
+                          onClick={() => handleResetPin(emp)}
+                          title="Generate a new terminal PIN"
+                        >
+                          🔢 Reset PIN
+                        </button>
+                      </>
                     )}
                   </div>
                 )}
@@ -720,19 +751,33 @@ export const EmployeesPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="form-group">
-                  <label className="input-label">
-                    <span>Email Address</span>
-                    <span className="label-hint">Login username</span>
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    placeholder="e.g. alex@restaurant.com"
-                    className="input-field"
-                    value={newEmployee.email}
-                    onChange={(e) => setNewEmployee({ ...newEmployee, email: e.target.value })}
-                  />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>Username</span>
+                      <span className="label-hint">Optional</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. alex01"
+                      className="input-field"
+                      value={newEmployee.username}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, username: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>Email Address</span>
+                      <span className="label-hint">Optional</span>
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="e.g. alex@restaurant.com"
+                      className="input-field"
+                      value={newEmployee.email}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, email: e.target.value })}
+                    />
+                  </div>
                 </div>
 
                 <div className="form-group">
@@ -805,8 +850,12 @@ export const EmployeesPage: React.FC = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: 0 }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label className="input-label">
-                      <span>Terminal PIN (4–6 digits)</span>
-                      <span className="label-hint">Optional</span>
+                      <span>Terminal PIN</span>
+                      <span className="label-hint">
+                        {String(newEmployee.role).toUpperCase().includes('MANAGER') || String(newEmployee.role).toUpperCase().includes('OWNER')
+                          ? '6 digits (Manager)'
+                          : '4–6 digits (Optional)'}
+                      </span>
                     </label>
                     <input
                       type="password"
@@ -900,24 +949,35 @@ export const EmployeesPage: React.FC = () => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div className="form-group">
-                    <label className="input-label">Email Address *</label>
+                    <label className="input-label">Username (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. alex01"
+                      className="input-field"
+                      value={editForm.username}
+                      onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="input-label">Email Address {editingEmployee.isOwner ? '*' : '(Optional)'}</label>
                     <input
                       type="email"
-                      required
+                      required={editingEmployee.isOwner}
                       className="input-field"
                       value={editForm.email}
                       onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
                     />
                   </div>
-                  <div className="form-group">
-                    <label className="input-label">Contact Phone</label>
-                    <input
-                      type="text"
-                      className="input-field"
-                      value={editForm.phone}
-                      onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                    />
-                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="input-label">Contact Phone</label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={editForm.phone}
+                    onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                  />
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -960,11 +1020,23 @@ export const EmployeesPage: React.FC = () => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div className="form-group">
-                    <label className="input-label">Terminal PIN (4 Digits)</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label className="input-label" style={{ marginBottom: 0 }}>Terminal PIN</label>
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-outline"
+                        style={{ fontSize: '11px', padding: '1px 6px' }}
+                        onClick={() => handleResetPin(editingEmployee)}
+                      >
+                        🔄 Reset PIN
+                      </button>
+                    </div>
                     <input
                       type="password"
-                      maxLength={4}
+                      maxLength={6}
+                      placeholder="Change PIN (4–6 digits, 6 for Mgr)"
                       className="input-field"
+                      style={{ marginTop: '4px' }}
                       value={editForm.pin}
                       onChange={(e) => setEditForm({ ...editForm, pin: e.target.value })}
                     />
@@ -1026,7 +1098,10 @@ export const EmployeesPage: React.FC = () => {
                     <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading permissions...</div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                      {PERMISSION_MODULES.map((module) => (
+                      <div style={{ padding: '8px 12px', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: '6px', color: '#93c5fd', fontSize: '12px' }}>
+                        ℹ️ Contact support to add more modules.
+                      </div>
+                      {enabledModules.map((module) => (
                         <div
                           key={module.id}
                           style={{

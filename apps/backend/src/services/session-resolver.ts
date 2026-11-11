@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../config/secrets';
-import { ALL_PERMISSIONS, DEFAULT_SYSTEM_ROLES, FeatureKey } from '../permissions';
+import { ALL_PERMISSIONS, DEFAULT_SYSTEM_ROLES, FeatureKey, filterPermissionsByFeatures } from '../permissions';
 import { getEnabledFeatures } from './feature.service';
 
 const prisma = new PrismaClient();
@@ -145,6 +145,11 @@ export async function resolveTenantSession(token: string): Promise<Authenticated
     }
   }
 
+  const enabledFeatures = await getEnabledFeatures(dbEmp.restaurantId);
+  const effectivePermissions = isSupportActive
+    ? permissions
+    : filterPermissionsByFeatures(permissions, enabledFeatures);
+
   return {
     id: dbEmp.id,
     email: dbEmp.email,
@@ -155,8 +160,8 @@ export async function resolveTenantSession(token: string): Promise<Authenticated
     restaurantId: dbEmp.restaurantId, // Derived strictly from DB employee row
     firstName: dbEmp.firstName,
     lastName: dbEmp.lastName,
-    permissions,
-    features: await getEnabledFeatures(dbEmp.restaurantId),
+    permissions: effectivePermissions,
+    features: enabledFeatures,
     themePalette: dbEmp.restaurant?.themePalette || 'espresso',
     themeMode: dbEmp.restaurant?.themeMode || 'dark',
     supportMode: isSupportActive,

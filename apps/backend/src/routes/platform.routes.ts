@@ -174,10 +174,15 @@ router.post(
         ownerPhone,
         ownerPassword,
         ownerPin,
+        features,
+        featureExpiresAt,
       } = req.body;
 
       if (
         !businessName ||
+        !address ||
+        !address.trim() ||
+        !(phone?.trim() || ownerPhone?.trim()) ||
         !ownerFirstName ||
         !ownerLastName ||
         !ownerEmail ||
@@ -185,7 +190,7 @@ router.post(
       ) {
         return res.status(400).json({
           error:
-            'Missing required fields: businessName, ownerFirstName, ownerLastName, ownerEmail, ownerPassword',
+            'Missing required fields: businessName, address, phone, ownerFirstName, ownerLastName, ownerEmail, ownerPassword',
         });
       }
 
@@ -196,8 +201,8 @@ router.post(
       }
 
       if (ownerPin !== undefined && ownerPin !== null && String(ownerPin).trim() !== '') {
-        if (!/^\d{4,6}$/.test(String(ownerPin).trim())) {
-          return res.status(400).json({ error: 'Owner PIN must be 4 to 6 digits' });
+        if (!/^\d{6}$/.test(String(ownerPin).trim())) {
+          return res.status(400).json({ error: 'Owner PIN must be exactly 6 digits' });
         }
       }
 
@@ -215,6 +220,8 @@ router.post(
           ownerPhone,
           ownerPassword,
           ownerPin,
+          features,
+          featureExpiresAt,
         },
         req.platformUser!.id,
         {

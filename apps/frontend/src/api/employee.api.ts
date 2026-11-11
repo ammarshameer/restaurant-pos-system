@@ -6,7 +6,8 @@ export interface Employee {
   id: string;
   firstName: string;
   lastName: string;
-  email: string;
+  email?: string;
+  username?: string;
   role: string;
   roleId?: string;
   roleName?: string;
@@ -35,7 +36,8 @@ function mapEmployee(e: any): Employee {
     id: e.id,
     firstName: e.firstName,
     lastName: e.lastName,
-    email: e.email,
+    email: e.email || '',
+    username: e.username,
     role: e.role,
     roleId: e.roleId,
     roleName: e.roleName || e.roleRecord?.name || e.role,
@@ -155,6 +157,14 @@ export const employeeApi = {
 
   clockOut: async (id: string): Promise<any> => {
     return api.post(`/employees/${id}/clock-out`);
+  },
+
+  punchTimeClock: async (pin: string): Promise<{ action: 'clockIn' | 'clockOut'; shift: any; employee: any }> => {
+    return api.post('/employees/time-clock/punch', { pin });
+  },
+
+  resetPin: async (id: string, pin?: string): Promise<{ success: boolean; pin: string }> => {
+    return api.post(`/employees/${id}/reset-pin`, { pin });
   },
 
   resetPassword: async (id: string): Promise<{ temporaryPassword: string; message: string }> => {

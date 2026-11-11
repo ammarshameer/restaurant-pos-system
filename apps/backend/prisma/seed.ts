@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { DEFAULT_SYSTEM_ROLES } from '../src/permissions';
+import { DEFAULT_SYSTEM_ROLES, FEATURES } from '../src/permissions';
 import { getDevPlatformCredentials } from '../src/config/dev-credentials';
 
 const prisma = new PrismaClient();
@@ -30,9 +30,11 @@ async function main() {
   console.log(`✓ Restaurant created: ${restaurant.name} (slug: ${restaurant.slug})`);
 
   await prisma.tenantFeature.createMany({
-    data: [
-      { restaurantId: restaurant.id, featureKey: 'costing', enabled: true },
-    ],
+    data: FEATURES.map((featureKey) => ({
+      restaurantId: restaurant.id,
+      featureKey,
+      enabled: featureKey !== 'expenses' && featureKey !== 'payroll',
+    })),
     skipDuplicates: true,
   });
 

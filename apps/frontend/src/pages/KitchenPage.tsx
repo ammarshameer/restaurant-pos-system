@@ -34,7 +34,14 @@ export const KitchenPage: React.FC = () => {
       const dbOrders = await orderApi.getAllOrders();
       if (Array.isArray(dbOrders)) {
         const kdsOrders: KdsOrder[] = dbOrders
-          .filter((o) => o.status !== 'served' && o.status !== 'cancelled')
+          .filter(
+            (o) =>
+              o.status !== 'served' &&
+              o.status !== 'cancelled' &&
+              (o.status as string) !== 'paid' &&
+              (o.status as string) !== 'completed' &&
+              !o.settledToCredit
+          )
           .map((o) => {
             const typeStr =
               o.orderTypeLabel ||

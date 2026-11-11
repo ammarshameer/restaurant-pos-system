@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { RootState } from '../store/store';
 import { setOrders } from '../store/slices/orderSlice';
 import { orderApi } from '../api/order.api';
 import { analyticsApi, TopSellingItem, ProductRevenueItem } from '../api/analytics.api';
+import { costingApi, CostingSummary } from '../api/costing.api';
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR, formatNumber } from '../utils/format';
 
@@ -166,44 +167,24 @@ export const AnalyticsPage: React.FC = () => {
     };
   }, [filteredOrders, deals]);
 
-  // Food cost calculated from menu item cost records or fallback 28%
-  const estimatedFoodCost = useMemo(() => {
-    let foodCostSum = 0;
-    filteredOrders.forEach((o) => {
-      (o.items || []).forEach((item) => {
-        if (item.dealId) {
-          const deal = deals.find((d) => d.id === item.dealId);
-          if (deal && deal.items && deal.items.length > 0) {
-            let dealCost = 0;
-            deal.items.forEach((di) => {
-              const m = menuItems.find((mi) => mi.id === di.menuItemId);
-              dealCost += (m?.cost || (m?.price ? m.price * 0.28 : 0)) * (di.quantity || 1);
-            });
-            foodCostSum += dealCost * (item.quantity || 1);
-            return;
-          }
-        }
-        const menuItem = menuItems.find((m) => m.id === item.menuItemId || m.name.toLowerCase() === (item.name || '').toLowerCase());
-        if (menuItem && menuItem.cost) {
-          foodCostSum += menuItem.cost * (item.quantity || 1);
-        } else {
-          foodCostSum += (item.unitPrice || item.price || 0) * (item.quantity || 1) * 0.28;
-        }
-      });
-    });
-    return +(foodCostSum > 0 ? foodCostSum : totalSales * 0.28).toFixed(2);
-  }, [filteredOrders, menuItems, deals, totalSales]);
+  const authUser = useSelector((state: RootState) => state.auth.user);
+  const isOwner = Boolean(authUser?.isOwnerRole || authUser?.role === 'OWNER');
+  const perms = authUser?.permissions || [];
+  const canViewCosting = isOwner || perms.includes('costing.view');
 
-  // Labor cost estimated proportionally to sales volume for timeframe
-  const estimatedLaborCost = useMemo(() => {
-    if (totalSales === 0) return 0;
-    if (dateRange === 'today') return +(totalSales * 0.22).toFixed(2);
-    if (dateRange === 'yesterday') return +(totalSales * 0.22).toFixed(2);
-    if (dateRange === 'week') return +(totalSales * 0.20).toFixed(2);
-    return +(totalSales * 0.18).toFixed(2);
-  }, [totalSales, dateRange]);
+  const startDateStr = toInputDate(dateRangeBounds.start);
+  const endDateStr = toInputDate(dateRangeBounds.end);
 
-  const netMargin = +(totalSales - estimatedFoodCost - estimatedLaborCost).toFixed(2);
+  const { data: costingSummary } = useQuery<CostingSummary>({
+    queryKey: ['costing-summary', startDateStr, endDateStr],
+    queryFn: () => costingApi.summary(startDateStr, endDateStr),
+    enabled: Boolean(canViewCosting),
+  });
+
+  const foodCost = canViewCosting && costingSummary ? costingSummary.cogs : null;
+  const grossProfit = canViewCosting && costingSummary ? costingSummary.grossProfit : null;
+  const foodCostPercent = canViewCosting && costingSummary ? costingSummary.foodCostPercent : null;
+  const missingCostItems = canViewCosting && costingSummary?.missingCostItems ? costingSummary.missingCostItems : [];
 
   // Hourly Sales & Rush Hour Throughput (computed dynamically from filtered orders)
   const hourlySalesData: HourlyData[] = useMemo(() => {
@@ -561,16 +542,16 @@ export const AnalyticsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Card 5: Net Margin */}
+        {/* Card 5: Gross Profit */}
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'rgba(52, 211, 153, 0.15)', color: '#34d399' }}>
             📈
           </div>
           <div>
-            <div className="stat-val" style={{ color: netMargin >= 0 ? '#34d399' : '#f87171' }}>
-              {formatPKR(netMargin)}
+            <div className="stat-val" style={{ color: (grossProfit ?? 0) >= 0 ? '#34d399' : '#f87171' }}>
+              {canViewCosting ? (grossProfit !== null ? formatPKR(grossProfit) : 'Loading...') : '🔒 Restricted'}
             </div>
-            <div className="stat-label">Estimated Net Margin</div>
+            <div className="stat-label">Estimated Gross Profit</div>
           </div>
         </div>
       </div>
@@ -669,15 +650,17 @@ export const AnalyticsPage: React.FC = () => {
                 COST
               </span>
             </div>
-            <div style={{ fontSize: '20px', fontWeight: 900, color: '#f87171', marginTop: '8px' }}>
-              {formatPKR(estimatedFoodCost)}
+            <div style={{ fontSize: '20px', fontWeight: 900, color: canViewCosting ? '#f87171' : 'var(--text-muted)', marginTop: '8px' }}>
+              {canViewCosting ? (foodCost !== null ? formatPKR(foodCost) : 'Loading...') : '🔒 Restricted'}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 500 }}>
-              {totalSales > 0 ? ((estimatedFoodCost / totalSales) * 100).toFixed(1) : 0}% of gross sales
+              {canViewCosting
+                ? `${foodCostPercent !== null ? foodCostPercent : 0}% of gross sales`
+                : 'Requires costing.view'}
             </div>
           </div>
 
-          {/* Card 4: Net Operational Margin */}
+          {/* Card 4: Gross Profit */}
           <div
             className="metric-card"
             style={{
@@ -685,7 +668,7 @@ export const AnalyticsPage: React.FC = () => {
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>📈 Net Margin</span>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>📈 Gross Profit</span>
               <span
                 style={{
                   fontSize: '10px',
@@ -696,17 +679,65 @@ export const AnalyticsPage: React.FC = () => {
                   fontWeight: 800,
                 }}
               >
-                MARGIN
+                PROFIT
               </span>
             </div>
-            <div style={{ fontSize: '20px', fontWeight: 900, color: '#34d399', marginTop: '8px' }}>
-              {formatPKR(netMargin)}
+            <div style={{ fontSize: '20px', fontWeight: 900, color: canViewCosting ? '#34d399' : 'var(--text-muted)', marginTop: '8px' }}>
+              {canViewCosting ? (grossProfit !== null ? formatPKR(grossProfit) : 'Loading...') : '🔒 Restricted'}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 500 }}>
-              {totalSales > 0 ? ((netMargin / totalSales) * 100).toFixed(1) : 0}% net profit
+              {canViewCosting
+                ? `${totalSales > 0 && grossProfit !== null ? ((grossProfit / totalSales) * 100).toFixed(1) : 0}% gross margin`
+                : 'Requires costing.view'}
             </div>
           </div>
         </div>
+
+        {/* Missing Cost Alert */}
+        {canViewCosting && missingCostItems.length > 0 && (
+          <div
+            style={{
+              marginTop: '16px',
+              padding: '12px 16px',
+              borderRadius: 'var(--radius-md)',
+              background: 'rgba(245, 158, 11, 0.1)',
+              border: '1px solid rgba(245, 158, 11, 0.3)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '16px' }}>⚠️</span>
+              <strong style={{ color: '#fbbf24', fontSize: '13px' }}>
+                Cost Missing on {missingCostItems.length} Sold Item{missingCostItems.length > 1 ? 's' : ''}
+              </strong>
+            </div>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              The following dishes or deals were sold in this period but do not have recipes or costs defined:
+            </p>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {missingCostItems.map((item) => (
+                <span
+                  key={item.id}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '3px 8px',
+                    fontSize: '12px',
+                  }}
+                >
+                  <span style={{ fontWeight: 600 }}>{item.name}</span>
+                  <span style={{ fontSize: '10px', background: 'rgba(239, 68, 68, 0.2)', color: '#f87171', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                    cost missing
+                  </span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({item.count} sold)</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Hourly Sales Visual Chart */}

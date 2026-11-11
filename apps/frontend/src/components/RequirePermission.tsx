@@ -21,13 +21,6 @@ export const RequirePermission: React.FC<RequirePermissionProps> = ({
     return <Navigate to="/login" replace />;
   }
 
-  // Owner unconditionally bypasses permission checks
-  const isOwner = user.isOwnerRole === true;
-
-  if (isOwner) {
-    return <>{children}</>;
-  }
-
   const userPerms = new Set(user.permissions || []);
 
   const hasAccess = requireAll

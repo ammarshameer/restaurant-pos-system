@@ -27,6 +27,7 @@ import customerRoutes from './routes/customer.routes';
 import costingRoutes from './routes/costing.routes';
 import duesRoutes from './routes/dues.routes';
 import { backupService } from './services/backup.service';
+import { migrateExistingBusinesses } from './services/feature.service';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/auth';
 import { setupWebSocket } from './websocket';
@@ -229,6 +230,9 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Restaurant POS Backend running on http://127.0.0.1:${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+
+  // Migrate any existing businesses to ensure full module availability
+  migrateExistingBusinesses().catch((err) => console.error('Migration error:', err));
 
   // Perform automated startup database backup & start daily timer
   backupService.performBackup('startup');

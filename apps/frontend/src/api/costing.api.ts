@@ -1,5 +1,12 @@
 import { api } from '../lib/api';
 
+export interface MissingCostItem {
+  id: string;
+  name: string;
+  type: 'DISH' | 'DEAL';
+  count: number;
+}
+
 export interface CostingSummary {
   grossSales: number;
   netSales: number;
@@ -14,6 +21,7 @@ export interface CostingSummary {
   foodCostPercent: number;
   averageTicket: number;
   transactionCount: number;
+  missingCostItems?: MissingCostItem[];
 }
 
 export interface MenuCostItem {

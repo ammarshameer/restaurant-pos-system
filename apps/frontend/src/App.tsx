@@ -231,23 +231,22 @@ export const App: React.FC = () => {
   }, [user]);
 
   // Permission helpers for sidebar
-  const isOwner = user?.isOwnerRole === true;
   const permsSet = useMemo(() => new Set(user?.permissions || []), [user]);
 
-  const canSeePos = isOwner || permsSet.has('pos.use');
-  const canSeeInvoices = isOwner || permsSet.has('invoices.view') || permsSet.has('orders.view');
-  const canSeeKitchen = isOwner || permsSet.has('kitchen.view');
-  const canSeePayments = isOwner || permsSet.has('payments.view') || permsSet.has('payments.process');
-  const canSeeMenu = isOwner || permsSet.has('menu.view');
-  const canSeeDeals = isOwner || permsSet.has('deals.view');
-  const canSeeInventory = isOwner || permsSet.has('inventory.view');
-  const canSeeCustomers = isOwner || permsSet.has('customers.view') || permsSet.has('customers.manage');
-  const canSeeDues = isOwner || permsSet.has('dues.view');
-  const canSeeCosting = (isOwner || permsSet.has('costing.view')) && user?.features?.includes('costing');
-  const canSeeEmployees = isOwner || permsSet.has('employees.view');
-  const canSeeRoles = isOwner || permsSet.has('roles.view') || permsSet.has('roles.manage');
-  const canSeeSettings = isOwner || permsSet.has('settings.manage');
-  const canSeeAnalytics = isOwner || permsSet.has('analytics.view');
+  const canSeePos = permsSet.has('pos.use');
+  const canSeeInvoices = permsSet.has('invoices.view') || permsSet.has('orders.view');
+  const canSeeKitchen = permsSet.has('kitchen.view');
+  const canSeePayments = permsSet.has('payments.view') || permsSet.has('payments.process');
+  const canSeeMenu = permsSet.has('menu.view');
+  const canSeeDeals = permsSet.has('deals.view');
+  const canSeeInventory = permsSet.has('inventory.view');
+  const canSeeCustomers = permsSet.has('customers.view') || permsSet.has('customers.manage');
+  const canSeeDues = permsSet.has('dues.view');
+  const canSeeCosting = permsSet.has('costing.view');
+  const canSeeEmployees = permsSet.has('employees.view');
+  const canSeeRoles = permsSet.has('roles.view') || permsSet.has('roles.manage');
+  const canSeeSettings = permsSet.has('settings.manage');
+  const canSeeAnalytics = permsSet.has('analytics.view');
 
   // ============================================
   // 1. PLATFORM ROUTE HANDLING
@@ -726,11 +725,9 @@ export const App: React.FC = () => {
               <Route
                 path="/inventory"
                 element={
-                  <RequireFeature feature="costing">
-                    <RequirePermission permissions={['inventory.view']}>
-                      <InventoryPage />
-                    </RequirePermission>
-                  </RequireFeature>
+                  <RequirePermission permissions={['inventory.view']}>
+                    <InventoryPage />
+                  </RequirePermission>
                 }
               />
               <Route

@@ -31,19 +31,85 @@ export const PERMISSIONS = [
   'costing.manage',
   'dues.view',
   'dues.manage',
+  'expenses.view',
+  'expenses.manage',
+  'payroll.view',
+  'payroll.manage',
   'settings.manage',
   'backups.manage',
 ] as const;
 
-export const FEATURES = ['costing'] as const;
-export type FeatureKey = typeof FEATURES[number];
+export const FEATURES = [
+  'pos',
+  'tables',
+  'orders',
+  'payments',
+  'invoices',
+  'menu',
+  'deals',
+  'inventory',
+  'kitchen',
+  'employees',
+  'customers',
+  'dues',
+  'roles',
+  'analytics',
+  'costing',
+  'expenses',
+  'payroll',
+  'settings',
+  'backups',
+] as const;
 
-export type Permission = typeof PERMISSIONS[number];
+export type FeatureKey = (typeof FEATURES)[number];
+export type Permission = (typeof PERMISSIONS)[number];
+
+export const MODULE_TO_FEATURE: Record<string, FeatureKey | null> = {
+  dashboard: null,
+  pos: 'pos',
+  tables: 'tables',
+  orders: 'orders',
+  payments: 'payments',
+  invoices: 'invoices',
+  menu: 'menu',
+  deals: 'deals',
+  inventory: 'inventory',
+  kitchen: 'kitchen',
+  employees: 'employees',
+  customers: 'customers',
+  dues: 'dues',
+  roles: 'roles',
+  analytics: 'analytics',
+  costing: 'costing',
+  expenses: 'expenses',
+  payroll: 'payroll',
+  settings: 'settings',
+  backups: 'backups',
+};
+
+export function getFeatureForPermission(permission: string): FeatureKey | null {
+  const [mod] = permission.split('.');
+  if (!mod || mod === 'dashboard') return null;
+  return (MODULE_TO_FEATURE[mod] as FeatureKey) || null;
+}
+
+export function filterPermissionsByFeatures(
+  permissions: string[],
+  enabledFeatures: string[]
+): string[] {
+  const enabledSet = new Set(enabledFeatures);
+  return permissions.filter((p) => {
+    const [mod] = p.split('.');
+    if (!mod || mod === 'dashboard') return true;
+    return enabledSet.has(mod);
+  });
+}
 
 export interface PermissionModule {
   id: string;
   name: string;
   description: string;
+  featureKey?: FeatureKey;
   permissions: {
     key: Permission;
     name: string;
@@ -64,6 +130,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'pos',
     name: 'POS Terminal',
     description: 'Point of sale operations and ordering',
+    featureKey: 'pos',
     permissions: [
       { key: 'pos.use', name: 'Use POS', description: 'Access POS terminal and place customer orders' },
     ],
@@ -72,6 +139,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'tables',
     name: 'Floor Plan & Tables',
     description: 'Dine-in tables and layout management',
+    featureKey: 'tables',
     permissions: [
       { key: 'tables.view', name: 'View Tables', description: 'See table layout, status, and occupancy' },
       { key: 'tables.manage', name: 'Manage Tables', description: 'Create, edit, move, combine, or split tables' },
@@ -81,6 +149,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'orders',
     name: 'Orders & Tickets',
     description: 'Order lifecycle management',
+    featureKey: 'orders',
     permissions: [
       { key: 'orders.view', name: 'View Orders', description: 'View current and past order lists' },
       { key: 'orders.create', name: 'Create Orders', description: 'Create new dine-in, takeaway, or delivery orders' },
@@ -94,6 +163,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'payments',
     name: 'Payments & Cash Register',
     description: 'Payment collection and settlement',
+    featureKey: 'payments',
     permissions: [
       { key: 'payments.view', name: 'View Payments', description: 'View payment receipts and transaction records' },
       { key: 'payments.process', name: 'Process Payments', description: 'Collect cash, card, and split bill payments' },
@@ -103,6 +173,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'invoices',
     name: 'Sale Invoices',
     description: 'Billing history and invoices',
+    featureKey: 'invoices',
     permissions: [
       { key: 'invoices.view', name: 'View Invoices', description: 'Browse and print sale invoices' },
     ],
@@ -111,6 +182,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'menu',
     name: 'Menu & Recipes',
     description: 'Food and beverage items and categories',
+    featureKey: 'menu',
     permissions: [
       { key: 'menu.view', name: 'View Menu', description: 'Browse categories and menu item details' },
       { key: 'menu.manage', name: 'Manage Menu', description: 'Create, update, and delete menu items and categories' },
@@ -120,6 +192,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'deals',
     name: 'Deals & Combos',
     description: 'Promotional combos and package deals',
+    featureKey: 'deals',
     permissions: [
       { key: 'deals.view', name: 'View Deals', description: 'View active deals and combos' },
       { key: 'deals.manage', name: 'Manage Deals', description: 'Create, modify, and delete combo packages' },
@@ -129,6 +202,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'inventory',
     name: 'Inventory Stock',
     description: 'Ingredients, stock levels, and supply tracking',
+    featureKey: 'inventory',
     permissions: [
       { key: 'inventory.view', name: 'View Inventory', description: 'View ingredient quantities and stock logs' },
       { key: 'inventory.manage', name: 'Manage Inventory', description: 'Add stock items and make manual adjustments' },
@@ -138,6 +212,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'kitchen',
     name: 'Kitchen Display (KDS)',
     description: 'Kitchen order preparation display',
+    featureKey: 'kitchen',
     permissions: [
       { key: 'kitchen.view', name: 'View Kitchen', description: 'View kitchen display tickets' },
       { key: 'kitchen.manage', name: 'Manage Kitchen', description: 'Bump tickets and mark items prepared/ready' },
@@ -147,6 +222,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'employees',
     name: 'Staff & Time Clock',
     description: 'Staff directory and shifts',
+    featureKey: 'employees',
     permissions: [
       { key: 'employees.view', name: 'View Staff', description: 'View employee roster and clock-in statuses' },
       { key: 'employees.manage', name: 'Manage Staff', description: 'Create, edit, and deactivate employee accounts' },
@@ -156,15 +232,27 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'customers',
     name: 'Customers',
     description: 'Customer directory and order history',
+    featureKey: 'customers',
     permissions: [
       { key: 'customers.view', name: 'View Customers', description: 'View customer profiles and order history' },
       { key: 'customers.manage', name: 'Manage Customers', description: 'Create, edit, and delete customers' },
     ],
   },
   {
+    id: 'dues',
+    name: 'Dues & Receivables',
+    description: 'Customer credit, balance dues, and ledger management',
+    featureKey: 'dues',
+    permissions: [
+      { key: 'dues.view', name: 'View Dues', description: 'View customer balance dues, ledger, and statements' },
+      { key: 'dues.manage', name: 'Manage Dues', description: 'Receive dues payments and make balance adjustments' },
+    ],
+  },
+  {
     id: 'roles',
     name: 'Roles & Permissions',
     description: 'Custom security roles and permission sets',
+    featureKey: 'roles',
     permissions: [
       { key: 'roles.view', name: 'View Roles', description: 'View defined roles and assigned permissions' },
       { key: 'roles.manage', name: 'Manage Roles', description: 'Create, modify, and delete custom roles' },
@@ -174,6 +262,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'analytics',
     name: 'Analytics & Reports',
     description: 'Business metrics, revenue, and product sales',
+    featureKey: 'analytics',
     permissions: [
       { key: 'analytics.view', name: 'View Analytics', description: 'Access revenue reports and sales charts' },
     ],
@@ -182,24 +271,37 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'costing',
     name: 'Costing',
     description: 'Menu, recipe, and inventory cost data',
+    featureKey: 'costing',
     permissions: [
       { key: 'costing.view', name: 'View Costs', description: 'View menu and inventory cost information' },
       { key: 'costing.manage', name: 'Manage Costs', description: 'Update recipe and inventory costs' },
     ],
   },
   {
-    id: 'dues',
-    name: 'Dues & Receivables',
-    description: 'Customer credit, balance dues, and ledger management',
+    id: 'expenses',
+    name: 'Expenses',
+    description: 'Track and manage operational and business expenses',
+    featureKey: 'expenses',
     permissions: [
-      { key: 'dues.view', name: 'View Dues', description: 'View customer balance dues, ledger, and statements' },
-      { key: 'dues.manage', name: 'Manage Dues', description: 'Receive dues payments and make balance adjustments' },
+      { key: 'expenses.view', name: 'View Expenses', description: 'Browse business expense records and reports' },
+      { key: 'expenses.manage', name: 'Manage Expenses', description: 'Record and update company expense receipts' },
+    ],
+  },
+  {
+    id: 'payroll',
+    name: 'Payroll',
+    description: 'Employee wages, salaries, and payroll processing',
+    featureKey: 'payroll',
+    permissions: [
+      { key: 'payroll.view', name: 'View Payroll', description: 'View salary sheets and employee payout history' },
+      { key: 'payroll.manage', name: 'Manage Payroll', description: 'Process salary payouts and wage calculations' },
     ],
   },
   {
     id: 'settings',
     name: 'Business Settings',
     description: 'Restaurant profile, branding, and preferences',
+    featureKey: 'settings',
     permissions: [
       { key: 'settings.manage', name: 'Manage Settings', description: 'Update business details, hours, and branding' },
     ],
@@ -208,6 +310,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     id: 'backups',
     name: 'Data Backups',
     description: 'Database snapshot and backup management',
+    featureKey: 'backups',
     permissions: [
       { key: 'backups.manage', name: 'Manage Backups', description: 'Trigger manual database backups and view logs' },
     ],
