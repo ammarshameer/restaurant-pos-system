@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useQueryClient } from '@tanstack/react-query';
 import { RootState } from '../store/store';
-import { addOrder, setCurrentOrder } from '../store/slices/orderSlice';
+import { addOrder, updateOrder, setCurrentOrder } from '../store/slices/orderSlice';
 import { MenuItem, setMenuItems } from '../store/slices/menuSlice';
 import { ReceiptModal, ReceiptData } from '../components/ReceiptModal';
 import { socketClient } from '../lib/socket';
@@ -50,6 +51,7 @@ interface CartItem {
 
 export const PosPage: React.FC = () => {
   const dispatch = useDispatch();
+  const queryClient = useQueryClient();
   const authUser = useSelector((state: RootState) => state.auth.user);
   const menuItems = useSelector((state: RootState) => state.menu.items);
   const menuCategories = useSelector((state: RootState) => state.menu.categories);
@@ -508,6 +510,8 @@ export const PosPage: React.FC = () => {
       const resolvedOrderId = created?.id || orderId;
       const resolvedOrderNum = created?.orderNumber || orderNum;
 
+      const remainingAmountDue = isSettlingUdhaar ? 0 : Math.max(0, +(total - payAmount).toFixed(2));
+
       // 2. Call POST /api/payments as single source of truth for payment collection
       let customerBalance: number | undefined;
       try {
@@ -520,12 +524,27 @@ export const PosPage: React.FC = () => {
           note: isSettlingUdhaar ? `POS Partial Cash (PKR ${payAmount}) + Udhaar remainder` : undefined,
         });
         customerBalance = payRes?.customerBalance;
+        if (payRes?.order) {
+          dispatch(updateOrder(payRes.order));
+        } else {
+          dispatch(
+            updateOrder({
+              ...newOrder,
+              id: resolvedOrderId,
+              orderNumber: resolvedOrderNum,
+              totalPaid: payAmount,
+              amountDue: remainingAmountDue,
+              paymentStatus: payAmount >= total - 0.01 ? 'PAID' : payAmount > 0 ? 'PARTIAL' : 'UNPAID',
+              settledToCredit: isSettlingUdhaar,
+            })
+          );
+        }
+        queryClient.invalidateQueries({ queryKey: ['orders'] });
+        queryClient.invalidateQueries({ queryKey: ['dues'] });
       } catch (payErr: any) {
         console.error('Payment settlement error:', payErr);
         setNotification(`⚠️ Payment error: ${payErr?.response?.data?.error || payErr?.message || 'Failed to record payment'}`);
       }
-
-      const remainingAmountDue = isSettlingUdhaar ? 0 : Math.max(0, +(total - payAmount).toFixed(2));
 
       const receipt: ReceiptData = {
         orderNumber: resolvedOrderNum,
@@ -680,11 +699,29 @@ export const PosPage: React.FC = () => {
       const payRes: any = await paymentApi.createPayment({
         orderId: resolvedOrderId,
         amount: advanceAmount,
-        method: 'CASH',
+        method: advanceAmount > 0 ? 'CASH' : 'CREDIT',
         tipAmount: 0,
         settleToCredit: true,
         note: `POS Udhaar order settlement (Advance: PKR ${advanceAmount})`,
       });
+
+      if (payRes?.order) {
+        dispatch(updateOrder(payRes.order));
+      } else {
+        dispatch(
+          updateOrder({
+            ...newOrder,
+            id: resolvedOrderId,
+            orderNumber: resolvedOrderNum,
+            totalPaid: advanceAmount,
+            amountDue: 0,
+            paymentStatus: advanceAmount >= total - 0.01 ? 'PAID' : advanceAmount > 0 ? 'PARTIAL' : 'UNPAID',
+            settledToCredit: true,
+          })
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['dues'] });
 
       const receipt: ReceiptData = {
         orderNumber: resolvedOrderNum,

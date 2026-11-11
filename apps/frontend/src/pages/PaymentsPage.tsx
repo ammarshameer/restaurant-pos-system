@@ -316,6 +316,8 @@ export const PaymentsPage: React.FC = () => {
           paymentStatus: newStatus,
           paymentMethod,
           totalPaid: newTotalPaid,
+          amountDue: remainingAfter,
+          settledToCredit: Boolean(settleToCredit),
           change,
         })
       );

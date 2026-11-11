@@ -126,7 +126,7 @@ const orderSlice = createSlice({
     },
     updatePaymentStatus: (
       state,
-      action: PayloadAction<{ id: string; paymentStatus: 'PAID' | 'PARTIAL' | 'UNPAID'; paymentMethod?: string; totalPaid?: number; amountDue?: number; change?: number }>
+      action: PayloadAction<{ id: string; paymentStatus: 'PAID' | 'PARTIAL' | 'UNPAID'; paymentMethod?: string; totalPaid?: number; amountDue?: number; settledToCredit?: boolean; change?: number }>
     ) => {
       const order = state.orders.find((o) => o.id === action.payload.id);
       if (order) {
@@ -134,6 +134,7 @@ const orderSlice = createSlice({
         if (action.payload.paymentMethod) order.paymentMethod = action.payload.paymentMethod;
         if (action.payload.totalPaid !== undefined) order.totalPaid = action.payload.totalPaid;
         if (action.payload.amountDue !== undefined) order.amountDue = action.payload.amountDue;
+        if (action.payload.settledToCredit !== undefined) order.settledToCredit = action.payload.settledToCredit;
         if (action.payload.change !== undefined) order.change = action.payload.change;
         if (action.payload.paymentStatus === 'PAID') order.status = 'paid';
         order.updatedAt = new Date().toISOString();

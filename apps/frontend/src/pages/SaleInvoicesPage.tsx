@@ -363,150 +363,84 @@ export const SaleInvoicesPage: React.FC = () => {
     const isPaidInFull =
       order.paymentStatus === 'PAID' || (totalPaid >= total - 0.01 && total > 0);
     const isPartial =
-      order.paymentStatus === 'PARTIAL' || (totalPaid > 0 && amountDue > 0);
+      order.paymentStatus === 'PARTIAL' ||
+      (totalPaid > 0 && (amountDue > 0.01 || totalPaid < total - 0.01));
 
-    // 1. Settled to Udhaar / Customer Credit
-    if (isSettledCredit) {
-      if (isPaidInFull && amountDue <= 0.01) {
-        return (
-          <div>
-            <span
-              className="badge badge-ready"
-              style={{
-                background: 'rgba(16, 185, 129, 0.2)',
-                color: '#34d399',
-                fontWeight: 700,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              ✓ PAID (UDHAAR CLEARED)
-            </span>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Full: {formatPKR(totalPaid || total)}
-            </div>
-          </div>
-        );
-      }
-
-      if (totalPaid > 0) {
-        return (
-          <div>
-            <span
-              className="badge"
-              style={{
-                background: 'rgba(99, 102, 241, 0.2)',
-                color: '#818cf8',
-                border: '1px solid rgba(99, 102, 241, 0.4)',
-                fontWeight: 700,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              💳 PARTIAL + UDHAAR
-            </span>
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Paid: <strong style={{ color: '#34d399' }}>{formatPKR(totalPaid)}</strong> • Udhaar: <strong style={{ color: '#f59e0b' }}>{formatPKR(amountDue)}</strong>
-            </div>
-          </div>
-        );
-      }
-
+    // 1. Paid in Full
+    if (isPaidInFull && amountDue <= 0.01) {
       return (
-        <div>
-          <span
-            className="badge"
-            style={{
-              background: 'rgba(99, 102, 241, 0.2)',
-              color: '#818cf8',
-              border: '1px solid rgba(99, 102, 241, 0.4)',
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}
-          >
-            💳 UDHAAR / CREDIT
-          </span>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-            Udhaar Due: <strong style={{ color: '#f59e0b' }}>{formatPKR(total)}</strong>
-          </div>
-        </div>
-      );
-    }
-
-    // 2. Paid in full
-    if (isPaidInFull) {
-      return (
-        <div>
-          <span
-            className="badge badge-ready"
-            style={{
-              background: 'rgba(16, 185, 129, 0.2)',
-              color: '#34d399',
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}
-          >
-            ✓ PAID
-          </span>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-            {order.paymentMethod || 'CASH'} • {formatPKR(totalPaid || total)}
-          </div>
-        </div>
-      );
-    }
-
-    // 3. Partial cash payment (not transferred to udhaar)
-    if (isPartial) {
-      return (
-        <div>
-          <span
-            className="badge badge-open"
-            style={{
-              background: 'rgba(245, 158, 11, 0.2)',
-              color: '#fbbf24',
-              border: '1px solid rgba(245, 158, 11, 0.4)',
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}
-          >
-            ⚠️ PARTIAL
-          </span>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-            Paid: <strong style={{ color: '#34d399' }}>{formatPKR(totalPaid)}</strong> • Due: <strong style={{ color: '#f87171' }}>{formatPKR(amountDue)}</strong>
-          </div>
-        </div>
-      );
-    }
-
-    // 4. Completely unpaid
-    return (
-      <div>
         <span
-          className="badge"
+          className="badge badge-ready"
           style={{
-            background: 'rgba(239, 68, 68, 0.18)',
-            color: '#f87171',
-            border: '1px solid rgba(239, 68, 68, 0.35)',
+            background: 'rgba(16, 185, 129, 0.2)',
+            color: '#34d399',
             fontWeight: 700,
             display: 'inline-flex',
             alignItems: 'center',
             gap: '4px',
           }}
         >
-          ⏳ UNPAID
+          ✓ PAID
         </span>
-        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-          Due: {formatPKR(amountDue || total)}
-        </div>
-      </div>
+      );
+    }
+
+    // 2. Partially Paid (cash partial or advance paid towards udhaar)
+    if (isPartial || (totalPaid > 0 && !isPaidInFull)) {
+      return (
+        <span
+          className="badge badge-open"
+          style={{
+            background: 'rgba(245, 158, 11, 0.2)',
+            color: '#fbbf24',
+            border: '1px solid rgba(245, 158, 11, 0.4)',
+            fontWeight: 700,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}
+        >
+          ⚠️ PARTIALLY PAID
+        </span>
+      );
+    }
+
+    // 3. Settled to Udhaar / Customer Credit (0 paid upfront)
+    if (isSettledCredit) {
+      return (
+        <span
+          className="badge"
+          style={{
+            background: 'rgba(99, 102, 241, 0.2)',
+            color: '#818cf8',
+            border: '1px solid rgba(99, 102, 241, 0.4)',
+            fontWeight: 700,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}
+        >
+          💳 UDHAAR / CREDIT
+        </span>
+      );
+    }
+
+    // 4. Completely unpaid
+    return (
+      <span
+        className="badge"
+        style={{
+          background: 'rgba(239, 68, 68, 0.18)',
+          color: '#f87171',
+          border: '1px solid rgba(239, 68, 68, 0.35)',
+          fontWeight: 700,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+        }}
+      >
+        ⏳ UNPAID
+      </span>
     );
   };
 
