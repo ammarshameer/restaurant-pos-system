@@ -14,6 +14,7 @@ import { getCategoryVisual } from '../utils/image';
 import { uuid } from '../lib/offline/id';
 import { customerApi, Customer } from '../api/customer.api';
 import { paymentApi } from '../api/payment.api';
+import CustomerPicker, { CustomerPickerValue } from '../components/CustomerPicker';
 
 export type OrderType = 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY';
 
@@ -82,26 +83,14 @@ export const PosPage: React.FC = () => {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const [customerSuggestions, setCustomerSuggestions] = useState<Customer[]>([]);
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [dineInTag, setDineInTag] = useState('');
 
-  useEffect(() => {
-    const query = customerName.trim().length >= 2 ? customerName.trim() : customerPhone.trim();
-    if (query.length < 2) {
-      setCustomerSuggestions([]);
-      return;
-    }
-    const timer = window.setTimeout(async () => {
-      try {
-        const result = await customerApi.list({ search: query, limit: 5 });
-        setCustomerSuggestions(result.data);
-      } catch {
-        setCustomerSuggestions([]);
-      }
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [customerName, customerPhone]);
+  const handleCustomerChange = (value: CustomerPickerValue) => {
+    setCustomerName(value.name);
+    setCustomerPhone(value.phone);
+    setSelectedCustomerId(value.customerId);
+  };
 
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -120,16 +109,6 @@ export const PosPage: React.FC = () => {
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [defaultReceiptTab, setDefaultReceiptTab] = useState<'BOTH' | 'CUSTOMER' | 'KITCHEN'>('BOTH');
-
-  const saveCustomer = async () => {
-    if (!customerName.trim()) return;
-    try {
-      await customerApi.create({ name: customerName.trim(), phone: customerPhone.trim() || undefined });
-      setNotification('Customer saved');
-    } catch (error: any) {
-      setNotification(error?.response?.data?.error || 'Failed to save customer');
-    }
-  };
 
   // Cash payment prompt state
   const [cashModalOpen, setCashModalOpen] = useState(false);
@@ -893,30 +872,15 @@ export const PosPage: React.FC = () => {
           {/* Contextual Order Metadata Inputs */}
           {orderType === 'DINE_IN' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Customer Name (Optional)..."
-                  value={customerName}
-                  onChange={(e) => {
-                    setCustomerName(e.target.value);
-                    setSelectedCustomerId(null);
-                  }}
-                  style={{ fontSize: '13px', padding: '8px 12px' }}
-                />
-                <input
-                  type="tel"
-                  className="form-input"
-                  placeholder="Mobile Number (Optional)..."
-                  value={customerPhone}
-                  onChange={(e) => {
-                    setCustomerPhone(e.target.value);
-                    setSelectedCustomerId(null);
-                  }}
-                  style={{ fontSize: '13px', padding: '8px 12px' }}
-                />
-              </div>
+              <CustomerPicker
+                name={customerName}
+                phone={customerPhone}
+                selectedCustomerId={selectedCustomerId}
+                onChange={handleCustomerChange}
+                onNotify={setNotification}
+                namePlaceholder="Customer Name (Optional)..."
+                phonePlaceholder="Mobile Number (Optional)..."
+              />
               <input
                 type="text"
                 className="form-input"
@@ -929,58 +893,29 @@ export const PosPage: React.FC = () => {
           )}
 
           {orderType === 'TAKE_AWAY' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Customer Name / Token # (Optional)..."
-                value={customerName}
-                onChange={(e) => {
-                  setCustomerName(e.target.value);
-                  setSelectedCustomerId(null);
-                }}
-                style={{ fontSize: '13px', padding: '8px 12px' }}
-              />
-              <input
-                type="tel"
-                className="form-input"
-                placeholder="Customer Phone (Optional)..."
-                value={customerPhone}
-                onChange={(e) => {
-                  setCustomerPhone(e.target.value);
-                  setSelectedCustomerId(null);
-                }}
-                style={{ fontSize: '13px', padding: '8px 12px' }}
-              />
-            </div>
+            <CustomerPicker
+              name={customerName}
+              phone={customerPhone}
+              selectedCustomerId={selectedCustomerId}
+              onChange={handleCustomerChange}
+              onNotify={setNotification}
+              namePlaceholder="Customer Name / Token # (Optional)..."
+              phonePlaceholder="Customer Phone (Optional)..."
+            />
           )}
 
           {orderType === 'DELIVERY' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Customer Name *"
-                  value={customerName}
-                  onChange={(e) => {
-                    setCustomerName(e.target.value);
-                    setSelectedCustomerId(null);
-                  }}
-                  style={{ fontSize: '13px', padding: '8px 12px' }}
-                />
-                <input
-                  type="tel"
-                  className="form-input"
-                  placeholder="Contact Phone *"
-                  value={customerPhone}
-                  onChange={(e) => {
-                    setCustomerPhone(e.target.value);
-                    setSelectedCustomerId(null);
-                  }}
-                  style={{ fontSize: '13px', padding: '8px 12px' }}
-                />
-              </div>
+              <CustomerPicker
+                name={customerName}
+                phone={customerPhone}
+                selectedCustomerId={selectedCustomerId}
+                onChange={handleCustomerChange}
+                onNotify={setNotification}
+                namePlaceholder="Customer Name *"
+                phonePlaceholder="Contact Phone *"
+                required
+              />
               <input
                 type="text"
                 className="form-input"
@@ -990,45 +925,6 @@ export const PosPage: React.FC = () => {
                 style={{ fontSize: '13px', padding: '8px 12px' }}
               />
             </div>
-          )}
-        </div>
-
-        {customerSuggestions.length > 0 && (
-          <div style={{ position: 'relative', zIndex: 20 }}>
-            <div style={{ position: 'absolute', left: 0, right: 0, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', boxShadow: 'var(--shadow-md)' }}>
-              {customerSuggestions.map((customer) => (
-                <button
-                  key={customer.id}
-                  type="button"
-                  onClick={() => {
-                    setCustomerName(customer.name);
-                    setCustomerPhone(customer.phone || '');
-                    setSelectedCustomerId(customer.id);
-                    setCustomerSuggestions([]);
-                  }}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', border: 0, borderBottom: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer' }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 600 }}>{customer.name} {customer.phone ? `(${customer.phone})` : ''}</span>
-                    {customer.balanceDue ? (
-                      <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: 700, background: 'rgba(239, 68, 68, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
-                        Udhaar: {formatPKR(customer.balanceDue)}
-                      </span>
-                    ) : null}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button type="button" className="btn btn-secondary btn-sm" disabled={!customerName.trim()} onClick={saveCustomer}>
-            Save Customer
-          </button>
-          {selectedCustomerId && (
-            <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
-              ✓ Linked Customer
-            </span>
           )}
         </div>
 
@@ -1826,29 +1722,22 @@ export const PosPage: React.FC = () => {
                     Add remaining balance to Customer Dues (Udhaar)
                   </label>
 
-                  {cashSettleToCredit && !customerName.trim() && (
+                  {cashSettleToCredit && (
                     <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
                         Customer info required for Udhaar:
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                        <input
-                          type="text"
-                          className="form-input"
-                          placeholder="Customer Name *"
-                          value={customerName}
-                          onChange={(e) => setCustomerName(e.target.value)}
-                          style={{ fontSize: '12px', padding: '6px 8px' }}
-                        />
-                        <input
-                          type="tel"
-                          className="form-input"
-                          placeholder="Customer Phone"
-                          value={customerPhone}
-                          onChange={(e) => setCustomerPhone(e.target.value)}
-                          style={{ fontSize: '12px', padding: '6px 8px' }}
-                        />
-                      </div>
+                      <CustomerPicker
+                        name={customerName}
+                        phone={customerPhone}
+                        selectedCustomerId={selectedCustomerId}
+                        onChange={handleCustomerChange}
+                        onNotify={setNotification}
+                        namePlaceholder="Customer Name *"
+                        phonePlaceholder="Customer Phone"
+                        required
+                        compact
+                      />
                     </div>
                   )}
                 </div>
