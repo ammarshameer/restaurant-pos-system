@@ -7,6 +7,8 @@ export interface Customer {
   email?: string | null;
   address?: string | null;
   notes?: string | null;
+  balanceDue?: number;
+  creditLimit?: number;
   totalOrders: number;
   totalSpent: number;
   lastOrderAt?: string | null;

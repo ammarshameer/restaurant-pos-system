@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { OrderService } from '../services/order.service';
 import { hasFeature } from '../services/feature.service';
-import { redactCosting } from '../services/cost-redaction.service';
+import { redactCosting, canUserViewCosting } from '../services/cost-redaction.service';
 import {
   AuthRequest,
   getAuthenticatedRestaurantId,
@@ -16,6 +16,10 @@ router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
   const originalJson = res.json.bind(res);
   res.json = ((body: any) => {
     const restaurantId = getAuthenticatedRestaurantId(req);
+    const canView = canUserViewCosting(req.user);
+    if (!canView) {
+      return originalJson(redactCosting(body));
+    }
     void hasFeature(restaurantId, 'costing').then((enabled) => {
       originalJson(enabled ? body : redactCosting(body));
     }).catch(next);

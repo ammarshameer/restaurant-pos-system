@@ -12,6 +12,8 @@ export interface BusinessSettings {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  themePalette?: string | null;
+  themeMode?: string | null;
 }
 
 export interface BusinessBranding {
@@ -22,6 +24,8 @@ export interface BusinessBranding {
   address: string;
   phone: string;
   timezone: string;
+  themePalette?: string | null;
+  themeMode?: string | null;
 }
 
 export const settingsApi = {

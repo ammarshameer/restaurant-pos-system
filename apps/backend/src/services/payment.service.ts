@@ -1,11 +1,15 @@
 import { PrismaClient } from '@prisma/client';
 import { OrderService } from './order.service';
+import { CustomerCreditService } from './customer-credit.service';
+import { ValidationError } from '../lib/errors';
+import { getIO } from '../websocket';
 
 export type PaymentMethod = 'CASH' | 'CARD' | 'QR' | 'ONLINE' | string;
 export type PaymentStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | string;
 
 const prisma = new PrismaClient();
 const orderService = new OrderService();
+const customerCreditService = new CustomerCreditService();
 
 export class PaymentService {
   async createPayment(
@@ -16,58 +20,212 @@ export class PaymentService {
       method?: PaymentMethod;
       splitNumber?: number;
       transactionId?: string;
+      settleToCredit?: boolean;
+      createdById?: string;
+      clientId?: string;
     },
     restaurantId: string
   ) {
     if (!restaurantId || !restaurantId.trim()) {
       throw new Error('restaurantId is required to create a payment');
     }
-
-    const order = await prisma.order.findFirst({
-      where: {
-        id: data.orderId,
-        restaurantId,
-      },
-      include: { payments: true },
-    });
-
-    if (!order) {
-      throw new Error('Order not found or unauthorized');
+    if (!data.orderId) {
+      throw new ValidationError('orderId is required');
     }
 
-    const payment = await prisma.payment.create({
-      data: {
-        orderId: data.orderId,
-        amount: data.amount,
-        tipAmount: data.tipAmount || 0,
-        method: data.method || 'CASH',
-        status: 'COMPLETED', // Cash/offline payments in POS are settled immediately
-        splitNumber: data.splitNumber,
-        transactionId: data.transactionId || `CASH-${Date.now().toString().slice(-6)}`,
-        processedAt: new Date(),
-      },
-    });
+    const paymentAmount = +Number(data.amount || 0).toFixed(2);
+    if (paymentAmount <= 0 && !data.settleToCredit) {
+      throw new ValidationError('Payment amount must be greater than zero');
+    }
 
-    // Check if order is now fully paid
-    const updatedOrder = await prisma.order.findFirst({
-      where: { id: data.orderId, restaurantId },
-      include: { payments: true },
-    });
+    let shouldComplete = false;
+    let orderToCompleteId: string | null = null;
 
-    if (updatedOrder) {
-      const totalPaid = updatedOrder.payments
-        .filter((p) => p.status === 'COMPLETED')
-        .reduce((sum, p) => sum + Number(p.amount), 0);
+    const result = await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({
+        where: {
+          id: data.orderId,
+          restaurantId,
+        },
+      });
 
-      const orderTotal = Number(updatedOrder.total);
+      if (!order) {
+        throw new Error('Order not found or unauthorized');
+      }
 
+      // Idempotency: an offline replay carries the same clientId. Return the
+      // original payment instead of charging the customer twice.
+      if (data.clientId) {
+        const existingPayment = await tx.payment.findFirst({
+          where: { clientId: data.clientId, orderId: order.id },
+        });
+        if (existingPayment) {
+          const customer = order.customerId
+            ? await tx.customer.findFirst({ where: { id: order.customerId, restaurantId } })
+            : null;
+          return {
+            payment: existingPayment,
+            order,
+            customerBalance: customer ? Number(customer.balanceDue || 0) : null,
+            duplicate: true,
+          };
+        }
+      }
+
+      // Credit-settled orders must be collected through the dues ledger so the
+      // customer balance and the order cannot drift apart.
+      if (order.settledToCredit && !data.settleToCredit) {
+        throw new ValidationError(
+          'This order was settled to customer credit. Record the payment from Customer Dues & Receivables.'
+        );
+      }
+
+      if (data.settleToCredit) {
+        if (!order.customerId) {
+          throw new ValidationError('A customer must be attached to the order to settle remaining balance to credit');
+        }
+        const existingCharge = await tx.customerLedgerEntry.findFirst({
+          where: { restaurantId, orderId: order.id, type: 'CHARGE' },
+        });
+        if (order.settledToCredit || existingCharge) {
+          throw new ValidationError('This order has already been settled to customer credit');
+        }
+      }
+
+      const completedPayments = await tx.payment.findMany({
+        where: { orderId: order.id, status: 'COMPLETED' },
+      });
+      const priorPaid = +completedPayments
+        .reduce((sum, p) => sum + Number(p.amount), 0)
+        .toFixed(2);
+
+      const orderTotal = +Number(order.total).toFixed(2);
+      const amountDueBefore = Math.max(0, +(orderTotal - priorPaid).toFixed(2));
+
+      if (paymentAmount > amountDueBefore + 0.01) {
+        throw new ValidationError(
+          `Payment amount (${paymentAmount}) exceeds the remaining balance due (${amountDueBefore})`
+        );
+      }
+
+      let createdPayment: any = null;
+      if (paymentAmount > 0) {
+        createdPayment = await tx.payment.create({
+          data: {
+            clientId: data.clientId,
+            orderId: order.id,
+            amount: paymentAmount,
+            tipAmount: data.tipAmount || 0,
+            method: data.method || 'CASH',
+            status: 'COMPLETED', // Cash/offline payments in POS are settled immediately
+            splitNumber: data.splitNumber,
+            transactionId: data.transactionId || `CASH-${Date.now().toString().slice(-6)}`,
+            processedAt: new Date(),
+          },
+        });
+      }
+
+      const totalPaid = +(priorPaid + paymentAmount).toFixed(2);
+      const amountDue = Math.max(0, +(orderTotal - totalPaid).toFixed(2));
+
+      let paymentStatus = 'UNPAID';
       if (totalPaid >= orderTotal - 0.01) {
-        // Complete order & deduct inventory
-        await orderService.completeOrder(updatedOrder.id, restaurantId);
+        paymentStatus = 'PAID';
+      } else if (totalPaid > 0) {
+        paymentStatus = 'PARTIAL';
+      }
+
+      let isSettledToCredit = false;
+      let customerBalance: number | null = null;
+      if (data.settleToCredit) {
+        const customer = await tx.customer.findFirst({
+          where: { id: order.customerId as string, restaurantId },
+        });
+        if (!customer) {
+          throw new ValidationError('Customer not found in this business');
+        }
+
+        const creditLimit = Number(customer.creditLimit || 0);
+        const projectedBalance = +(Number(customer.balanceDue || 0) + amountDue).toFixed(2);
+        if (creditLimit > 0 && projectedBalance > creditLimit + 0.01) {
+          throw new ValidationError(
+            `Credit limit exceeded. Customer balance would be ${projectedBalance}, limit is ${creditLimit}`
+          );
+        }
+
+        if (amountDue > 0) {
+          isSettledToCredit = true;
+          const chargeResult = await customerCreditService.charge(
+            restaurantId,
+            order.customerId as string,
+            order.id,
+            amountDue,
+            `Order #${order.orderNumber} remaining balance`,
+            data.createdById,
+            tx
+          );
+          customerBalance = chargeResult.balanceAfter;
+        } else {
+          customerBalance = Number(customer.balanceDue || 0);
+        }
+      } else if (order.customerId) {
+        const customer = await tx.customer.findFirst({
+          where: { id: order.customerId, restaurantId },
+        });
+        customerBalance = customer ? Number(customer.balanceDue || 0) : null;
+      }
+
+      const updatedOrder = await tx.order.update({
+        where: { id: order.id },
+        data: {
+          totalPaid,
+          amountDue,
+          paymentStatus,
+          paymentMethod: data.method || order.paymentMethod || 'CASH',
+          settledToCredit: isSettledToCredit || order.settledToCredit,
+          ...(paymentStatus === 'PAID' && !isSettledToCredit ? { status: 'paid', completedAt: new Date() } : {}),
+        },
+        include: {
+          items: true,
+          payments: true,
+        },
+      });
+
+      if (paymentStatus === 'PAID' && !isSettledToCredit) {
+        shouldComplete = true;
+        orderToCompleteId = updatedOrder.id;
+      }
+
+      return {
+        payment: createdPayment,
+        order: updatedOrder,
+        customerBalance,
+        duplicate: false,
+      };
+    });
+
+    if (shouldComplete && orderToCompleteId) {
+      try {
+        await orderService.completeOrder(orderToCompleteId, restaurantId);
+      } catch (err) {
+        console.warn('Post-payment completeOrder non-fatal warning:', err);
       }
     }
 
-    return payment;
+    const io = getIO();
+    if (!result.duplicate) {
+      if (result.order) {
+        io?.to(`restaurant:${restaurantId}`).emit('order:updated', result.order);
+      }
+      io?.to(`restaurant:${restaurantId}`).emit('payment:completed', result.payment);
+    }
+
+    return {
+      ...(result.payment || {}),
+      customerBalance: result.customerBalance,
+      order: result.order,
+      duplicate: result.duplicate,
+    };
   }
 
   async confirmPayment(paymentId: string, restaurantId: string) {
@@ -102,15 +260,34 @@ export class PaymentService {
     });
 
     if (order) {
-      const totalPaid = order.payments
-        .filter((p) => p.status === 'COMPLETED')
-        .reduce((sum, p) => sum + Number(p.amount), 0);
+      const allPayments = await prisma.payment.findMany({
+        where: { orderId: order.id, status: 'COMPLETED' },
+      });
+      const totalPaid = +allPayments
+        .reduce((sum, p) => sum + Number(p.amount), 0)
+        .toFixed(2);
 
-      const orderTotal = Number(order.total);
+      const orderTotal = +Number(order.total).toFixed(2);
+      const amountDue = Math.max(0, +(orderTotal - totalPaid).toFixed(2));
+      const paymentStatus = totalPaid >= orderTotal - 0.01 ? 'PAID' : totalPaid > 0 ? 'PARTIAL' : 'UNPAID';
 
-      if (totalPaid >= orderTotal - 0.01) {
+      const updatedOrder = await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          totalPaid,
+          amountDue,
+          paymentStatus,
+          ...(paymentStatus === 'PAID' ? { status: 'paid', completedAt: new Date() } : {}),
+        },
+      });
+
+      if (paymentStatus === 'PAID') {
         await orderService.completeOrder(order.id, restaurantId);
       }
+
+      const io = getIO();
+      io?.to(`restaurant:${restaurantId}`).emit('order:updated', updatedOrder);
+      io?.to(`restaurant:${restaurantId}`).emit('payment:completed', payment);
     }
 
     return payment;
@@ -138,6 +315,20 @@ export class PaymentService {
         status: 'REFUNDED',
       },
     });
+
+    // If the order had an outstanding credit balance, reverse the remaining
+    // dues so the customer is not left owing money for a refunded order.
+    const order = await prisma.order.findFirst({
+      where: { id: payment.orderId, restaurantId },
+    });
+    if (order?.settledToCredit && order.customerId && Number(order.amountDue || 0) > 0) {
+      await customerCreditService.reverseCharge(
+        restaurantId,
+        order.id,
+        Number(order.amountDue || 0),
+        `Refund for order #${order.orderNumber}`
+      );
+    }
 
     return { success: true, payment: updatedPayment };
   }

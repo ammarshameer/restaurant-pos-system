@@ -1159,14 +1159,902 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
-    // TEST 26: Verification Summary
+    // TEST 26: Full & Partial Payment Settlement Single Source of Truth (Task 0)
+    // ------------------------------------------------------------------------
+    const ownerEmp = await prisma.employee.findFirst({ where: { restaurantId: tenantAId } });
+    const order1 = await prisma.order.create({
+      data: {
+        restaurantId: tenantAId,
+        serverId: ownerEmp!.id,
+        orderNumber: Math.floor(10000 + Math.random() * 90000),
+        orderType: 'DINE_IN',
+        status: 'PENDING',
+        subtotal: 200.0,
+        tax: 0,
+        total: 200.0,
+        paymentStatus: 'UNPAID',
+        totalPaid: 0,
+        amountDue: 200.0,
+      },
+    });
+
+    // Make partial payment of 80.00
+    const partPayRes = await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        orderId: order1.id,
+        amount: 80.0,
+        method: 'CASH',
+      },
+    });
+
+    const orderAfterPart = await prisma.order.findUnique({ where: { id: order1.id } });
+
+    // Make remaining payment of 120.00
+    const fullPayRes = await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        orderId: order1.id,
+        amount: 120.0,
+        method: 'CASH',
+      },
+    });
+
+    const orderAfterFull = await prisma.order.findUnique({ where: { id: order1.id } });
+    const paymentsCount = await prisma.payment.count({ where: { orderId: order1.id, status: 'COMPLETED' } });
+
+    const test26Pass =
+      partPayRes.status === 201 &&
+      orderAfterPart?.paymentStatus === 'PARTIAL' &&
+      Math.abs((orderAfterPart?.totalPaid || 0) - 80) < 0.01 &&
+      Math.abs((orderAfterPart?.amountDue || 0) - 120) < 0.01 &&
+      fullPayRes.status === 201 &&
+      orderAfterFull?.paymentStatus === 'PAID' &&
+      Math.abs((orderAfterFull?.totalPaid || 0) - 200) < 0.01 &&
+      Math.abs((orderAfterFull?.amountDue || 0) - 0) < 0.01 &&
+      paymentsCount === 2;
+
+    logTest(
+      26,
+      'Payment settlement single source of truth: partial and full payments compute amountDue/totalPaid',
+      test26Pass,
+      `Partial: status=${partPayRes.status}, paid=${orderAfterPart?.totalPaid}, due=${orderAfterPart?.amountDue}, status=${orderAfterPart?.paymentStatus}; Full: status=${fullPayRes.status}, paid=${orderAfterFull?.totalPaid}, due=${orderAfterFull?.amountDue}, status=${orderAfterFull?.paymentStatus}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 27: Udhaar / Credit Checkout creates Ledger Entry & Balance Due (Task 4)
+    // ------------------------------------------------------------------------
+    const custRes = await request('/customers', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        name: 'Credit Customer Ali',
+        phone: `+92300${Math.floor(1000000 + Math.random() * 9000000)}`,
+        email: `ali.${Date.now()}@example.com`,
+        creditLimit: 1000,
+      },
+    });
+    const creditCustId = custRes.data.id;
+
+    const order2 = await prisma.order.create({
+      data: {
+        restaurantId: tenantAId,
+        serverId: ownerEmp!.id,
+        customerId: creditCustId,
+        orderNumber: Math.floor(10000 + Math.random() * 90000),
+        orderType: 'DINE_IN',
+        status: 'PENDING',
+        subtotal: 300.0,
+        tax: 0,
+        total: 300.0,
+        paymentStatus: 'UNPAID',
+        totalPaid: 0,
+        amountDue: 300.0,
+      },
+    });
+
+    // Pay 100 advance cash and settle remaining (200) to credit
+    const udhaarPayRes = await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        orderId: order2.id,
+        amount: 100.0,
+        method: 'CASH',
+        settleToCredit: true,
+      },
+    });
+
+    const order2Updated = await prisma.order.findUnique({ where: { id: order2.id } });
+    const custAfterUdhaar = await prisma.customer.findUnique({ where: { id: creditCustId } });
+    const chargeLedger = await prisma.customerLedgerEntry.findFirst({
+      where: { customerId: creditCustId, type: 'CHARGE', orderId: order2.id },
+    });
+
+    const test27Pass =
+      udhaarPayRes.status === 201 &&
+      order2Updated?.paymentStatus === 'PARTIAL' &&
+      order2Updated?.settledToCredit === true &&
+      Math.abs((order2Updated?.totalPaid || 0) - 100) < 0.01 &&
+      Math.abs((order2Updated?.amountDue || 0) - 200) < 0.01 &&
+      Math.abs((custAfterUdhaar?.balanceDue || 0) - 200) < 0.01 &&
+      chargeLedger !== null &&
+      Math.abs((chargeLedger?.amount || 0) - 200) < 0.01;
+
+    logTest(
+      27,
+      'POS Udhaar/Credit checkout closes order, records CHARGE ledger entry, and updates customer balanceDue',
+      test27Pass,
+      `Order status=${order2Updated?.paymentStatus}, settledToCredit=${order2Updated?.settledToCredit}, totalPaid=${order2Updated?.totalPaid}, amountDue=${order2Updated?.amountDue}, customer balanceDue=${custAfterUdhaar?.balanceDue}, charge ledger amount=${chargeLedger?.amount}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 28: Dues Receivables Settlement with FIFO Order Allocation (Task 4)
+    // ------------------------------------------------------------------------
+    const duesListRes = await request('/dues', { token: tenantAOwnerToken });
+    const customerInList = Array.isArray(duesListRes.data?.data)
+      ? duesListRes.data.data.find((c: any) => c.id === creditCustId)
+      : null;
+
+    const duesPayRes = await request(`/dues/${creditCustId}/payments`, {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        amount: 200.0,
+        method: 'CASH',
+        note: 'Settled dues in full',
+      },
+    });
+
+    const custAfterPay = await prisma.customer.findUnique({ where: { id: creditCustId } });
+    const order2AfterDues = await prisma.order.findUnique({ where: { id: order2.id } });
+    const paymentLedger = await prisma.customerLedgerEntry.findFirst({
+      where: { customerId: creditCustId, type: 'PAYMENT' },
+    });
+
+    const test28Pass =
+      duesListRes.status === 200 &&
+      customerInList !== null &&
+      Math.abs((customerInList.balanceDue || 0) - 200) < 0.01 &&
+      duesPayRes.status === 200 &&
+      Math.abs((custAfterPay?.balanceDue || 0) - 0) < 0.01 &&
+      paymentLedger !== null &&
+      Math.abs((paymentLedger?.amount || 0) - 200) < 0.01 &&
+      order2AfterDues?.paymentStatus === 'PAID' &&
+      Math.abs((order2AfterDues?.amountDue || 0) - 0) < 0.01 &&
+      Math.abs((order2AfterDues?.totalPaid || 0) - 300) < 0.01;
+
+    logTest(
+      28,
+      'Dues receivables module lists debtors, accepts settlement, updates balanceDue and allocates FIFO',
+      test28Pass,
+      `Dues list status: ${duesListRes.status}, Customer found: ${!!customerInList}, Payment status: ${duesPayRes.status}, Final balanceDue: ${custAfterPay?.balanceDue}, Order2 post-dues: ${order2AfterDues?.paymentStatus} (due: ${order2AfterDues?.amountDue}, paid: ${order2AfterDues?.totalPaid})`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 29: Employee Password Reset and Email Login (Task 3)
+    // ------------------------------------------------------------------------
+    const pinStaffRes = await request('/employees', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        firstName: 'PinOnly',
+        lastName: 'Cashier',
+        email: `pinonly.${Date.now()}@goldenspoon.com`,
+        role: 'CASHIER',
+        pin: '3491',
+      },
+    });
+
+    const earlyLoginRes = await request('/auth/login', {
+      method: 'POST',
+      body: {
+        email: pinStaffRes.data.email,
+        password: 'password123',
+      },
+    });
+
+    const resetPwRes = await request(`/employees/${pinStaffRes.data.id}/reset-password`, {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { temporaryPassword: 'TempPass123!@' },
+    });
+
+    const postResetLogin = await request('/auth/login', {
+      method: 'POST',
+      body: {
+        email: pinStaffRes.data.email,
+        password: 'TempPass123!@',
+      },
+    });
+
+    const test29Pass =
+      pinStaffRes.status === 201 &&
+      earlyLoginRes.status === 401 &&
+      resetPwRes.status === 200 &&
+      resetPwRes.data.temporaryPassword === 'TempPass123!@' &&
+      postResetLogin.status === 200 &&
+      postResetLogin.data.accessToken !== undefined;
+
+    logTest(
+      29,
+      'Employee password reset generates temporary credentials and enables standard email login (Task 3)',
+      test29Pass,
+      `Created staff: ${pinStaffRes.status}, Pre-reset email login: ${earlyLoginRes.status} (expected 401), Reset PW: ${resetPwRes.status}, Post-reset email login: ${postResetLogin.status}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 30: Per-Employee Permission Overrides: GRANT & DENY (Task 2)
+    // ------------------------------------------------------------------------
+    const overrideStaffRes = await request('/employees', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        firstName: 'Override',
+        lastName: 'Waiter',
+        email: `override.${Date.now()}@goldenspoon.com`,
+        role: 'WAITER',
+        pin: '7829',
+      },
+    });
+
+    // Check default permissions
+    const permGetRes1 = await request(`/employees/${overrideStaffRes.data.id}/permissions`, {
+      token: tenantAOwnerToken,
+    });
+
+    // Grant menu.manage override
+    const grantOverrideRes = await request(`/employees/${overrideStaffRes.data.id}/permissions`, {
+      method: 'PUT',
+      token: tenantAOwnerToken,
+      body: {
+        overrides: [{ permission: 'menu.manage', granted: true }],
+      },
+    });
+
+    const staffLoginAfterGrant = await request('/auth/pin-login', {
+      method: 'POST',
+      body: { pin: '7829', tenantSlug: tenantASlug },
+    });
+
+    // Deny pos.use override
+    const denyOverrideRes = await request(`/employees/${overrideStaffRes.data.id}/permissions`, {
+      method: 'PUT',
+      token: tenantAOwnerToken,
+      body: {
+        overrides: [
+          { permission: 'menu.manage', granted: true },
+          { permission: 'pos.use', granted: false },
+        ],
+      },
+    });
+
+    const staffLoginAfterDeny = await request('/auth/pin-login', {
+      method: 'POST',
+      body: { pin: '7829', tenantSlug: tenantASlug },
+    });
+
+    const grantedPerms: string[] = staffLoginAfterGrant.data?.user?.permissions || [];
+    const deniedPerms: string[] = staffLoginAfterDeny.data?.user?.permissions || [];
+
+    const test30Pass =
+      permGetRes1.status === 200 &&
+      grantOverrideRes.status === 200 &&
+      grantedPerms.includes('menu.manage') === true &&
+      denyOverrideRes.status === 200 &&
+      deniedPerms.includes('menu.manage') === true &&
+      deniedPerms.includes('pos.use') === false;
+
+    logTest(
+      30,
+      'Per-employee permission overrides support GRANT and DENY, reflected in session permissions (Task 2)',
+      test30Pass,
+      `GET perms status: ${permGetRes1.status}, GRANT override has menu.manage: ${grantedPerms.includes('menu.manage')}, DENY override excluded pos.use: ${!deniedPerms.includes('pos.use')}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 31: Costing Module Endpoints & Cost Redaction (Task 1)
+    // ------------------------------------------------------------------------
+    const costingSummaryRes = await request('/costing/summary', { token: tenantAOwnerToken });
+    const costingMenuRes = await request('/costing/menu', { token: tenantAOwnerToken });
+
+    // Waiter without costing.view should be forbidden (403)
+    const waiterPinLogin = await request('/auth/pin-login', {
+      method: 'POST',
+      body: { pin: '7829', tenantSlug: tenantASlug },
+    });
+    const waiterToken2 = waiterPinLogin.data.accessToken;
+
+    const waiterCostingRes = await request('/costing/summary', { token: waiterToken2 });
+
+    const test31Pass =
+      costingSummaryRes.status === 200 &&
+      costingMenuRes.status === 200 &&
+      waiterCostingRes.status === 403;
+
+    logTest(
+      31,
+      'Costing module endpoints accessible to authorized users (200) and blocked for unauthorized staff (403) (Task 1)',
+      test31Pass,
+      `Owner summary: ${costingSummaryRes.status}, Owner menu costing: ${costingMenuRes.status}, Waiter costing: ${waiterCostingRes.status} (${waiterCostingRes.data?.error || ''})`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 32: Super Admin Tenant Creation & Immediate Owner Login (Task 5)
+    // ------------------------------------------------------------------------
+    const bistroName = `Emerald Bistro ${Date.now()}`;
+    const ownerEmail = `nadia.${Date.now()}@emeraldbistro.com`;
+    const ownerPassword = 'NadiaSecurePass123!';
+    const createBistroRes = await request('/platform/restaurants', {
+      method: 'POST',
+      token: superAdminToken,
+      body: {
+        businessName: bistroName,
+        ownerFirstName: 'Nadia',
+        ownerLastName: 'Khan',
+        ownerEmail,
+        ownerPhone: '+92 301 5556677',
+        ownerPassword,
+        address: '77 Emerald Boulevard, Blue Area',
+      },
+    });
+
+    const bistroLoginRes = await request('/auth/login', {
+      method: 'POST',
+      body: {
+        email: ownerEmail,
+        password: ownerPassword,
+      },
+    });
+
+    const test32Pass =
+      createBistroRes.status === 201 &&
+      createBistroRes.data?.restaurant?.slug !== undefined &&
+      bistroLoginRes.status === 200 &&
+      bistroLoginRes.data.user?.role === 'OWNER' &&
+      bistroLoginRes.data.user?.restaurantSlug === createBistroRes.data.restaurant.slug;
+
+    logTest(
+      32,
+      'Super Admin tenant creation returns credentials payload and owner logs in immediately (Task 5)',
+      test32Pass,
+      `Tenant created: ${createBistroRes.status}, Slug: ${createBistroRes.data?.restaurant?.slug}, Owner login: ${bistroLoginRes.status}, Role: ${bistroLoginRes.data?.user?.role}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 33: Theme Palette & Mode Persistence (Task 6)
+    // ------------------------------------------------------------------------
+    const bistroToken = bistroLoginRes.data?.accessToken;
+
+    const updateThemeRes = await request('/settings/business', {
+      method: 'PATCH',
+      token: bistroToken,
+      body: {
+        themePalette: 'royal',
+        themeMode: 'light',
+      },
+    });
+
+    const brandingRes = await request('/settings/branding', {
+      token: bistroToken,
+    });
+
+    const invalidPaletteRes = await request('/settings/business', {
+      method: 'PATCH',
+      token: bistroToken,
+      body: {
+        themePalette: 'cyberpunk-neon',
+      },
+    });
+
+    const test33Pass =
+      updateThemeRes.status === 200 &&
+      updateThemeRes.data.themePalette === 'royal' &&
+      updateThemeRes.data.themeMode === 'light' &&
+      brandingRes.status === 200 &&
+      brandingRes.data.themePalette === 'royal' &&
+      brandingRes.data.themeMode === 'light' &&
+      invalidPaletteRes.status === 400;
+
+    logTest(
+      33,
+      'Theme palette and mode persist in business settings and branding, invalid palettes rejected with 400 (Task 6)',
+      test33Pass,
+      `Update status: ${updateThemeRes.status} (palette: ${updateThemeRes.data?.themePalette}, mode: ${updateThemeRes.data?.themeMode}), Branding status: ${brandingRes.status}, Invalid palette status: ${invalidPaletteRes.status}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 35: Costing math converts purchase units to sale units
+    // ------------------------------------------------------------------------
+    const costingCategory = await prisma.category.create({
+      data: { name: `Costing Cat ${Date.now()}`, restaurantId: tenantAId },
+    });
+    const potatoItem = await prisma.inventoryItem.create({
+      data: {
+        name: `Potatoes ${Date.now()}`,
+        restaurantId: tenantAId,
+        unit: 'g',
+        purchaseUnit: 'kg',
+        conversionFactor: 1000,
+        costPerUnit: 32.5, // cost per purchase unit (kg)
+        quantity: 5000, // stored in sale unit (g)
+        reorderPoint: 100,
+      },
+    });
+    const friesItem = await prisma.menuItem.create({
+      data: {
+        name: `Fries ${Date.now()}`,
+        categoryId: costingCategory.id,
+        restaurantId: tenantAId,
+        price: 200,
+        cost: 0,
+        ingredients: {
+          create: [{ inventoryItemId: potatoItem.id, quantityUsed: 1000, unit: 'g' }],
+        },
+      },
+    });
+    const costingOrder = await prisma.order.create({
+      data: {
+        restaurantId: tenantAId,
+        serverId: ownerEmp!.id,
+        orderNumber: Math.floor(10000 + Math.random() * 90000),
+        orderType: 'DINE_IN',
+        status: 'PENDING',
+        subtotal: 200,
+        total: 200,
+        paymentStatus: 'UNPAID',
+        totalPaid: 0,
+        amountDue: 200,
+        items: {
+          create: [
+            {
+              menuItemId: friesItem.id,
+              name: friesItem.name,
+              quantity: 1,
+              unitPrice: 200,
+              price: 200,
+              total: 200,
+            },
+          ],
+        },
+      },
+    });
+
+    const costingMenuRes2 = await request('/costing/menu', { token: tenantAOwnerToken });
+    const friesCosting = Array.isArray(costingMenuRes2.data)
+      ? costingMenuRes2.data.find((m: any) => m.id === friesItem.id)
+      : null;
+
+    const costingInventoryRes = await request('/costing/inventory', { token: tenantAOwnerToken });
+    const potatoValuation = Array.isArray(costingInventoryRes.data?.items)
+      ? costingInventoryRes.data.items.find((i: any) => i.id === potatoItem.id)
+      : null;
+
+    const costingTxRes = await request('/costing/transactions?limit=100', { token: tenantAOwnerToken });
+    const costingTxOrder = Array.isArray(costingTxRes.data?.data)
+      ? costingTxRes.data.data.find((o: any) => o.id === costingOrder.id)
+      : null;
+
+    const test35Pass =
+      costingMenuRes2.status === 200 &&
+      friesCosting !== null &&
+      Math.abs((friesCosting?.recipeCost || 0) - 32.5) < 0.01 &&
+      costingInventoryRes.status === 200 &&
+      potatoValuation !== null &&
+      Math.abs((potatoValuation?.stockValue || 0) - 162.5) < 0.01 &&
+      costingTxRes.status === 200 &&
+      costingTxOrder !== null &&
+      Math.abs((costingTxOrder?.cogs || 0) - 32.5) < 0.01;
+
+    logTest(
+      35,
+      'Costing math converts purchase units to sale units (kg -> g) for recipes, inventory value, and order COGS',
+      test35Pass,
+      `Recipe cost: ${friesCosting?.recipeCost} (expected 32.5), Inventory value: ${potatoValuation?.stockValue} (expected 162.5), Order COGS: ${costingTxOrder?.cogs} (expected 32.5)`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 36: Attach a customer to an existing order via PATCH
+    // ------------------------------------------------------------------------
+    const attachCustomer = await prisma.customer.create({
+      data: {
+        restaurantId: tenantAId,
+        name: `Attach Customer ${Date.now()}`,
+        phone: `+92321${Math.floor(1000000 + Math.random() * 9000000)}`,
+      },
+    });
+    const attachOrder = await prisma.order.create({
+      data: {
+        restaurantId: tenantAId,
+        serverId: ownerEmp!.id,
+        orderNumber: Math.floor(10000 + Math.random() * 90000),
+        orderType: 'DINE_IN',
+        status: 'PENDING',
+        subtotal: 150,
+        total: 150,
+        paymentStatus: 'UNPAID',
+        totalPaid: 0,
+        amountDue: 150,
+      },
+    });
+
+    const attachRes = await request(`/orders/${attachOrder.id}`, {
+      method: 'PATCH',
+      token: tenantAOwnerToken,
+      body: { customerId: attachCustomer.id },
+    });
+    const attachOrderAfter = await prisma.order.findUnique({ where: { id: attachOrder.id } });
+    const badCustomerRes = await request(`/orders/${attachOrder.id}`, {
+      method: 'PATCH',
+      token: tenantAOwnerToken,
+      body: { customerId: 'customer-that-does-not-exist' },
+    });
+
+    const test36Pass =
+      attachRes.status === 200 &&
+      attachOrderAfter?.customerId === attachCustomer.id &&
+      badCustomerRes.status === 400;
+
+    logTest(
+      36,
+      'Order customer attach persists customerId and rejects customers from other businesses',
+      test36Pass,
+      `PATCH status: ${attachRes.status}, customerId persisted: ${attachOrderAfter?.customerId === attachCustomer.id}, invalid customer status: ${badCustomerRes.status}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 37: Duplicate credit settlement is rejected (no double charge)
+    // ------------------------------------------------------------------------
+    const dupCustomer = await prisma.customer.create({
+      data: {
+        restaurantId: tenantAId,
+        name: `Duplicate Credit ${Date.now()}`,
+        phone: `+92322${Math.floor(1000000 + Math.random() * 9000000)}`,
+        creditLimit: 1000,
+      },
+    });
+    const dupOrder = await prisma.order.create({
+      data: {
+        restaurantId: tenantAId,
+        serverId: ownerEmp!.id,
+        customerId: dupCustomer.id,
+        orderNumber: Math.floor(10000 + Math.random() * 90000),
+        orderType: 'DINE_IN',
+        status: 'PENDING',
+        subtotal: 100,
+        total: 100,
+        paymentStatus: 'UNPAID',
+        totalPaid: 0,
+        amountDue: 100,
+      },
+    });
+
+    const firstCreditRes = await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { orderId: dupOrder.id, amount: 0, method: 'CASH', settleToCredit: true },
+    });
+    const secondCreditRes = await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { orderId: dupOrder.id, amount: 0, method: 'CASH', settleToCredit: true },
+    });
+    const dupCustomerAfter = await prisma.customer.findUnique({ where: { id: dupCustomer.id } });
+    const dupChargeCount = await prisma.customerLedgerEntry.count({
+      where: { orderId: dupOrder.id, type: 'CHARGE' },
+    });
+    const unpaidOrdersRes = await request('/orders?paymentStatus=UNPAID&limit=100', {
+      token: tenantAOwnerToken,
+    });
+    const cashRegisterOrders = Array.isArray(unpaidOrdersRes.data?.data) ? unpaidOrdersRes.data.data : [];
+    const dupOrderInCashRegister = cashRegisterOrders.some((o: any) => o.id === dupOrder.id);
+
+    const test37Pass =
+      firstCreditRes.status === 201 &&
+      secondCreditRes.status === 400 &&
+      dupChargeCount === 1 &&
+      Math.abs((dupCustomerAfter?.balanceDue || 0) - 100) < 0.01 &&
+      unpaidOrdersRes.status === 200 &&
+      dupOrderInCashRegister === false;
+
+    logTest(
+      37,
+      'Duplicate settle-to-credit is rejected, does not double-charge, and is excluded from the cash register',
+      test37Pass,
+      `First: ${firstCreditRes.status}, Second: ${secondCreditRes.status}, CHARGE entries: ${dupChargeCount}, balanceDue: ${dupCustomerAfter?.balanceDue}, in cash register: ${dupOrderInCashRegister}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 38: Credit limit, overpayment, and direct-payment guards
+    // ------------------------------------------------------------------------
+    const limitCustomer = await prisma.customer.create({
+      data: {
+        restaurantId: tenantAId,
+        name: `Credit Limit ${Date.now()}`,
+        phone: `+92323${Math.floor(1000000 + Math.random() * 9000000)}`,
+        creditLimit: 100,
+      },
+    });
+    const limitOrder = await prisma.order.create({
+      data: {
+        restaurantId: tenantAId,
+        serverId: ownerEmp!.id,
+        customerId: limitCustomer.id,
+        orderNumber: Math.floor(10000 + Math.random() * 90000),
+        orderType: 'DINE_IN',
+        status: 'PENDING',
+        subtotal: 300,
+        total: 300,
+        paymentStatus: 'UNPAID',
+        totalPaid: 0,
+        amountDue: 300,
+      },
+    });
+    const limitRes = await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { orderId: limitOrder.id, amount: 0, method: 'CASH', settleToCredit: true },
+    });
+    const limitCustomerAfter = await prisma.customer.findUnique({ where: { id: limitCustomer.id } });
+    const limitOrderAfter = await prisma.order.findUnique({ where: { id: limitOrder.id } });
+
+    const overpayOrder = await prisma.order.create({
+      data: {
+        restaurantId: tenantAId,
+        serverId: ownerEmp!.id,
+        customerId: limitCustomer.id,
+        orderNumber: Math.floor(10000 + Math.random() * 90000),
+        orderType: 'DINE_IN',
+        status: 'PENDING',
+        subtotal: 50,
+        total: 50,
+        paymentStatus: 'UNPAID',
+        totalPaid: 0,
+        amountDue: 50,
+      },
+    });
+    const overpayRes = await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { orderId: overpayOrder.id, amount: 100, method: 'CASH' },
+    });
+
+    // A credit-settled order must be collected from Dues, not directly.
+    const directOnCreditRes = await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { orderId: dupOrder.id, amount: 10, method: 'CASH' },
+    });
+
+    const test38Pass =
+      limitRes.status === 400 &&
+      Math.abs((limitCustomerAfter?.balanceDue || 0) - 0) < 0.01 &&
+      limitOrderAfter?.settledToCredit === false &&
+      overpayRes.status === 400 &&
+      directOnCreditRes.status === 400;
+
+    logTest(
+      38,
+      'Payment guards reject credit-limit overruns, overpayments, and direct payments on credit-settled orders',
+      test38Pass,
+      `Credit limit: ${limitRes.status}, balanceDue: ${limitCustomerAfter?.balanceDue}, Overpay: ${overpayRes.status}, Direct on credit: ${directOnCreditRes.status}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 39: Cancelling an order reverses its credit ledger charge
+    // ------------------------------------------------------------------------
+    const cancelCustomer = await prisma.customer.create({
+      data: {
+        restaurantId: tenantAId,
+        name: `Cancel Credit ${Date.now()}`,
+        phone: `+92324${Math.floor(1000000 + Math.random() * 9000000)}`,
+        creditLimit: 1000,
+      },
+    });
+    const cancelOrder = await prisma.order.create({
+      data: {
+        restaurantId: tenantAId,
+        serverId: ownerEmp!.id,
+        customerId: cancelCustomer.id,
+        orderNumber: Math.floor(10000 + Math.random() * 90000),
+        orderType: 'DINE_IN',
+        status: 'PENDING',
+        subtotal: 200,
+        total: 200,
+        paymentStatus: 'UNPAID',
+        totalPaid: 0,
+        amountDue: 200,
+      },
+    });
+    const cancelSettleRes = await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { orderId: cancelOrder.id, amount: 0, method: 'CASH', settleToCredit: true },
+    });
+    const cancelCustomerBefore = await prisma.customer.findUnique({ where: { id: cancelCustomer.id } });
+
+    const cancelRes = await request(`/orders/${cancelOrder.id}/cancel`, {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { reason: 'acceptance test cancellation' },
+    });
+    const cancelCustomerAfter = await prisma.customer.findUnique({ where: { id: cancelCustomer.id } });
+    const cancelOrderAfter = await prisma.order.findUnique({ where: { id: cancelOrder.id } });
+    const cancelRefundEntry = await prisma.customerLedgerEntry.findFirst({
+      where: { orderId: cancelOrder.id, type: 'REFUND' },
+    });
+
+    const test39Pass =
+      cancelSettleRes.status === 201 &&
+      Math.abs((cancelCustomerBefore?.balanceDue || 0) - 200) < 0.01 &&
+      cancelRes.status === 200 &&
+      Math.abs((cancelCustomerAfter?.balanceDue || 0) - 0) < 0.01 &&
+      cancelOrderAfter?.status === 'cancelled' &&
+      cancelOrderAfter?.settledToCredit === false &&
+      cancelRefundEntry !== null &&
+      Math.abs((cancelRefundEntry?.amount || 0) - 200) < 0.01;
+
+    logTest(
+      39,
+      'Cancelling a credit-settled order reverses the customer ledger charge (idempotent REFUND entry)',
+      test39Pass,
+      `Balance before: ${cancelCustomerBefore?.balanceDue}, cancel status: ${cancelRes.status}, balance after: ${cancelCustomerAfter?.balanceDue}, refund entry: ${cancelRefundEntry?.amount}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 40: Offline payment replay is idempotent by clientId
+    // ------------------------------------------------------------------------
+    const replayOrder = await prisma.order.create({
+      data: {
+        restaurantId: tenantAId,
+        serverId: ownerEmp!.id,
+        orderNumber: Math.floor(10000 + Math.random() * 90000),
+        orderType: 'DINE_IN',
+        status: 'PENDING',
+        subtotal: 100,
+        total: 100,
+        paymentStatus: 'UNPAID',
+        totalPaid: 0,
+        amountDue: 100,
+      },
+    });
+    const replayClientId = `offline-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const replayBody = {
+      orderId: replayOrder.id,
+      amount: 40,
+      method: 'CASH',
+      clientId: replayClientId,
+    };
+    const replayRes1 = await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: replayBody,
+    });
+    const replayRes2 = await request('/payments', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: replayBody,
+    });
+    const replayOrderAfter = await prisma.order.findUnique({ where: { id: replayOrder.id } });
+    const replayPaymentCount = await prisma.payment.count({ where: { orderId: replayOrder.id } });
+
+    const test40Pass =
+      replayRes1.status === 201 &&
+      replayRes2.status === 201 &&
+      replayRes2.data?.duplicate === true &&
+      replayPaymentCount === 1 &&
+      Math.abs((replayOrderAfter?.totalPaid || 0) - 40) < 0.01 &&
+      Math.abs((replayOrderAfter?.amountDue || 0) - 60) < 0.01;
+
+    logTest(
+      40,
+      'Offline payment replay with the same clientId is idempotent (one payment, no double charge)',
+      test40Pass,
+      `First: ${replayRes1.status}, Replay: ${replayRes2.status} (duplicate=${replayRes2.data?.duplicate}), payments: ${replayPaymentCount}, paid: ${replayOrderAfter?.totalPaid}, due: ${replayOrderAfter?.amountDue}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 41: Generated owner PIN from platform tenant creation
+    // ------------------------------------------------------------------------
+    const generatedPinEmail = `pinowner.${Date.now()}@example.com`;
+    const createNoPinRes = await request('/platform/restaurants', {
+      method: 'POST',
+      token: superAdminToken,
+      body: {
+        businessName: `Generated PIN Bistro ${Date.now()}`,
+        ownerFirstName: 'Generated',
+        ownerLastName: 'Owner',
+        ownerEmail: generatedPinEmail,
+        ownerPassword: 'GeneratedOwnerPass123!',
+        address: '9 Generated PIN Street',
+      },
+    });
+    const generatedOwnerPin = createNoPinRes.data?.owner?.pin;
+    const generatedPinLoginRes = await request('/auth/pin-login', {
+      method: 'POST',
+      body: {
+        pin: generatedOwnerPin,
+        tenantSlug: createNoPinRes.data?.restaurant?.slug,
+      },
+    });
+    const invalidOwnerPinRes = await request('/platform/restaurants', {
+      method: 'POST',
+      token: superAdminToken,
+      body: {
+        businessName: `Invalid PIN Bistro ${Date.now()}`,
+        ownerFirstName: 'Invalid',
+        ownerLastName: 'Owner',
+        ownerEmail: `invalidpin.${Date.now()}@example.com`,
+        ownerPassword: 'InvalidOwnerPass123!',
+        ownerPin: '12',
+        address: '10 Invalid PIN Street',
+      },
+    });
+
+    const test41Pass =
+      createNoPinRes.status === 201 &&
+      typeof generatedOwnerPin === 'string' &&
+      /^\d{4,6}$/.test(generatedOwnerPin) &&
+      generatedPinLoginRes.status === 200 &&
+      invalidOwnerPinRes.status === 400;
+
+    logTest(
+      41,
+      'Platform tenant creation returns the generated owner PIN and rejects invalid PIN formats',
+      test41Pass,
+      `Create: ${createNoPinRes.status}, generated PIN: ${generatedOwnerPin}, PIN login: ${generatedPinLoginRes.status}, invalid PIN: ${invalidOwnerPinRes.status}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 42: Employee creation with blank PIN auto-generates a unique PIN
+    // ------------------------------------------------------------------------
+    const blankPinRes = await request('/employees', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        firstName: 'Blank',
+        lastName: 'Pin',
+        email: `blankpin.${Date.now()}@goldenspoon.com`,
+        role: 'WAITER',
+      },
+    });
+    const generatedStaffPin = blankPinRes.data?.pin;
+    const invalidStaffPinRes = await request('/employees', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        firstName: 'Invalid',
+        lastName: 'Pin',
+        email: `invalidstaffpin.${Date.now()}@goldenspoon.com`,
+        role: 'WAITER',
+        pin: 'abc',
+      },
+    });
+
+    const test42Pass =
+      blankPinRes.status === 201 &&
+      typeof generatedStaffPin === 'string' &&
+      /^\d{4,6}$/.test(generatedStaffPin) &&
+      invalidStaffPinRes.status === 400;
+
+    logTest(
+      42,
+      'Employee creation with a blank PIN auto-generates a valid PIN and rejects non-numeric PINs',
+      test42Pass,
+      `Blank PIN create: ${blankPinRes.status} (generated: ${generatedStaffPin}), invalid PIN: ${invalidStaffPinRes.status}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 43: Verification Summary
     // ------------------------------------------------------------------------
     const passedCount = results.filter((r) => r.passed).length;
     logTest(
-      26,
+      43,
       'All Acceptance Verification Criteria Met',
-      passedCount === 25,
-      `Passed ${passedCount} / 25 criteria (100% test pass rate)`
+      passedCount === 41,
+      `Passed ${passedCount} / 41 criteria (100% test pass rate)`
     );
 
   } catch (err: any) {

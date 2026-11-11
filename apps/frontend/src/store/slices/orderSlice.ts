@@ -22,6 +22,7 @@ export interface Order {
   orderTypeLabel: string;
   customerName?: string;
   customerPhone?: string;
+  customerId?: string;
   deliveryAddress?: string;
   dineInTag?: string;
   server?: any;
@@ -34,9 +35,11 @@ export interface Order {
   taxRate?: number;
   total: number;
   totalPaid?: number;
+  amountDue?: number;
+  settledToCredit?: boolean;
   change?: number;
   status: 'confirmed' | 'preparing' | 'ready' | 'served' | 'paid' | 'cancelled';
-  paymentStatus: 'PAID' | 'UNPAID';
+  paymentStatus: 'PAID' | 'PARTIAL' | 'UNPAID';
   paymentMethod?: string;
   notes?: string;
   createdAt: string;
@@ -123,13 +126,14 @@ const orderSlice = createSlice({
     },
     updatePaymentStatus: (
       state,
-      action: PayloadAction<{ id: string; paymentStatus: 'PAID' | 'UNPAID'; paymentMethod?: string; totalPaid?: number; change?: number }>
+      action: PayloadAction<{ id: string; paymentStatus: 'PAID' | 'PARTIAL' | 'UNPAID'; paymentMethod?: string; totalPaid?: number; amountDue?: number; change?: number }>
     ) => {
       const order = state.orders.find((o) => o.id === action.payload.id);
       if (order) {
         order.paymentStatus = action.payload.paymentStatus;
         if (action.payload.paymentMethod) order.paymentMethod = action.payload.paymentMethod;
         if (action.payload.totalPaid !== undefined) order.totalPaid = action.payload.totalPaid;
+        if (action.payload.amountDue !== undefined) order.amountDue = action.payload.amountDue;
         if (action.payload.change !== undefined) order.change = action.payload.change;
         if (action.payload.paymentStatus === 'PAID') order.status = 'paid';
         order.updatedAt = new Date().toISOString();

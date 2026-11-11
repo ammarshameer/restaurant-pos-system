@@ -18,6 +18,8 @@ export interface AuthenticatedUser {
   lastName?: string;
   permissions?: string[];
   features?: FeatureKey[];
+  themePalette?: string;
+  themeMode?: string;
   supportMode?: boolean;
   impersonatedBy?: string;
   tokenUse?: 'tenant';
@@ -74,6 +76,7 @@ export async function resolveTenantSession(token: string): Promise<Authenticated
           permissions: true,
         },
       },
+      permissionOverrides: true,
     },
   });
 
@@ -119,13 +122,26 @@ export async function resolveTenantSession(token: string): Promise<Authenticated
 
     if (isOwnerRole) {
       permissions = [...ALL_PERMISSIONS];
-    } else if (dbEmp.roleRecord) {
-      permissions = (dbEmp.roleRecord.permissions || []).map((p) => p.permission);
     } else {
-      const matchedSystemRole = DEFAULT_SYSTEM_ROLES.find(
-        (r) => r.key.toUpperCase() === (dbEmp.role || '').toUpperCase()
-      );
-      permissions = matchedSystemRole ? [...matchedSystemRole.permissions] : [];
+      let basePerms: string[] = [];
+      if (dbEmp.roleRecord) {
+        basePerms = (dbEmp.roleRecord.permissions || []).map((p) => p.permission);
+      } else {
+        const matchedSystemRole = DEFAULT_SYSTEM_ROLES.find(
+          (r) => r.key.toUpperCase() === (dbEmp.role || '').toUpperCase()
+        );
+        basePerms = matchedSystemRole ? [...matchedSystemRole.permissions] : [];
+      }
+
+      const permSet = new Set<string>(basePerms);
+      for (const override of dbEmp.permissionOverrides || []) {
+        if (override.granted) {
+          permSet.add(override.permission);
+        } else {
+          permSet.delete(override.permission);
+        }
+      }
+      permissions = Array.from(permSet);
     }
   }
 
@@ -141,6 +157,8 @@ export async function resolveTenantSession(token: string): Promise<Authenticated
     lastName: dbEmp.lastName,
     permissions,
     features: await getEnabledFeatures(dbEmp.restaurantId),
+    themePalette: dbEmp.restaurant?.themePalette || 'espresso',
+    themeMode: dbEmp.restaurant?.themeMode || 'dark',
     supportMode: isSupportActive,
     impersonatedBy: decoded.impersonatedBy,
     tokenUse: 'tenant',

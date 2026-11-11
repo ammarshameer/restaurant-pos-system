@@ -33,7 +33,8 @@ import RolesPage from './pages/RolesPage';
 import SettingsPage from './pages/SettingsPage';
 import ForbiddenPage from './pages/ForbiddenPage';
 import CustomersPage from './pages/CustomersPage';
-import AccountingPage from './pages/AccountingPage';
+import CostingPage from './pages/CostingPage';
+import DuesPage from './pages/DuesPage';
 
 // Platform Pages
 import PlatformLoginPage from './pages/PlatformLoginPage';
@@ -57,15 +58,33 @@ export const App: React.FC = () => {
       .catch(() => undefined);
   }, [isAuthenticated]);
 
-  // Light and Dark Theme state
+  // Light and Dark Theme state & Palette state
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('pos_theme') as 'dark' | 'light') || 'dark';
   });
+
+  const [palette, setPalette] = useState<string>(() => {
+    return localStorage.getItem('pos_palette') || 'espresso';
+  });
+
+  useEffect(() => {
+    if (user?.themeMode && (user.themeMode === 'light' || user.themeMode === 'dark')) {
+      setTheme(user.themeMode);
+    }
+    if (user?.themePalette) {
+      setPalette(user.themePalette);
+    }
+  }, [user?.themeMode, user?.themePalette]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('pos_theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-palette', palette);
+    localStorage.setItem('pos_palette', palette);
+  }, [palette]);
 
   useEffect(() => {
     const getVersion = window.electronAPI?.getVersion;
@@ -174,6 +193,8 @@ export const App: React.FC = () => {
     if (perms.has('deals.view')) return '/deals';
     if (perms.has('customers.view') || perms.has('customers.manage')) return '/customers';
     if (perms.has('inventory.view')) return '/inventory';
+    if (perms.has('dues.view')) return '/dues';
+    if (perms.has('costing.view')) return '/costing';
     if (perms.has('employees.view')) return '/employees';
     if (perms.has('roles.view') || perms.has('roles.manage')) return '/roles';
     if (perms.has('settings.manage')) return '/settings';
@@ -193,7 +214,8 @@ export const App: React.FC = () => {
   const canSeeDeals = isOwner || permsSet.has('deals.view');
   const canSeeInventory = isOwner || permsSet.has('inventory.view');
   const canSeeCustomers = isOwner || permsSet.has('customers.view') || permsSet.has('customers.manage');
-  const canSeeAccounting = (isOwner || permsSet.has('accounting.view')) && user?.features?.includes('accounting');
+  const canSeeDues = isOwner || permsSet.has('dues.view');
+  const canSeeCosting = (isOwner || permsSet.has('costing.view')) && user?.features?.includes('costing');
   const canSeeEmployees = isOwner || permsSet.has('employees.view');
   const canSeeRoles = isOwner || permsSet.has('roles.view') || permsSet.has('roles.manage');
   const canSeeSettings = isOwner || permsSet.has('settings.manage');
@@ -254,8 +276,10 @@ export const App: React.FC = () => {
         return '📦 Inventory & Stock Adjustments';
       case '/customers':
         return '👤 Customers';
-      case '/accounting':
-        return '💰 Accounting';
+      case '/dues':
+        return '💳 Customer Dues & Receivables (Udhaar)';
+      case '/costing':
+        return '📊 Menu & Inventory Costing (COGS)';
       case '/employees':
         return '👥 Staff Directory & Time Clock';
       case '/roles':
@@ -362,7 +386,7 @@ export const App: React.FC = () => {
               </NavLink>
             )}
 
-            {canSeeInventory && user?.features?.includes('costing') && (
+            {canSeeInventory && (
               <NavLink to="/inventory" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                 <span className="nav-icon">📦</span>
                 <span>Inventory Stock</span>
@@ -376,10 +400,17 @@ export const App: React.FC = () => {
               </NavLink>
             )}
 
-            {canSeeAccounting && (
-              <NavLink to="/accounting" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-                <span className="nav-icon">💰</span>
-                <span>Accounting</span>
+            {canSeeDues && (
+              <NavLink to="/dues" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">💳</span>
+                <span>Dues & Udhaar</span>
+              </NavLink>
+            )}
+
+            {canSeeCosting && (
+              <NavLink to="/costing" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">📊</span>
+                <span>Costing</span>
               </NavLink>
             )}
 
@@ -563,11 +594,19 @@ export const App: React.FC = () => {
                 }
               />
               <Route
-                path="/accounting"
+                path="/dues"
                 element={
-                  <RequireFeature feature="accounting">
-                    <RequirePermission permissions={['accounting.view']}>
-                      <AccountingPage />
+                  <RequirePermission permissions={['dues.view']}>
+                    <DuesPage />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/costing"
+                element={
+                  <RequireFeature feature="costing">
+                    <RequirePermission permissions={['costing.view']}>
+                      <CostingPage />
                     </RequirePermission>
                   </RequireFeature>
                 }

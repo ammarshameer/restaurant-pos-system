@@ -22,6 +22,8 @@ model Restaurant {
   phone                   String
   email                   String
   timezone                String              @default("Asia/Karachi")
+  themePalette            String              @default("espresso")
+  themeMode               String              @default("dark")
   createdByPlatformUserId String?
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
@@ -115,9 +117,21 @@ model Employee {
   restaurant      Restaurant          @relation(fields: [restaurantId], references: [id])
   roleRecord      Role?               @relation(fields: [roleId], references: [id])
   orders          Order[]             @relation("ServerOrders")
-  timeEntries     TimeEntry[]
-  modifications   OrderModification[]
-  refreshTokens   RefreshToken[]
+  timeEntries         TimeEntry[]
+  modifications       OrderModification[]
+  refreshTokens       RefreshToken[]
+  permissionOverrides EmployeePermission[]
+}
+
+model EmployeePermission {
+  id         String   @id @default(cuid())
+  employeeId String
+  permission String
+  granted    Boolean  @default(true) // true = explicit grant, false = explicit deny
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, permission])
+  @@index([employeeId])
 }
 
 model RefreshToken {
@@ -266,6 +280,8 @@ model Order {
   taxRate         Float         @default(0)
   total           Float         @default(0)
   totalPaid       Float?        @default(0)
+  amountDue       Float         @default(0)
+  settledToCredit Boolean       @default(false)
   change          Float?        @default(0)
   notes           String?
   createdAt       DateTime      @default(now())
@@ -279,6 +295,7 @@ model Order {
   items           OrderItem[]
   payments        Payment[]
   modifications   OrderModification[]
+  ledgerEntries   CustomerLedgerEntry[]
 
   @@unique([restaurantId, orderNumber])
   @@index([clientId])
@@ -292,18 +309,41 @@ model Customer {
   email        String?
   address      String?
   notes        String?
+  balanceDue   Float    @default(0)
+  creditLimit  Float    @default(0)
   totalOrders  Int      @default(0)
   totalSpent   Float    @default(0)
   lastOrderAt  DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  orders     Order[]
+  restaurant    Restaurant            @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orders        Order[]
+  ledgerEntries CustomerLedgerEntry[]
 
   @@unique([restaurantId, phone])
   @@index([restaurantId])
   @@index([restaurantId, name])
+}
+
+model CustomerLedgerEntry {
+  id           String   @id @default(cuid())
+  restaurantId String
+  customerId   String
+  orderId      String?
+  type         String   // CHARGE | PAYMENT | ADJUSTMENT | REFUND
+  amount       Float
+  balanceAfter Float
+  method       String?
+  note         String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order    Order?   @relation(fields: [orderId], references: [id])
+
+  @@index([restaurantId, customerId, createdAt])
+  @@index([restaurantId, type])
 }
 
 model OrderItem {
@@ -350,7 +390,7 @@ model OrderItemModifier {
 model Payment {
   id              String        @id @default(cuid())
   // Client-generated idempotency key for offline-first sync.
-  clientId        String?
+  clientId        String?       @unique
   orderId         String
   amount          Float
   tipAmount       Float         @default(0)

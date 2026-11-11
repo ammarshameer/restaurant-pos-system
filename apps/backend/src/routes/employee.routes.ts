@@ -95,6 +95,51 @@ router.post('/', requirePermission('employees.manage'), async (req: AuthRequest,
   }
 });
 
+// Get employee permissions (role permissions, overrides, effective)
+router.get('/:id/permissions', requirePermission('employees.manage'), async (req: AuthRequest, res, next) => {
+  try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const result = await employeeService.getEmployeePermissions(req.params.id, restaurantId);
+    res.json(result);
+  } catch (error: any) {
+    res.status(error.statusCode || 400).json({ error: error.message || 'Failed to get permissions' });
+  }
+});
+
+// Update employee permission overrides
+router.put('/:id/permissions', requirePermission('employees.manage'), async (req: AuthRequest, res, next) => {
+  try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const overrides = Array.isArray(req.body.overrides) ? req.body.overrides : [];
+    const result = await employeeService.updateEmployeePermissions(
+      req.params.id,
+      overrides,
+      restaurantId,
+      req.user
+    );
+    res.json(result);
+  } catch (error: any) {
+    res.status(error.statusCode || 400).json({ error: error.message || 'Failed to update permissions' });
+  }
+});
+
+// Reset employee password
+router.post('/:id/reset-password', requirePermission('employees.manage'), async (req: AuthRequest, res, next) => {
+  try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const { temporaryPassword } = req.body;
+    const result = await employeeService.resetPassword(
+      req.params.id,
+      restaurantId,
+      temporaryPassword,
+      req.user
+    );
+    res.json(result);
+  } catch (error: any) {
+    res.status(error.statusCode || 400).json({ error: error.message || 'Failed to reset password' });
+  }
+});
+
 // Update employee
 router.patch('/:id', requirePermission('employees.manage'), async (req: AuthRequest, res, next) => {
   try {

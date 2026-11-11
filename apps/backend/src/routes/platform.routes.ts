@@ -195,6 +195,12 @@ router.post(
         });
       }
 
+      if (ownerPin !== undefined && ownerPin !== null && String(ownerPin).trim() !== '') {
+        if (!/^\d{4,6}$/.test(String(ownerPin).trim())) {
+          return res.status(400).json({ error: 'Owner PIN must be 4 to 6 digits' });
+        }
+      }
+
       const result = await platformService.createRestaurant(
         {
           businessName,

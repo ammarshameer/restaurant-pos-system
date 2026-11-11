@@ -11,12 +11,33 @@ import { validateLogo } from '../utils/validateLogo';
 const router = Router();
 const prisma = new PrismaClient();
 
+export const PALETTES = [
+  'espresso',
+  'wine',
+  'ocean',
+  'emerald',
+  'royal',
+  'sunset',
+  'rose',
+  'midnight',
+] as const;
+
 router.get('/branding', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const restaurant = await prisma.restaurant.findUnique({
       where: { id: restaurantId },
-      select: { id: true, name: true, slug: true, logoUrl: true, address: true, phone: true, timezone: true },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        logoUrl: true,
+        address: true,
+        phone: true,
+        timezone: true,
+        themePalette: true,
+        themeMode: true,
+      },
     });
     if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
     res.json(restaurant);
@@ -40,6 +61,8 @@ router.get('/business', requirePermission('settings.manage'), async (req: AuthRe
         phone: true,
         email: true,
         timezone: true,
+        themePalette: true,
+        themeMode: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,
@@ -60,7 +83,7 @@ router.get('/business', requirePermission('settings.manage'), async (req: AuthRe
 router.patch('/business', requirePermission('settings.manage'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
-    const { name, address, phone, email, timezone, logoUrl, slug } = req.body;
+    const { name, address, phone, email, timezone, logoUrl, slug, themePalette, themeMode } = req.body;
 
     const updateData: any = {};
 
@@ -69,6 +92,20 @@ router.patch('/business', requirePermission('settings.manage'), async (req: Auth
     if (phone !== undefined) updateData.phone = phone.trim();
     if (email !== undefined) updateData.email = email.trim();
     if (timezone !== undefined && timezone.trim()) updateData.timezone = timezone.trim();
+
+    if (themePalette !== undefined) {
+      if (!PALETTES.includes(themePalette)) {
+        return res.status(400).json({ error: `Invalid palette: ${themePalette}. Must be one of: ${PALETTES.join(', ')}` });
+      }
+      updateData.themePalette = themePalette;
+    }
+
+    if (themeMode !== undefined) {
+      if (!['dark', 'light'].includes(themeMode)) {
+        return res.status(400).json({ error: `Invalid themeMode: ${themeMode}. Must be 'dark' or 'light'` });
+      }
+      updateData.themeMode = themeMode;
+    }
 
     if (logoUrl !== undefined) {
       if (logoUrl === null || logoUrl === '') {
@@ -105,6 +142,8 @@ router.patch('/business', requirePermission('settings.manage'), async (req: Auth
         phone: true,
         email: true,
         timezone: true,
+        themePalette: true,
+        themeMode: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,

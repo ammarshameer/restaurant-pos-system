@@ -157,6 +157,26 @@ export const employeeApi = {
     return api.post(`/employees/${id}/clock-out`);
   },
 
+  resetPassword: async (id: string): Promise<{ temporaryPassword: string; message: string }> => {
+    return api.post(`/employees/${id}/reset-password`);
+  },
+
+  getPermissions: async (id: string): Promise<{
+    rolePermissions: string[];
+    overrides: Array<{ permission: string; granted: boolean }>;
+    effectivePermissions: string[];
+    isOwner: boolean;
+  }> => {
+    return api.get(`/employees/${id}/permissions`);
+  },
+
+  updatePermissions: async (
+    id: string,
+    overrides: Array<{ permission: string; granted: boolean }>
+  ): Promise<any> => {
+    return api.put(`/employees/${id}/permissions`, { overrides });
+  },
+
   getActiveShifts: async (paramRestaurantId?: string): Promise<Shift[]> => {
     try {
       const restaurantId = paramRestaurantId || getCurrentRestaurantId();

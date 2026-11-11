@@ -111,7 +111,6 @@ export class AuthService {
       await tx.tenantFeature.createMany({
         data: [
           { restaurantId: restaurant.id, featureKey: 'costing', enabled: true },
-          { restaurantId: restaurant.id, featureKey: 'accounting', enabled: true },
         ],
       });
 
@@ -201,6 +200,7 @@ export class AuthService {
           roleId: ownerRoleRecord?.id,
           phone: ownerUser.phone,
           restaurantId: restaurant.id,
+          pin,
           createdAt: ownerUser.createdAt,
         },
       };
@@ -294,6 +294,7 @@ export class AuthService {
             permissions: true,
           },
         },
+        permissionOverrides: true,
       },
     });
 
@@ -317,13 +318,25 @@ export class AuthService {
     let permissions: string[];
     if (isOwner) {
       permissions = [...ALL_PERMISSIONS];
-    } else if (user.roleRecord) {
-      permissions = (user.roleRecord.permissions || []).map((p) => p.permission);
     } else {
-      const sysRole = DEFAULT_SYSTEM_ROLES.find(
-        (r) => r.key.toUpperCase() === (user.role || '').toUpperCase()
-      );
-      permissions = sysRole ? [...sysRole.permissions] : [];
+      let basePerms: string[] = [];
+      if (user.roleRecord) {
+        basePerms = (user.roleRecord.permissions || []).map((p) => p.permission);
+      } else {
+        const sysRole = DEFAULT_SYSTEM_ROLES.find(
+          (r) => r.key.toUpperCase() === (user.role || '').toUpperCase()
+        );
+        basePerms = sysRole ? [...sysRole.permissions] : [];
+      }
+      const permSet = new Set<string>(basePerms);
+      for (const override of user.permissionOverrides || []) {
+        if (override.granted) {
+          permSet.add(override.permission);
+        } else {
+          permSet.delete(override.permission);
+        }
+      }
+      permissions = Array.from(permSet);
     }
 
     const { accessToken, refreshToken } = this.generateTokens({
@@ -352,6 +365,8 @@ export class AuthService {
         restaurantName: user.restaurant.name,
         restaurantSlug: user.restaurant.slug,
         restaurantLogoUrl: user.restaurant.logoUrl,
+        themePalette: user.restaurant.themePalette || 'espresso',
+        themeMode: user.restaurant.themeMode || 'dark',
         permissions,
         features: await getEnabledFeatures(user.restaurantId),
         isOwnerRole: isOwner,
@@ -397,6 +412,7 @@ export class AuthService {
             permissions: true,
           },
         },
+        permissionOverrides: true,
       },
     });
 
@@ -411,13 +427,25 @@ export class AuthService {
     let permissions: string[];
     if (isOwner) {
       permissions = [...ALL_PERMISSIONS];
-    } else if (user.roleRecord) {
-      permissions = (user.roleRecord.permissions || []).map((p) => p.permission);
     } else {
-      const sysRole = DEFAULT_SYSTEM_ROLES.find(
-        (r) => r.key.toUpperCase() === (user.role || '').toUpperCase()
-      );
-      permissions = sysRole ? [...sysRole.permissions] : [];
+      let basePerms: string[] = [];
+      if (user.roleRecord) {
+        basePerms = (user.roleRecord.permissions || []).map((p) => p.permission);
+      } else {
+        const sysRole = DEFAULT_SYSTEM_ROLES.find(
+          (r) => r.key.toUpperCase() === (user.role || '').toUpperCase()
+        );
+        basePerms = sysRole ? [...sysRole.permissions] : [];
+      }
+      const permSet = new Set<string>(basePerms);
+      for (const override of user.permissionOverrides || []) {
+        if (override.granted) {
+          permSet.add(override.permission);
+        } else {
+          permSet.delete(override.permission);
+        }
+      }
+      permissions = Array.from(permSet);
     }
 
     const { accessToken, refreshToken } = this.generateTokens({
@@ -446,6 +474,8 @@ export class AuthService {
         restaurantName: restaurant.name,
         restaurantSlug: restaurant.slug,
         restaurantLogoUrl: restaurant.logoUrl,
+        themePalette: restaurant.themePalette || 'espresso',
+        themeMode: restaurant.themeMode || 'dark',
         permissions,
         features: await getEnabledFeatures(restaurant.id),
         isOwnerRole: isOwner,
@@ -483,6 +513,7 @@ export class AuthService {
           roleRecord: {
             include: { permissions: true },
           },
+          permissionOverrides: true,
         },
       });
 
@@ -504,13 +535,25 @@ export class AuthService {
       let permissions: string[];
       if (isOwner) {
         permissions = [...ALL_PERMISSIONS];
-      } else if (user.roleRecord) {
-        permissions = (user.roleRecord.permissions || []).map((p) => p.permission);
       } else {
-        const sysRole = DEFAULT_SYSTEM_ROLES.find(
-          (r) => r.key.toUpperCase() === (user.role || '').toUpperCase()
-        );
-        permissions = sysRole ? [...sysRole.permissions] : [];
+        let basePerms: string[] = [];
+        if (user.roleRecord) {
+          basePerms = (user.roleRecord.permissions || []).map((p) => p.permission);
+        } else {
+          const sysRole = DEFAULT_SYSTEM_ROLES.find(
+            (r) => r.key.toUpperCase() === (user.role || '').toUpperCase()
+          );
+          basePerms = sysRole ? [...sysRole.permissions] : [];
+        }
+        const permSet = new Set<string>(basePerms);
+        for (const override of user.permissionOverrides || []) {
+          if (override.granted) {
+            permSet.add(override.permission);
+          } else {
+            permSet.delete(override.permission);
+          }
+        }
+        permissions = Array.from(permSet);
       }
 
       const { accessToken } = this.generateTokens({
@@ -542,6 +585,8 @@ export class AuthService {
           restaurantName: user.restaurant.name,
           restaurantSlug: user.restaurant.slug,
           restaurantLogoUrl: user.restaurant.logoUrl,
+          themePalette: user.restaurant.themePalette || 'espresso',
+          themeMode: user.restaurant.themeMode || 'dark',
           permissions,
           features: await getEnabledFeatures(user.restaurantId),
           isOwnerRole: isOwner,

@@ -26,7 +26,10 @@ function requireReceiptPermission(req: AuthRequest, res: Response, next: NextFun
 router.post('/', requirePermission('payments.process'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
-    const payment = await paymentService.createPayment(req.body, restaurantId);
+    const payment = await paymentService.createPayment(
+      { ...req.body, createdById: req.user?.id },
+      restaurantId
+    );
     res.status(201).json(payment);
   } catch (error) {
     next(error);

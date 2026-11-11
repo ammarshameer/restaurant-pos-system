@@ -133,6 +133,11 @@ class ApiClient {
     return response.data;
   }
 
+  async put<T>(url: string, data?: any): Promise<T> {
+    const response = await this.client.put<T>(url, data);
+    return response.data;
+  }
+
   async patch<T>(url: string, data?: any): Promise<T> {
     const response = await this.client.patch<T>(url, data);
     return response.data;

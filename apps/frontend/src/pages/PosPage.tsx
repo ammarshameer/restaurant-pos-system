@@ -13,6 +13,7 @@ import { Deal } from '../types/deal.types';
 import { getCategoryVisual } from '../utils/image';
 import { uuid } from '../lib/offline/id';
 import { customerApi, Customer } from '../api/customer.api';
+import { paymentApi } from '../api/payment.api';
 
 export type OrderType = 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY';
 
@@ -80,6 +81,7 @@ export const PosPage: React.FC = () => {
   // Order Type contextual metadata
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [customerSuggestions, setCustomerSuggestions] = useState<Customer[]>([]);
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [dineInTag, setDineInTag] = useState('');
@@ -132,6 +134,17 @@ export const PosPage: React.FC = () => {
   // Cash payment prompt state
   const [cashModalOpen, setCashModalOpen] = useState(false);
   const [cashTendered, setCashTendered] = useState<number>(0);
+  const [cashSettleToCredit, setCashSettleToCredit] = useState(false);
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+
+  // Credit / Udhaar checkout modal state
+  const [creditModalOpen, setCreditModalOpen] = useState(false);
+  const [creditAdvanceAmount, setCreditAdvanceAmount] = useState<number>(0);
+  const [selectedCreditCustomer, setSelectedCreditCustomer] = useState<Customer | null>(null);
+  const [creditCustomerSearch, setCreditCustomerSearch] = useState('');
+  const [creditCustomerList, setCreditCustomerList] = useState<Customer[]>([]);
+  const [newCreditName, setNewCreditName] = useState('');
+  const [newCreditPhone, setNewCreditPhone] = useState('');
 
   // Socket listener for order/inventory events
   useEffect(() => {
@@ -303,223 +316,452 @@ export const PosPage: React.FC = () => {
   // Total
   const total = +(subtotal + tax + serviceCharge + deliveryCharge).toFixed(2);
 
-  const handleSubmitOrder = (autoPrintBoth = true) => {
-    if (cart.length === 0) return;
+  const handleSubmitOrder = async (autoPrintBoth = true) => {
+    if (cart.length === 0 || isSubmittingOrder) return;
+    setIsSubmittingOrder(true);
 
-    const orderNum = nextLocalOrderNumber();
-    const orderId = uuid();
-    const orderRef = getOrderReferenceString();
+    try {
+      const orderNum = nextLocalOrderNumber();
+      const orderId = uuid();
+      const orderRef = getOrderReferenceString();
 
-    const newOrder: any = {
-      id: orderId,
-      clientId: orderId,
-      orderNumber: orderNum,
-      orderType,
-      orderTypeLabel: getOrderTypeLabel(orderType),
-      customerName: customerName.trim() || undefined,
-      customerPhone: customerPhone.trim() || undefined,
-      deliveryAddress: deliveryAddress.trim() || undefined,
-      dineInTag: dineInTag.trim() || undefined,
-      server: authUser || { firstName: 'Alex', lastName: 'Morgan' },
-      items: cart.map((c) => ({
-        id: `oi-${Math.random().toString(36).substring(2, 7)}`,
-        menuItemId: c.menuItemId || undefined,
-        dealId: c.dealId || undefined,
-        isDeal: Boolean(c.isDeal),
-        dealComponents: c.dealComponents,
-        name: c.name,
-        quantity: c.quantity,
-        price: c.price,
-        unitPrice: c.price,
-        notes: c.notes,
-        status: 'PENDING',
-      })),
-      status: 'confirmed',
-      paymentStatus: 'UNPAID',
-      paymentMethod: `DIRECT / ${getOrderTypeLabel(orderType).toUpperCase()}`,
-      subtotal,
-      serviceCharge,
-      serviceChargeRate: 0,
-      deliveryCharge,
-      tax,
-      taxRate: isDineIn ? taxRate : 0,
-      total,
-      notes: orderNotes,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+      const newOrder: any = {
+        id: orderId,
+        clientId: orderId,
+        orderNumber: orderNum,
+        orderType,
+        orderTypeLabel: getOrderTypeLabel(orderType),
+        customerName: customerName.trim() || undefined,
+        customerPhone: customerPhone.trim() || undefined,
+        customerId: selectedCustomerId || undefined,
+        deliveryAddress: deliveryAddress.trim() || undefined,
+        dineInTag: dineInTag.trim() || undefined,
+        server: authUser || { firstName: 'Alex', lastName: 'Morgan' },
+        items: cart.map((c) => ({
+          id: `oi-${Math.random().toString(36).substring(2, 7)}`,
+          menuItemId: c.menuItemId || undefined,
+          dealId: c.dealId || undefined,
+          isDeal: Boolean(c.isDeal),
+          dealComponents: c.dealComponents,
+          name: c.name,
+          quantity: c.quantity,
+          price: c.price,
+          unitPrice: c.price,
+          notes: c.notes,
+          status: 'PENDING',
+        })),
+        status: 'confirmed',
+        paymentStatus: 'UNPAID',
+        paymentMethod: `DIRECT / ${getOrderTypeLabel(orderType).toUpperCase()}`,
+        subtotal,
+        serviceCharge,
+        serviceChargeRate: 0,
+        deliveryCharge,
+        tax,
+        taxRate: isDineIn ? taxRate : 0,
+        total,
+        totalPaid: 0,
+        amountDue: total,
+        notes: orderNotes,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
 
-    // Emit order event to socket kitchen room if connected
-    const socket = socketClient.getSocket();
-    if (socket) {
-      socket.emit('order:create', newOrder);
+      const socket = socketClient.getSocket();
+      if (socket) {
+        socket.emit('order:create', newOrder);
+      }
+
+      dispatch(addOrder(newOrder));
+      dispatch(setCurrentOrder(newOrder));
+
+      const created = await orderApi.createOrder(newOrder);
+      const resolvedOrderId = created?.id || orderId;
+      const resolvedOrderNum = created?.orderNumber || orderNum;
+
+      setNotification(
+        `✅ Order #${resolvedOrderNum} (${getOrderTypeIcon(orderType)} ${getOrderTypeLabel(orderType)}) sent to kitchen & saved!`
+      );
+      setTimeout(() => setNotification(null), 4000);
+
+      const receipt: ReceiptData = {
+        orderNumber: resolvedOrderNum,
+        orderId: resolvedOrderId,
+        date: new Date(),
+        orderType: getOrderTypeLabel(orderType),
+        server: authUser ? `${authUser.firstName} ${authUser.lastName}` : 'Alex Morgan',
+        customerName: customerName.trim() || undefined,
+        customerPhone: customerPhone.trim() || undefined,
+        notes: [
+          orderNotes ? `Kitchen Note: ${orderNotes}` : '',
+          deliveryAddress ? `Delivery Address: ${deliveryAddress}` : '',
+          dineInTag ? `Seat/Tag: ${dineInTag}` : '',
+        ]
+          .filter(Boolean)
+          .join(' • '),
+        items: cart.map((c) => ({
+          name: c.isDeal ? `🎁 ${c.name}` : c.name,
+          isDeal: Boolean(c.isDeal),
+          dealComponents: c.dealComponents,
+          quantity: c.quantity,
+          unitPrice: c.price,
+          total: c.price * c.quantity,
+          notes: c.notes,
+        })),
+        subtotal,
+        serviceCharge: isDineIn ? serviceCharge : 0,
+        deliveryCharge: isDelivery ? deliveryCharge : 0,
+        tax: isDineIn ? tax : 0,
+        taxRate: isDineIn ? taxRate : 0,
+        total,
+        totalPaid: 0,
+        amountDue: total,
+        change: 0,
+        paymentMethod: `DIRECT / ${getOrderTypeLabel(orderType).toUpperCase()}`,
+      };
+
+      setReceiptData(receipt);
+      setDefaultReceiptTab('BOTH');
+      setReceiptOpen(true);
+
+      setCart([]);
+      setOrderNotes('');
+      setCustomerName('');
+      setCustomerPhone('');
+      setSelectedCustomerId(null);
+      setDeliveryAddress('');
+      setDineInTag('');
+    } catch (err: any) {
+      console.error('Order creation error:', err);
+      setNotification(`⚠️ Failed to create order: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setIsSubmittingOrder(false);
     }
-
-    dispatch(addOrder(newOrder));
-    dispatch(setCurrentOrder(newOrder));
-
-    // Save order directly to Database
-    orderApi.createOrder(newOrder);
-
-    setNotification(
-      `✅ Order #${orderNum} (${getOrderTypeIcon(orderType)} ${getOrderTypeLabel(orderType)}) sent to kitchen & saved to DB!`
-    );
-    setTimeout(() => setNotification(null), 4000);
-
-    // Prepare dual receipts (Customer + Kitchen)
-    const receipt: ReceiptData = {
-      orderNumber: orderNum,
-      orderId,
-      date: new Date(),
-      orderType: getOrderTypeLabel(orderType),
-      server: authUser ? `${authUser.firstName} ${authUser.lastName}` : 'Alex Morgan',
-      customerName: customerName.trim() || undefined,
-      customerPhone: customerPhone.trim() || undefined,
-      notes: [
-        orderNotes ? `Kitchen Note: ${orderNotes}` : '',
-        deliveryAddress ? `Delivery Address: ${deliveryAddress}` : '',
-        dineInTag ? `Seat/Tag: ${dineInTag}` : '',
-      ]
-        .filter(Boolean)
-        .join(' • '),
-      items: cart.map((c) => ({
-        name: c.isDeal ? `🎁 ${c.name}` : c.name,
-        isDeal: Boolean(c.isDeal),
-        dealComponents: c.dealComponents,
-        quantity: c.quantity,
-        unitPrice: c.price,
-        total: c.price * c.quantity,
-        notes: c.notes,
-      })),
-      subtotal,
-      serviceCharge: isDineIn ? serviceCharge : 0,
-      deliveryCharge: isDelivery ? deliveryCharge : 0,
-      tax: isDineIn ? tax : 0,
-      taxRate: isDineIn ? taxRate : 0,
-      total,
-      totalPaid: total,
-      change: 0,
-      paymentMethod: `DIRECT / ${getOrderTypeLabel(orderType).toUpperCase()}`,
-    };
-
-    setReceiptData(receipt);
-    setDefaultReceiptTab('BOTH');
-    setReceiptOpen(true);
-
-    // Reset cart and fields
-    setCart([]);
-    setOrderNotes('');
-    setCustomerName('');
-    setCustomerPhone('');
-    setDeliveryAddress('');
-    setDineInTag('');
   };
 
   const handleOpenCashModal = () => {
     setCashTendered(Math.ceil(total));
+    setCashSettleToCredit(false);
     setCashModalOpen(true);
   };
 
-  const handleCompleteCashPayment = (tendered: number) => {
-    const change = Math.max(0, tendered - total);
-    const orderNum = nextLocalOrderNumber();
-    const orderId = uuid();
+  const handleCompleteCashPayment = async (tendered: number) => {
+    if (cart.length === 0 || isSubmittingOrder) return;
+    setIsSubmittingOrder(true);
 
-    const newOrder: any = {
-      id: orderId,
-      clientId: orderId,
-      orderNumber: orderNum,
-      orderType,
-      orderTypeLabel: getOrderTypeLabel(orderType),
-      customerName: customerName.trim() || undefined,
-      customerPhone: customerPhone.trim() || undefined,
-      deliveryAddress: deliveryAddress.trim() || undefined,
-      dineInTag: dineInTag.trim() || undefined,
-      server: authUser || { firstName: 'Alex', lastName: 'Morgan' },
-      items: cart.map((c) => ({
-        id: `oi-${Math.random().toString(36).substring(2, 7)}`,
-        menuItemId: c.menuItemId || undefined,
-        dealId: c.dealId || undefined,
-        isDeal: Boolean(c.isDeal),
-        dealComponents: c.dealComponents,
-        name: c.name,
-        quantity: c.quantity,
-        price: c.price,
-        notes: c.notes,
-        status: 'PENDING',
-      })),
-      status: 'paid',
-      paymentStatus: 'PAID',
-      paymentMethod: 'CASH',
-      totalPaid: tendered,
-      change,
-      subtotal,
-      serviceCharge,
-      serviceChargeRate: 0,
-      deliveryCharge,
-      tax,
-      taxRate: isDineIn ? taxRate : 0,
-      total,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    try {
+      const orderNum = nextLocalOrderNumber();
+      const orderId = uuid();
+      const payAmount = Math.min(tendered, total);
+      const change = Math.max(0, tendered - total);
+      const isSettlingUdhaar = tendered < total && cashSettleToCredit;
 
-    const socket = socketClient.getSocket();
-    if (socket) {
-      socket.emit('order:create', newOrder);
+      // If settling remainder to credit, customer is required
+      let effectiveCustomerId = selectedCustomerId;
+      if (isSettlingUdhaar && !effectiveCustomerId) {
+        if (!customerName.trim()) {
+          setNotification('⚠️ Customer name is required to settle balance to Udhaar / Credit');
+          setIsSubmittingOrder(false);
+          return;
+        }
+        try {
+          const newCust = await customerApi.create({
+            name: customerName.trim(),
+            phone: customerPhone.trim() || undefined,
+          });
+          effectiveCustomerId = newCust.id;
+          setSelectedCustomerId(newCust.id);
+        } catch (e: any) {
+          // If customer already exists, backend will link them in createOrder
+        }
+      }
+
+      const newOrder: any = {
+        id: orderId,
+        clientId: orderId,
+        orderNumber: orderNum,
+        orderType,
+        orderTypeLabel: getOrderTypeLabel(orderType),
+        customerName: customerName.trim() || undefined,
+        customerPhone: customerPhone.trim() || undefined,
+        customerId: effectiveCustomerId || undefined,
+        deliveryAddress: deliveryAddress.trim() || undefined,
+        dineInTag: dineInTag.trim() || undefined,
+        server: authUser || { firstName: 'Alex', lastName: 'Morgan' },
+        items: cart.map((c) => ({
+          id: `oi-${Math.random().toString(36).substring(2, 7)}`,
+          menuItemId: c.menuItemId || undefined,
+          dealId: c.dealId || undefined,
+          isDeal: Boolean(c.isDeal),
+          dealComponents: c.dealComponents,
+          name: c.name,
+          quantity: c.quantity,
+          price: c.price,
+          notes: c.notes,
+          status: 'PENDING',
+        })),
+        status: 'confirmed',
+        paymentStatus: 'UNPAID',
+        paymentMethod: 'CASH',
+        totalPaid: 0,
+        amountDue: total,
+        subtotal,
+        serviceCharge,
+        serviceChargeRate: 0,
+        deliveryCharge,
+        tax,
+        taxRate: isDineIn ? taxRate : 0,
+        total,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const socket = socketClient.getSocket();
+      if (socket) {
+        socket.emit('order:create', newOrder);
+      }
+
+      dispatch(addOrder(newOrder));
+      dispatch(setCurrentOrder(newOrder));
+
+      // 1. Create order in DB first
+      const created = await orderApi.createOrder(newOrder);
+      const resolvedOrderId = created?.id || orderId;
+      const resolvedOrderNum = created?.orderNumber || orderNum;
+
+      // 2. Call POST /api/payments as single source of truth for payment collection
+      let customerBalance: number | undefined;
+      try {
+        const payRes: any = await paymentApi.createPayment({
+          orderId: resolvedOrderId,
+          amount: payAmount,
+          method: 'CASH',
+          tipAmount: 0,
+          settleToCredit: isSettlingUdhaar,
+          note: isSettlingUdhaar ? `POS Partial Cash (PKR ${payAmount}) + Udhaar remainder` : undefined,
+        });
+        customerBalance = payRes?.customerBalance;
+      } catch (payErr: any) {
+        console.error('Payment settlement error:', payErr);
+        setNotification(`⚠️ Payment error: ${payErr?.response?.data?.error || payErr?.message || 'Failed to record payment'}`);
+      }
+
+      const remainingAmountDue = isSettlingUdhaar ? 0 : Math.max(0, +(total - payAmount).toFixed(2));
+
+      const receipt: ReceiptData = {
+        orderNumber: resolvedOrderNum,
+        orderId: resolvedOrderId,
+        date: new Date(),
+        orderType: getOrderTypeLabel(orderType),
+        server: authUser ? `${authUser.firstName} ${authUser.lastName}` : 'Alex Morgan',
+        customerName: customerName.trim() || undefined,
+        customerPhone: customerPhone.trim() || undefined,
+        notes: [
+          orderNotes ? `Kitchen Note: ${orderNotes}` : '',
+          deliveryAddress ? `Delivery Address: ${deliveryAddress}` : '',
+          dineInTag ? `Seat/Tag: ${dineInTag}` : '',
+        ]
+          .filter(Boolean)
+          .join(' • '),
+        items: cart.map((c) => ({
+          name: c.isDeal ? `🎁 ${c.name}` : c.name,
+          isDeal: Boolean(c.isDeal),
+          dealComponents: c.dealComponents,
+          quantity: c.quantity,
+          unitPrice: c.price,
+          total: c.price * c.quantity,
+          notes: c.notes,
+        })),
+        subtotal,
+        serviceCharge: isDineIn ? serviceCharge : 0,
+        deliveryCharge: isDelivery ? deliveryCharge : 0,
+        tax: isDineIn ? tax : 0,
+        taxRate: isDineIn ? taxRate : 0,
+        total,
+        totalPaid: payAmount,
+        amountDue: remainingAmountDue,
+        settledToCredit: isSettlingUdhaar,
+        balanceDue: customerBalance,
+        change,
+        paymentMethod: payAmount >= total ? 'CASH' : isSettlingUdhaar ? 'CASH + UDHAAR' : 'CASH (PARTIAL)',
+      };
+
+      setReceiptData(receipt);
+      setCashModalOpen(false);
+      setDefaultReceiptTab('BOTH');
+      setReceiptOpen(true);
+      setCart([]);
+      setOrderNotes('');
+      setCustomerName('');
+      setCustomerPhone('');
+      setSelectedCustomerId(null);
+      setDeliveryAddress('');
+      setDineInTag('');
+    } catch (err: any) {
+      console.error('Order/Payment error:', err);
+      setNotification(`⚠️ Checkout error: ${err?.message || 'Failed to process order'}`);
+    } finally {
+      setIsSubmittingOrder(false);
     }
+  };
 
-    dispatch(addOrder(newOrder));
-    dispatch(setCurrentOrder(newOrder));
+  const handleOpenCreditModal = () => {
+    setCreditAdvanceAmount(0);
+    setNewCreditName(customerName || '');
+    setNewCreditPhone(customerPhone || '');
+    setSelectedCreditCustomer(null);
+    setCreditCustomerSearch('');
+    setCreditModalOpen(true);
+  };
 
-    // Save order directly to Database
-    orderApi.createOrder(newOrder);
+  const handleCompleteCreditPayment = async () => {
+    if (cart.length === 0 || isSubmittingOrder) return;
+    setIsSubmittingOrder(true);
 
-    const receipt: ReceiptData = {
-      orderNumber: orderNum,
-      orderId,
-      date: new Date(),
-      orderType: getOrderTypeLabel(orderType),
-      server: authUser ? `${authUser.firstName} ${authUser.lastName}` : 'Alex Morgan',
-      customerName: customerName.trim() || undefined,
-      customerPhone: customerPhone.trim() || undefined,
-      notes: [
-        orderNotes ? `Kitchen Note: ${orderNotes}` : '',
-        deliveryAddress ? `Delivery Address: ${deliveryAddress}` : '',
-        dineInTag ? `Seat/Tag: ${dineInTag}` : '',
-      ]
-        .filter(Boolean)
-        .join(' • '),
-      items: cart.map((c) => ({
-        name: c.isDeal ? `🎁 ${c.name}` : c.name,
-        isDeal: Boolean(c.isDeal),
-        dealComponents: c.dealComponents,
-        quantity: c.quantity,
-        unitPrice: c.price,
-        total: c.price * c.quantity,
-        notes: c.notes,
-      })),
-      subtotal,
-      serviceCharge: isDineIn ? serviceCharge : 0,
-      deliveryCharge: isDelivery ? deliveryCharge : 0,
-      tax: isDineIn ? tax : 0,
-      taxRate: isDineIn ? taxRate : 0,
-      total,
-      totalPaid: tendered,
-      change,
-      paymentMethod: 'CASH',
-    };
+    try {
+      let targetCustomerId = selectedCreditCustomer?.id || selectedCustomerId;
+      const targetName = (selectedCreditCustomer?.name || newCreditName || customerName).trim();
+      const targetPhone = (selectedCreditCustomer?.phone || newCreditPhone || customerPhone).trim();
 
-    setReceiptData(receipt);
-    setCashModalOpen(false);
-    setDefaultReceiptTab('BOTH');
-    setReceiptOpen(true);
-    setCart([]);
-    setOrderNotes('');
-    setCustomerName('');
-    setCustomerPhone('');
-    setDeliveryAddress('');
-    setDineInTag('');
+      if (!targetCustomerId) {
+        if (!targetName) {
+          setNotification('⚠️ Customer Name is required for Udhaar / Credit');
+          setIsSubmittingOrder(false);
+          return;
+        }
+        try {
+          const newCust = await customerApi.create({
+            name: targetName,
+            phone: targetPhone || undefined,
+          });
+          targetCustomerId = newCust.id;
+        } catch (e: any) {
+          // If customer with phone already exists, continue with name/phone on order
+        }
+      }
+
+      const orderNum = nextLocalOrderNumber();
+      const orderId = uuid();
+      const advanceAmount = Math.max(0, Math.min(creditAdvanceAmount, total));
+
+      const newOrder: any = {
+        id: orderId,
+        clientId: orderId,
+        orderNumber: orderNum,
+        orderType,
+        orderTypeLabel: getOrderTypeLabel(orderType),
+        customerName: targetName || undefined,
+        customerPhone: targetPhone || undefined,
+        customerId: targetCustomerId || undefined,
+        deliveryAddress: deliveryAddress.trim() || undefined,
+        dineInTag: dineInTag.trim() || undefined,
+        server: authUser || { firstName: 'Alex', lastName: 'Morgan' },
+        items: cart.map((c) => ({
+          id: `oi-${Math.random().toString(36).substring(2, 7)}`,
+          menuItemId: c.menuItemId || undefined,
+          dealId: c.dealId || undefined,
+          isDeal: Boolean(c.isDeal),
+          dealComponents: c.dealComponents,
+          name: c.name,
+          quantity: c.quantity,
+          price: c.price,
+          notes: c.notes,
+          status: 'PENDING',
+        })),
+        status: 'confirmed',
+        paymentStatus: 'UNPAID',
+        paymentMethod: advanceAmount > 0 ? 'CASH + UDHAAR' : 'UDHAAR / CREDIT',
+        totalPaid: 0,
+        amountDue: total,
+        subtotal,
+        serviceCharge,
+        serviceChargeRate: 0,
+        deliveryCharge,
+        tax,
+        taxRate: isDineIn ? taxRate : 0,
+        total,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const socket = socketClient.getSocket();
+      if (socket) {
+        socket.emit('order:create', newOrder);
+      }
+
+      dispatch(addOrder(newOrder));
+      dispatch(setCurrentOrder(newOrder));
+
+      // 1. Create order
+      const created = await orderApi.createOrder(newOrder);
+      const resolvedOrderId = created?.id || orderId;
+      const resolvedOrderNum = created?.orderNumber || orderNum;
+
+      // 2. Call paymentApi with settleToCredit: true
+      const payRes: any = await paymentApi.createPayment({
+        orderId: resolvedOrderId,
+        amount: advanceAmount,
+        method: 'CASH',
+        tipAmount: 0,
+        settleToCredit: true,
+        note: `POS Udhaar order settlement (Advance: PKR ${advanceAmount})`,
+      });
+
+      const receipt: ReceiptData = {
+        orderNumber: resolvedOrderNum,
+        orderId: resolvedOrderId,
+        date: new Date(),
+        orderType: getOrderTypeLabel(orderType),
+        server: authUser ? `${authUser.firstName} ${authUser.lastName}` : 'Alex Morgan',
+        customerName: targetName || undefined,
+        customerPhone: targetPhone || undefined,
+        notes: [
+          orderNotes ? `Kitchen Note: ${orderNotes}` : '',
+          deliveryAddress ? `Delivery Address: ${deliveryAddress}` : '',
+          dineInTag ? `Seat/Tag: ${dineInTag}` : '',
+        ]
+          .filter(Boolean)
+          .join(' • '),
+        items: cart.map((c) => ({
+          name: c.isDeal ? `🎁 ${c.name}` : c.name,
+          isDeal: Boolean(c.isDeal),
+          dealComponents: c.dealComponents,
+          quantity: c.quantity,
+          unitPrice: c.price,
+          total: c.price * c.quantity,
+          notes: c.notes,
+        })),
+        subtotal,
+        serviceCharge: isDineIn ? serviceCharge : 0,
+        deliveryCharge: isDelivery ? deliveryCharge : 0,
+        tax: isDineIn ? tax : 0,
+        taxRate: isDineIn ? taxRate : 0,
+        total,
+        totalPaid: advanceAmount,
+        amountDue: 0, // fully settled to credit
+        settledToCredit: true,
+        balanceDue: payRes?.customerBalance,
+        change: 0,
+        paymentMethod: advanceAmount > 0 ? 'CASH + UDHAAR' : 'UDHAAR / CREDIT',
+      };
+
+      setReceiptData(receipt);
+      setCreditModalOpen(false);
+      setDefaultReceiptTab('BOTH');
+      setReceiptOpen(true);
+      setCart([]);
+      setOrderNotes('');
+      setCustomerName('');
+      setCustomerPhone('');
+      setSelectedCustomerId(null);
+      setDeliveryAddress('');
+      setDineInTag('');
+    } catch (err: any) {
+      console.error('Credit settlement error:', err);
+      setNotification(`⚠️ Udhaar error: ${err?.response?.data?.error || err?.message || 'Failed to process'}`);
+    } finally {
+      setIsSubmittingOrder(false);
+    }
   };
 
   return (
@@ -657,7 +899,10 @@ export const PosPage: React.FC = () => {
                   className="form-input"
                   placeholder="Customer Name (Optional)..."
                   value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
+                  onChange={(e) => {
+                    setCustomerName(e.target.value);
+                    setSelectedCustomerId(null);
+                  }}
                   style={{ fontSize: '13px', padding: '8px 12px' }}
                 />
                 <input
@@ -665,7 +910,10 @@ export const PosPage: React.FC = () => {
                   className="form-input"
                   placeholder="Mobile Number (Optional)..."
                   value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  onChange={(e) => {
+                    setCustomerPhone(e.target.value);
+                    setSelectedCustomerId(null);
+                  }}
                   style={{ fontSize: '13px', padding: '8px 12px' }}
                 />
               </div>
@@ -687,7 +935,10 @@ export const PosPage: React.FC = () => {
                 className="form-input"
                 placeholder="Customer Name / Token # (Optional)..."
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
+                onChange={(e) => {
+                  setCustomerName(e.target.value);
+                  setSelectedCustomerId(null);
+                }}
                 style={{ fontSize: '13px', padding: '8px 12px' }}
               />
               <input
@@ -695,7 +946,10 @@ export const PosPage: React.FC = () => {
                 className="form-input"
                 placeholder="Customer Phone (Optional)..."
                 value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
+                onChange={(e) => {
+                  setCustomerPhone(e.target.value);
+                  setSelectedCustomerId(null);
+                }}
                 style={{ fontSize: '13px', padding: '8px 12px' }}
               />
             </div>
@@ -709,7 +963,10 @@ export const PosPage: React.FC = () => {
                   className="form-input"
                   placeholder="Customer Name *"
                   value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
+                  onChange={(e) => {
+                    setCustomerName(e.target.value);
+                    setSelectedCustomerId(null);
+                  }}
                   style={{ fontSize: '13px', padding: '8px 12px' }}
                 />
                 <input
@@ -717,7 +974,10 @@ export const PosPage: React.FC = () => {
                   className="form-input"
                   placeholder="Contact Phone *"
                   value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  onChange={(e) => {
+                    setCustomerPhone(e.target.value);
+                    setSelectedCustomerId(null);
+                  }}
                   style={{ fontSize: '13px', padding: '8px 12px' }}
                 />
               </div>
@@ -735,21 +995,42 @@ export const PosPage: React.FC = () => {
 
         {customerSuggestions.length > 0 && (
           <div style={{ position: 'relative', zIndex: 20 }}>
-            <div style={{ position: 'absolute', left: 0, right: 0, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', left: 0, right: 0, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', boxShadow: 'var(--shadow-md)' }}>
               {customerSuggestions.map((customer) => (
                 <button
                   key={customer.id}
                   type="button"
-                  onClick={() => { setCustomerName(customer.name); setCustomerPhone(customer.phone || ''); setCustomerSuggestions([]); }}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', border: 0, background: 'transparent', color: 'var(--text-primary)' }}
+                  onClick={() => {
+                    setCustomerName(customer.name);
+                    setCustomerPhone(customer.phone || '');
+                    setSelectedCustomerId(customer.id);
+                    setCustomerSuggestions([]);
+                  }}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', border: 0, borderBottom: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer' }}
                 >
-                  {customer.name}{customer.phone ? ` — ${customer.phone}` : ''}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 600 }}>{customer.name} {customer.phone ? `(${customer.phone})` : ''}</span>
+                    {customer.balanceDue ? (
+                      <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: 700, background: 'rgba(239, 68, 68, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                        Udhaar: {formatPKR(customer.balanceDue)}
+                      </span>
+                    ) : null}
+                  </div>
                 </button>
               ))}
             </div>
           </div>
         )}
-        <button type="button" className="btn btn-secondary" disabled={!customerName.trim()} onClick={saveCustomer}>Save Customer</button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={!customerName.trim()} onClick={saveCustomer}>
+            Save Customer
+          </button>
+          {selectedCustomerId && (
+            <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
+              ✓ Linked Customer
+            </span>
+          )}
+        </div>
 
         {/* Search & Category Pills */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -1403,17 +1684,26 @@ export const PosPage: React.FC = () => {
           <div style={{ padding: '10px 14px', display: 'flex', gap: '8px' }}>
             <button
               className="btn btn-secondary btn-sm"
-              style={{ flex: 1, padding: '8px 10px', fontSize: '12px', fontWeight: 700 }}
-              disabled={cart.length === 0}
+              style={{ flex: 1, padding: '8px 6px', fontSize: '11px', fontWeight: 700 }}
+              disabled={cart.length === 0 || isSubmittingOrder}
               onClick={() => handleSubmitOrder(true)}
               title="Create order and print dual Customer & Kitchen slips"
             >
               🍳 Send & Print
             </button>
             <button
+              className="btn btn-secondary btn-sm"
+              style={{ flex: 1.1, padding: '8px 6px', fontSize: '11px', fontWeight: 700, borderColor: '#f59e0b', color: '#f59e0b' }}
+              disabled={cart.length === 0 || isSubmittingOrder}
+              onClick={handleOpenCreditModal}
+              title="Settle order to customer credit / Udhaar"
+            >
+              💳 Udhaar / Credit
+            </button>
+            <button
               className="btn btn-primary btn-sm"
-              style={{ flex: 1.2, padding: '8px 10px', fontSize: '13px', fontWeight: 800 }}
-              disabled={cart.length === 0}
+              style={{ flex: 1.3, padding: '8px 8px', fontSize: '12px', fontWeight: 800 }}
+              disabled={cart.length === 0 || isSubmittingOrder}
               onClick={handleOpenCashModal}
             >
               💵 Pay Cash ({formatPKR(total)})
@@ -1422,10 +1712,10 @@ export const PosPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Cash Payment Quick Settlement Modal (PKR) */}
+      {/* Cash Payment Settlement Modal (Supports Partial & Settle to Credit) */}
       {cashModalOpen && (
         <div className="modal-overlay" onClick={() => setCashModalOpen(false)}>
-          <div className="modal-content" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">💵 Cash Payment Settlement</h3>
               <button className="btn btn-secondary btn-sm" onClick={() => setCashModalOpen(false)}>
@@ -1433,7 +1723,7 @@ export const PosPage: React.FC = () => {
               </button>
             </div>
             <div className="modal-body">
-              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <div style={{ textAlign: 'center', marginBottom: '16px' }}>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                   {getOrderTypeIcon(orderType)} {getOrderTypeLabel(orderType)} Total Due (PKR)
                 </div>
@@ -1455,12 +1745,12 @@ export const PosPage: React.FC = () => {
               </div>
 
               {/* Quick PKR Bill Denominations */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', margin: '14px 0' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', margin: '10px 0' }}>
                 {[100, 500, 1000, 5000].map((bill) => (
                   <button
                     key={bill}
                     type="button"
-                    className="btn btn-secondary"
+                    className="btn btn-secondary btn-sm"
                     style={{ fontWeight: 700, fontSize: '12px' }}
                     onClick={() => setCashTendered(bill)}
                   >
@@ -1468,37 +1758,101 @@ export const PosPage: React.FC = () => {
                   </button>
                 ))}
               </div>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                style={{ width: '100%', marginBottom: '16px' }}
-                onClick={() => setCashTendered(total)}
-              >
-                Exact Cash ({formatPKR(total)})
-              </button>
 
-              <div
-                style={{
-                  background: 'var(--bg-secondary)',
-                  padding: '14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-color)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <span style={{ fontWeight: 600 }}>Change Returned:</span>
-                <span
+              {/* Exact & Half Quick Buttons */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontWeight: 700 }}
+                  onClick={() => setCashTendered(total)}
+                >
+                  Exact ({formatPKR(total)})
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontWeight: 700 }}
+                  onClick={() => setCashTendered(Math.round(total / 2))}
+                >
+                  Half 50% ({formatPKR(Math.round(total / 2))})
+                </button>
+              </div>
+
+              {/* Payment Summary / Partial / Change status */}
+              {cashTendered >= total ? (
+                <div
                   style={{
-                    fontSize: '20px',
-                    fontWeight: 800,
-                    color: cashTendered >= total ? '#fbbf24' : 'var(--danger)',
+                    background: 'var(--bg-secondary)',
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-color)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                   }}
                 >
-                  {formatPKR(Math.max(0, cashTendered - total))}
-                </span>
-              </div>
+                  <span style={{ fontWeight: 600 }}>Change Returned:</span>
+                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#fbbf24' }}>
+                    {formatPKR(cashTendered - total)}
+                  </span>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.08)',
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, color: '#ef4444' }}>Remaining Amount Due:</span>
+                    <span style={{ fontSize: '18px', fontWeight: 800, color: '#ef4444' }}>
+                      {formatPKR(Math.max(0, +(total - cashTendered).toFixed(2)))}
+                    </span>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      checked={cashSettleToCredit}
+                      onChange={(e) => setCashSettleToCredit(e.target.checked)}
+                      style={{ width: '16px', height: '16px' }}
+                    />
+                    Add remaining balance to Customer Dues (Udhaar)
+                  </label>
+
+                  {cashSettleToCredit && !customerName.trim() && (
+                    <div style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                        Customer info required for Udhaar:
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Customer Name *"
+                          value={customerName}
+                          onChange={(e) => setCustomerName(e.target.value)}
+                          style={{ fontSize: '12px', padding: '6px 8px' }}
+                        />
+                        <input
+                          type="tel"
+                          className="form-input"
+                          placeholder="Customer Phone"
+                          value={customerPhone}
+                          onChange={(e) => setCustomerPhone(e.target.value)}
+                          style={{ fontSize: '12px', padding: '6px 8px' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="modal-footer">
@@ -1508,10 +1862,147 @@ export const PosPage: React.FC = () => {
               <button
                 className="btn btn-success btn-lg"
                 style={{ flex: 1 }}
-                disabled={cashTendered < total}
+                disabled={isSubmittingOrder || (cashTendered <= 0 && !cashSettleToCredit)}
                 onClick={() => handleCompleteCashPayment(cashTendered)}
               >
-                ✓ Settle & Print Slips
+                {isSubmittingOrder
+                  ? 'Processing...'
+                  : cashTendered >= total
+                  ? '✓ Pay Full & Print Slips'
+                  : cashSettleToCredit
+                  ? '✓ Pay Partial + Settle to Udhaar'
+                  : '✓ Settle Partial Cash'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credit / Udhaar Checkout Modal */}
+      {creditModalOpen && (
+        <div className="modal-overlay" onClick={() => setCreditModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">💳 Pay Later / Customer Credit (Udhaar)</h3>
+              <button className="btn btn-secondary btn-sm" onClick={() => setCreditModalOpen(false)}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  Order Total
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: 800, color: '#f59e0b' }}>
+                  {formatPKR(total)}
+                </div>
+              </div>
+
+              {/* Customer selection / input */}
+              <div className="form-group">
+                <label className="form-label">Customer Name *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Enter or search customer name..."
+                  value={selectedCreditCustomer ? selectedCreditCustomer.name : newCreditName}
+                  onChange={(e) => {
+                    setSelectedCreditCustomer(null);
+                    setNewCreditName(e.target.value);
+                  }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Customer Phone</label>
+                <input
+                  type="tel"
+                  className="form-input"
+                  placeholder="Mobile phone number..."
+                  value={selectedCreditCustomer ? (selectedCreditCustomer.phone || '') : newCreditPhone}
+                  onChange={(e) => {
+                    setSelectedCreditCustomer(null);
+                    setNewCreditPhone(e.target.value);
+                  }}
+                />
+              </div>
+
+              {/* Advance Cash Paid Now */}
+              <div className="form-group">
+                <label className="form-label">Advance Cash Paid Now (PKR)</label>
+                <input
+                  type="number"
+                  step="10"
+                  className="form-input"
+                  style={{ fontSize: '18px', fontWeight: 700, textAlign: 'center' }}
+                  value={creditAdvanceAmount}
+                  onChange={(e) => setCreditAdvanceAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+                />
+                <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ flex: 1 }}
+                    onClick={() => setCreditAdvanceAmount(0)}
+                  >
+                    PKR 0 (No Advance)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ flex: 1 }}
+                    onClick={() => setCreditAdvanceAmount(Math.round(total / 2))}
+                  >
+                    Half 50% ({formatPKR(Math.round(total / 2))})
+                  </button>
+                </div>
+              </div>
+
+              {/* Udhaar Calculation Breakdown */}
+              <div
+                style={{
+                  background: 'var(--bg-secondary)',
+                  padding: '12px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                  fontSize: '13px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Order Total:</span>
+                  <span style={{ fontWeight: 600 }}>{formatPKR(total)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Advance Cash:</span>
+                  <span style={{ fontWeight: 600, color: '#10b981' }}>- {formatPKR(creditAdvanceAmount)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '6px', fontWeight: 700 }}>
+                  <span style={{ color: '#ef4444' }}>To Customer Udhaar:</span>
+                  <span style={{ color: '#ef4444' }}>{formatPKR(Math.max(0, +(total - creditAdvanceAmount).toFixed(2)))}</span>
+                </div>
+                {selectedCreditCustomer && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)' }}>
+                    <span>Existing Balance:</span>
+                    <span>{formatPKR(selectedCreditCustomer.balanceDue || 0)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setCreditModalOpen(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-warning btn-lg"
+                style={{ flex: 1 }}
+                disabled={isSubmittingOrder || (!selectedCreditCustomer && !newCreditName.trim())}
+                onClick={handleCompleteCreditPayment}
+              >
+                {isSubmittingOrder ? 'Processing...' : '✓ Confirm & Settle to Udhaar'}
               </button>
             </div>
           </div>

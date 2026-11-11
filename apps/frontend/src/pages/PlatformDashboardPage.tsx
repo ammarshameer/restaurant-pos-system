@@ -13,6 +13,7 @@ import {
 } from '../lib/session';
 import { loginSuccess } from '../store/slices/authSlice';
 import PlatformThemeToggle from '../components/PlatformThemeToggle';
+import { FEATURES } from '../types/permissions';
 
 export const PlatformDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -29,6 +30,14 @@ export const PlatformDashboardPage: React.FC = () => {
 
   // Modals
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createdSuccessData, setCreatedSuccessData] = useState<{
+    businessName: string;
+    slug: string;
+    ownerEmail: string;
+    ownerPin: string;
+    loginUrl: string;
+  } | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [resetPwModalOpen, setResetPwModalOpen] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<PlatformTenant | null>(null);
@@ -140,14 +149,21 @@ export const PlatformDashboardPage: React.FC = () => {
   // Create Tenant
   const handleCreateBusiness = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCreateError(null);
     try {
-      await platformApi.createRestaurant(createForm);
-      showSuccess(`Business "${createForm.businessName}" created successfully!`);
+      const res: any = await platformApi.createRestaurant(createForm);
+      setCreatedSuccessData({
+        businessName: res?.restaurant?.name || createForm.businessName,
+        slug: res?.restaurant?.slug || '',
+        ownerEmail: res?.owner?.email || createForm.ownerEmail,
+        ownerPin: res?.owner?.pin || createForm.ownerPin || '',
+        loginUrl: `${window.location.origin}/login`,
+      });
       setCreateModalOpen(false);
       setCreateForm(initialCreateForm);
       loadTenants();
     } catch (err: any) {
-      alert(err?.response?.data?.error || 'Failed to create business');
+      setCreateError(err?.response?.data?.error || err?.response?.data?.message || 'Failed to create business');
     }
   };
 
@@ -203,7 +219,13 @@ export const PlatformDashboardPage: React.FC = () => {
     setSelectedTenant(tenant);
     try {
       const data = await platformApi.getTenantFeatures(tenant.id);
-      setTenantFeatures(data.features || []);
+      const filtered = (data.features || []).filter((f: any) =>
+        (FEATURES as readonly string[]).includes(f.key)
+      );
+      if (!filtered.some((f: any) => f.key === 'costing')) {
+        filtered.push({ key: 'costing', enabled: false });
+      }
+      setTenantFeatures(filtered);
       setFeaturesModalOpen(true);
     } catch (err: any) {
       alert(err?.response?.data?.error || 'Failed to load tenant features');
@@ -550,9 +572,30 @@ export const PlatformDashboardPage: React.FC = () => {
                       </td>
 
                       <td style={{ padding: '12px 16px' }}>
-                        <code style={{ background: '#1e293b', padding: '2px 6px', borderRadius: '4px', color: '#60a5fa' }}>
-                          {t.slug}
-                        </code>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <code style={{ background: '#1e293b', padding: '2px 6px', borderRadius: '4px', color: '#60a5fa' }}>
+                            {t.slug}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(t.slug);
+                              showSuccess(`Copied Business Code "${t.slug}"!`);
+                            }}
+                            style={{
+                              background: '#334155',
+                              border: 'none',
+                              color: '#fff',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              padding: '2px 6px',
+                              fontSize: '11px',
+                            }}
+                            title="Copy Business Code"
+                          >
+                            📋 Copy
+                          </button>
+                        </div>
                       </td>
 
                       <td style={{ padding: '12px 16px' }}>
@@ -883,6 +926,12 @@ export const PlatformDashboardPage: React.FC = () => {
             </div>
 
             <form onSubmit={handleCreateBusiness}>
+              {createError && (
+                <div style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '16px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                  ⚠️ {createError}
+                </div>
+              )}
+
               <h3 style={{ fontSize: '14px', color: '#60a5fa', borderBottom: '1px solid #1e293b', paddingBottom: '6px', marginBottom: '14px' }}>
                 1. Restaurant Business Information
               </h3>
@@ -1052,6 +1101,121 @@ export const PlatformDashboardPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* SUCCESS MODAL: NEW BUSINESS CREDENTIALS (TASK 5) */}
+      {createdSuccessData && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '20px',
+          }}
+        >
+          <div
+            style={{
+              background: '#0f172a',
+              border: '1px solid #10b981',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '520px',
+              padding: '28px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.9)',
+            }}
+          >
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <div style={{ fontSize: '36px', marginBottom: '8px' }}>🎉</div>
+              <h2 style={{ fontSize: '20px', fontWeight: 800, margin: 0, color: '#10b981' }}>
+                Business Created Successfully!
+              </h2>
+              <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '6px' }}>
+                Share these initial credentials with the business owner:
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: '#1e293b', padding: '16px', borderRadius: '10px', fontSize: '13px' }}>
+              <div>
+                <span style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase' }}>Business Name</span>
+                <div style={{ fontWeight: 700, fontSize: '15px' }}>{createdSuccessData.businessName}</div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase' }}>Business Code (Slug)</span>
+                  <div style={{ fontWeight: 800, fontSize: '15px', color: '#60a5fa' }}>{createdSuccessData.slug}</div>
+                </div>
+                <button
+                  type="button"
+                  style={{ background: '#334155', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(createdSuccessData.slug);
+                    showSuccess('Business Code copied!');
+                  }}
+                >
+                  📋 Copy Code
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase' }}>Owner Email</span>
+                  <div style={{ fontWeight: 700 }}>{createdSuccessData.ownerEmail}</div>
+                </div>
+                <button
+                  type="button"
+                  style={{ background: '#334155', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(createdSuccessData.ownerEmail);
+                    showSuccess('Owner Email copied!');
+                  }}
+                >
+                  📋 Copy Email
+                </button>
+              </div>
+
+              <div>
+                <span style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase' }}>Owner POS PIN</span>
+                <div style={{ fontWeight: 800, fontSize: '16px', letterSpacing: '2px', color: '#fbbf24' }}>{createdSuccessData.ownerPin}</div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase' }}>Login URL</span>
+                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>{createdSuccessData.loginUrl}</div>
+                </div>
+                <button
+                  type="button"
+                  style={{ background: '#334155', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(createdSuccessData.loginUrl);
+                    showSuccess('Login URL copied!');
+                  }}
+                >
+                  📋 Copy URL
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '16px', padding: '10px 14px', background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.3)', borderRadius: '8px', fontSize: '12px', color: '#fbbf24' }}>
+              ℹ️ The owner must log in and change their password upon first access.
+            </div>
+
+            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center' }}>
+              <button
+                type="button"
+                style={{ background: '#10b981', color: '#fff', border: 'none', padding: '10px 28px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
+                onClick={() => setCreatedSuccessData(null)}
+              >
+                Done / Close
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -22,6 +22,7 @@ export class CustomerService {
       email: typeof data.email === 'string' && data.email.trim() ? data.email.trim() : null,
       address: typeof data.address === 'string' && data.address.trim() ? data.address.trim() : null,
       notes: typeof data.notes === 'string' && data.notes.trim() ? data.notes.trim() : null,
+      creditLimit: typeof data.creditLimit === 'number' && Number.isFinite(data.creditLimit) ? Math.max(0, data.creditLimit) : 0,
     };
   }
 
@@ -81,9 +82,13 @@ export class CustomerService {
     const name = typeof order.customerName === 'string' ? order.customerName.trim() : '';
     const phone = this.normalizePhone(order.customerPhone);
     if (!name && !phone) return null;
-    let customer = phone
-      ? await prisma.customer.findFirst({ where: { restaurantId, phone } })
-      : await prisma.customer.findFirst({ where: { restaurantId, name, phone: null } });
+    let customer = null;
+    if (phone) {
+      customer = await prisma.customer.findFirst({ where: { restaurantId, phone } });
+    }
+    if (!customer && name) {
+      customer = await prisma.customer.findFirst({ where: { restaurantId, name } });
+    }
     const now = order.createdAt ? new Date(order.createdAt) : new Date();
     if (!customer) {
       customer = await prisma.customer.create({ data: { restaurantId, name: name || phone!, phone, totalOrders: 1, totalSpent: Number(order.total || 0), lastOrderAt: now } });

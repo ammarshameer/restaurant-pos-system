@@ -18,6 +18,8 @@ export interface User {
   isOwnerRole?: boolean;
   supportMode?: boolean;
   impersonatedBy?: string;
+  themePalette?: string;
+  themeMode?: string;
 }
 
 interface AuthState {

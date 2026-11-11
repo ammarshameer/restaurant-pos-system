@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { PERMISSIONS, ALL_PERMISSIONS, DEFAULT_SYSTEM_ROLES } from '../permissions';
 
 export type EmployeeRole = 'OWNER' | 'MANAGER' | 'CHEF' | 'WAITER' | 'CASHIER' | string;
 
@@ -25,6 +26,30 @@ export class EmployeeService {
     }
     throw new Error('Unable to generate unique PIN after multiple attempts. Please provide a PIN.');
   }
+
+  /**
+   * Ensure a non-owner requester cannot hand out permissions they do not have
+   * themselves. Owners and platform support bypass the ceiling.
+   */
+  private assertPermissionCeiling(
+    requester: { isOwnerRole?: boolean; isPlatform?: boolean; supportMode?: boolean; permissions?: string[] } | undefined,
+    permissions: string[],
+    action = 'assign'
+  ) {
+    if (!requester || requester.isOwnerRole || requester.isPlatform || requester.supportMode) {
+      return;
+    }
+    const requesterPermissions = new Set(requester.permissions || []);
+    for (const permission of permissions) {
+      if (permission === 'backups.manage' || !requesterPermissions.has(permission)) {
+        throw Object.assign(
+          new Error(`Cannot ${action} permissions above your own: ${permission}`),
+          { statusCode: 403 }
+        );
+      }
+    }
+  }
+
   async getEmployees(
     restaurantId: string,
     options?: {
@@ -180,6 +205,7 @@ export class EmployeeService {
       pin?: string;
       hourlyRate?: number;
       phone?: string;
+      permissionOverrides?: Array<{ permission: string; granted: boolean }>;
     },
     requester?: { id: string; isOwnerRole?: boolean; role?: string; permissions?: string[] }
   ) {
@@ -226,6 +252,7 @@ export class EmployeeService {
           restaurantId: data.restaurantId,
           OR: [{ key: candidateKey }, { name: data.role.trim() }],
         },
+        include: { permissions: true },
       });
     }
 
@@ -252,10 +279,36 @@ export class EmployeeService {
       throw new Error('Cannot assign Owner or Platform roles to staff members');
     }
 
+    // Enforce the requester's permission ceiling for both role assignment and
+    // explicit overrides. This used to only run for the roleId path.
+    const rolePermissions: string[] =
+      targetRole.permissions?.map((permission: any) => permission.permission) ||
+      DEFAULT_SYSTEM_ROLES.find((r) => r.key.toUpperCase() === String(targetRole.key).toUpperCase())
+        ?.permissions ||
+      [];
+    this.assertPermissionCeiling(requester, rolePermissions, 'assign');
+
+    if (data.permissionOverrides && data.permissionOverrides.length > 0) {
+      const validPermissions = new Set<string>(PERMISSIONS);
+      for (const override of data.permissionOverrides) {
+        if (!validPermissions.has(override.permission)) {
+          throw Object.assign(new Error(`Invalid permission: ${override.permission}`), { statusCode: 400 });
+        }
+      }
+      this.assertPermissionCeiling(
+        requester,
+        data.permissionOverrides.filter((o) => o.granted).map((o) => o.permission),
+        'grant'
+      );
+    }
+
     // Resolve PIN: validate provided PIN or auto-generate unique 4-digit PIN
     let finalPin: string;
     if (data.pin && data.pin.trim()) {
       finalPin = data.pin.trim();
+      if (!/^\d{4,6}$/.test(finalPin)) {
+        throw Object.assign(new Error('PIN must be 4 to 6 digits'), { statusCode: 400 });
+      }
       const pinConflict = await prisma.employee.findFirst({
         where: {
           restaurantId: data.restaurantId,
@@ -289,6 +342,16 @@ export class EmployeeService {
         hourlyRate: data.hourlyRate || null,
         phone: data.phone?.trim() || null,
         isActive: true,
+        ...(data.permissionOverrides && data.permissionOverrides.length > 0
+          ? {
+              permissionOverrides: {
+                create: data.permissionOverrides.map((o) => ({
+                  permission: o.permission,
+                  granted: Boolean(o.granted),
+                })),
+              },
+            }
+          : {}),
       },
       select: {
         id: true,
@@ -380,6 +443,9 @@ export class EmployeeService {
 
     if (data.pin && data.pin.trim() && data.pin.trim() !== existing.pin) {
       const pinNorm = data.pin.trim();
+      if (!/^\d{4,6}$/.test(pinNorm)) {
+        throw Object.assign(new Error('PIN must be 4 to 6 digits'), { statusCode: 400 });
+      }
       const conflict = await prisma.employee.findFirst({
         where: {
           restaurantId,
@@ -727,6 +793,190 @@ export class EmployeeService {
       },
       orderBy: { clockIn: 'desc' },
     });
+  }
+  async getEmployeePermissions(id: string, restaurantId: string) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
+    const employee = await prisma.employee.findFirst({
+      where: { id, restaurantId },
+      include: {
+        roleRecord: {
+          include: {
+            permissions: true,
+          },
+        },
+        permissionOverrides: true,
+      },
+    });
+
+    if (!employee) {
+      throw Object.assign(new Error('Employee not found'), { statusCode: 404 });
+    }
+
+    const isOwner = employee.roleRecord ? employee.roleRecord.isOwnerRole : employee.role === 'OWNER';
+
+    let rolePermissions: string[] = [];
+    if (isOwner) {
+      rolePermissions = [...ALL_PERMISSIONS];
+    } else if (employee.roleRecord) {
+      rolePermissions = employee.roleRecord.permissions.map((p) => p.permission);
+    } else {
+      const sysRole = DEFAULT_SYSTEM_ROLES.find(
+        (r) => r.key.toUpperCase() === (employee.role || '').toUpperCase()
+      );
+      rolePermissions = sysRole ? [...sysRole.permissions] : [];
+    }
+
+    const overrides = employee.permissionOverrides.map((o) => ({
+      permission: o.permission,
+      granted: o.granted,
+    }));
+
+    let effectivePermissions: string[] = [];
+    if (isOwner) {
+      effectivePermissions = [...ALL_PERMISSIONS];
+    } else {
+      const permSet = new Set<string>(rolePermissions);
+      for (const ov of overrides) {
+        if (ov.granted) permSet.add(ov.permission);
+        else permSet.delete(ov.permission);
+      }
+      effectivePermissions = Array.from(permSet);
+    }
+
+    return {
+      rolePermissions,
+      overrides,
+      effectivePermissions,
+      isOwner,
+    };
+  }
+
+  async updateEmployeePermissions(
+    id: string,
+    overrides: Array<{ permission: string; granted: boolean }>,
+    restaurantId: string,
+    requester?: any
+  ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
+    const employee = await prisma.employee.findFirst({
+      where: { id, restaurantId },
+      include: { roleRecord: true },
+    });
+
+    if (!employee) {
+      throw Object.assign(new Error('Employee not found'), { statusCode: 404 });
+    }
+
+    const isOwner = employee.roleRecord ? employee.roleRecord.isOwnerRole : employee.role === 'OWNER';
+    if (isOwner) {
+      throw Object.assign(new Error('Cannot override permissions on the Owner account'), { statusCode: 400 });
+    }
+
+    const validPermsSet = new Set<string>(PERMISSIONS);
+    for (const ov of overrides) {
+      if (!validPermsSet.has(ov.permission)) {
+        throw Object.assign(new Error(`Invalid permission: ${ov.permission}`), { statusCode: 400 });
+      }
+    }
+
+    // Privilege ceiling for non-owner requesters
+    const isRequesterOwner = requester?.isOwnerRole === true || requester?.role === 'OWNER';
+    if (!isRequesterOwner) {
+      const requesterPerms = new Set<string>(requester?.permissions || []);
+      for (const ov of overrides) {
+        const isGranted = Boolean((ov as any).granted ?? (ov as any).effect === 'GRANT');
+        if (isGranted) {
+          if (ov.permission === 'backups.manage') {
+            throw Object.assign(new Error('Non-owner cannot grant backups.manage'), { statusCode: 403 });
+          }
+          if (!requesterPerms.has(ov.permission)) {
+            throw Object.assign(
+              new Error(`Cannot grant permissions you do not possess: ${ov.permission}`),
+              { statusCode: 403 }
+            );
+          }
+        }
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.employeePermission.deleteMany({
+        where: { employeeId: id },
+      });
+
+      if (overrides.length > 0) {
+        await tx.employeePermission.createMany({
+          data: overrides.map((o) => ({
+            employeeId: id,
+            permission: o.permission,
+            granted: Boolean((o as any).granted ?? (o as any).effect === 'GRANT'),
+          })),
+        });
+      }
+    });
+
+    return this.getEmployeePermissions(id, restaurantId);
+  }
+
+  async resetPassword(
+    id: string,
+    restaurantId: string,
+    temporaryPassword?: string,
+    requester?: any
+  ) {
+    if (!restaurantId || !restaurantId.trim()) {
+      throw new Error('restaurantId is required');
+    }
+
+    const employee = await prisma.employee.findFirst({
+      where: { id, restaurantId },
+      include: { roleRecord: true },
+    });
+
+    if (!employee) {
+      throw Object.assign(new Error('Employee not found'), { statusCode: 404 });
+    }
+
+    const isTargetOwner = employee.roleRecord ? employee.roleRecord.isOwnerRole : employee.role === 'OWNER';
+    const isSelf = requester?.id === employee.id;
+    const isPlatform = requester?.isPlatform || requester?.supportMode;
+
+    if (isTargetOwner && !isSelf && !isPlatform) {
+      throw Object.assign(
+        new Error('The Owner account can only be modified by the Owner or platform support'),
+        { statusCode: 400 }
+      );
+    }
+
+    // Non-owners may only reset passwords for employees whose permissions they
+    // fully possess.
+    const isRequesterOwner = requester?.isOwnerRole === true || requester?.role === 'OWNER';
+    if (!isSelf && !isPlatform && !isRequesterOwner) {
+      const targetPermissions = await this.getEmployeePermissions(id, restaurantId);
+      this.assertPermissionCeiling(requester, targetPermissions.effectivePermissions, 'reset');
+    }
+
+    const tempPassword = temporaryPassword && temporaryPassword.trim()
+      ? temporaryPassword.trim()
+      : `Temp@${crypto.randomBytes(3).toString('hex')}${Math.floor(100 + Math.random() * 900)}`;
+
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+    await prisma.employee.update({
+      where: { id },
+      data: { passwordHash },
+    });
+
+    return {
+      temporaryPassword: tempPassword,
+      message: 'Password successfully reset',
+    };
   }
 }
 

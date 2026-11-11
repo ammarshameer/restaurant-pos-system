@@ -36,7 +36,7 @@ export const SaleInvoicesPage: React.FC = () => {
   const [editDeliveryAddress, setEditDeliveryAddress] = useState('');
   const [editDineInTag, setEditDineInTag] = useState('');
   const [editNotes, setEditNotes] = useState('');
-  const [editPaymentStatus, setEditPaymentStatus] = useState<'PAID' | 'UNPAID'>('PAID');
+  const [editPaymentStatus, setEditPaymentStatus] = useState<'PAID' | 'PARTIAL' | 'UNPAID'>('PAID');
   const [editPaymentMethod, setEditPaymentMethod] = useState('CASH');
   const [editTaxRate, setEditTaxRate] = useState<number>(0);
   const [editServiceChargeAmount, setEditServiceChargeAmount] = useState<number>(0);

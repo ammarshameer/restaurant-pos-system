@@ -286,6 +286,9 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
                 required
                 style={{ padding: '8px 12px', fontSize: '13px' }}
               />
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Ask your manager for the Business Code and your PIN.
+              </div>
             </div>
 
             <div style={{ textAlign: 'center', marginBottom: '16px' }}>

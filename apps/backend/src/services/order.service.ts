@@ -5,10 +5,12 @@ import { hasFeature } from './feature.service';
 import { redactCosting } from './cost-redaction.service';
 import { ValidationError } from '../lib/errors';
 import { CustomerService } from './customer.service';
+import { CustomerCreditService } from './customer-credit.service';
 
 const prisma = new PrismaClient();
 const inventoryService = new InventoryService();
 const customerService = new CustomerService();
+const customerCreditService = new CustomerCreditService();
 
 export class OrderService {
   private async redactOrder<T>(restaurantId: string, payload: T): Promise<T> {
@@ -48,6 +50,7 @@ export class OrderService {
     orderTypeLabel?: string;
     customerName?: string;
     customerPhone?: string;
+    customerId?: string;
     deliveryAddress?: string;
     dineInTag?: string;
     tableId?: string;
@@ -251,15 +254,34 @@ export class OrderService {
 
     let initialStatus = data.status || 'OPEN';
     const initialPaymentStatus = 'UNPAID';
-    let customerId: string | null = null;
-    try {
-      customerId = await customerService.recordOrderCustomer(restaurantId, {
-        customerName: data.customerName,
-        customerPhone: data.customerPhone,
-        total: calculatedTotal,
+    let customerId: string | null = data.customerId || null;
+    if (customerId) {
+      const existing = await prisma.customer.findFirst({
+        where: { id: customerId, restaurantId },
       });
-    } catch (error) {
-      console.error('Failed to resolve order customer:', error);
+      if (existing) {
+        await prisma.customer.update({
+          where: { id: customerId },
+          data: {
+            totalOrders: { increment: 1 },
+            totalSpent: { increment: Number(calculatedTotal || 0) },
+            lastOrderAt: new Date(),
+          },
+        });
+      } else {
+        customerId = null;
+      }
+    }
+    if (!customerId && (data.customerName || data.customerPhone)) {
+      try {
+        customerId = await customerService.recordOrderCustomer(restaurantId, {
+          customerName: data.customerName,
+          customerPhone: data.customerPhone,
+          total: calculatedTotal,
+        });
+      } catch (error) {
+        console.error('Failed to resolve order customer:', error);
+      }
     }
 
     const order = await prisma.order.create({
@@ -287,6 +309,8 @@ export class OrderService {
         taxRate,
         total: calculatedTotal,
         totalPaid: 0,
+        amountDue: calculatedTotal,
+        settledToCredit: false,
         change: data.change || 0,
         status: initialStatus,
         paymentStatus: initialPaymentStatus,
@@ -396,7 +420,16 @@ export class OrderService {
     }
 
     if (options?.paymentStatus && options.paymentStatus !== 'ALL') {
-      whereClause.paymentStatus = options.paymentStatus;
+      if (options.paymentStatus.includes(',')) {
+        whereClause.paymentStatus = { in: options.paymentStatus.split(',').map((s) => s.trim()) };
+      } else if (options.paymentStatus === 'UNPAID') {
+        whereClause.paymentStatus = { in: ['UNPAID', 'PARTIAL'] };
+        // Orders settled to customer credit are collected from the Dues page,
+        // not from the cash register, so they must not appear here.
+        whereClause.settledToCredit = false;
+      } else {
+        whereClause.paymentStatus = options.paymentStatus;
+      }
     }
 
     if (options?.status && options.status !== 'ALL') {
@@ -519,9 +552,26 @@ export class OrderService {
     const allowedScalarFields = [
       'customerName', 'customerPhone', 'deliveryAddress', 'dineInTag', 'customerCount',
       'notes', 'serviceCharge', 'serviceChargeRate', 'deliveryCharge', 'tax', 'taxRate', 'status',
+      'subtotal', 'total', 'totalPaid', 'change', 'paymentStatus', 'paymentMethod',
     ];
     for (const field of allowedScalarFields) {
       if (data[field] !== undefined) updateData[field] = data[field];
+    }
+    if (data.customerId !== undefined) {
+      if (data.customerId === null || data.customerId === '') {
+        updateData.customerId = null;
+      } else {
+        const customer = await prisma.customer.findFirst({
+          where: { id: data.customerId, restaurantId },
+        });
+        if (!customer) throw new ValidationError('Customer not found in this business');
+        updateData.customerId = customer.id;
+      }
+    }
+    if (data.total !== undefined || data.totalPaid !== undefined) {
+      const total = Number(data.total ?? existingOrder.total ?? 0);
+      const totalPaid = Number(data.totalPaid ?? existingOrder.totalPaid ?? 0);
+      updateData.amountDue = Math.max(0, +(total - totalPaid).toFixed(2));
     }
     if (data.tableId !== undefined) {
       const table = await prisma.table.findFirst({ where: { id: data.tableId, floorPlan: { restaurantId } } });
@@ -895,35 +945,60 @@ export class OrderService {
       }
     }
 
-    const updated = await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        status: 'cancelled',
-        notes: reason ? (order.notes ? `${order.notes} | Cancelled: ${reason}` : `Cancelled: ${reason}`) : order.notes,
-      },
-      include: {
-        items: {
-          include: {
-            menuItem: true,
-            deal: {
-              include: {
-                items: {
-                  include: {
-                    menuItem: true,
+    const updated = await prisma.$transaction(async (tx) => {
+      // Reverse any credit that was settled to the customer's dues ledger so a
+      // cancelled order does not leave a phantom balance behind.
+      if (order.settledToCredit || order.customerId) {
+        const [chargeEntry, alreadyReversed] = await Promise.all([
+          tx.customerLedgerEntry.findFirst({
+            where: { restaurantId: order.restaurantId, orderId, type: 'CHARGE' },
+          }),
+          tx.customerLedgerEntry.findFirst({
+            where: { restaurantId: order.restaurantId, orderId, type: 'REFUND' },
+          }),
+        ]);
+        if (chargeEntry && !alreadyReversed) {
+          await customerCreditService.reverseCharge(
+            order.restaurantId,
+            orderId,
+            undefined,
+            `Order #${order.orderNumber} cancelled`,
+            undefined,
+            tx
+          );
+        }
+      }
+
+      return tx.order.update({
+        where: { id: orderId },
+        data: {
+          status: 'cancelled',
+          notes: reason ? (order.notes ? `${order.notes} | Cancelled: ${reason}` : `Cancelled: ${reason}`) : order.notes,
+        },
+        include: {
+          items: {
+            include: {
+              menuItem: true,
+              deal: {
+                include: {
+                  items: {
+                    include: {
+                      menuItem: true,
+                    },
                   },
                 },
               },
             },
           },
-        },
-        server: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
+          server: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
           },
         },
-      },
+      });
     });
 
     // Notify kitchen and waitstaff via WebSocket

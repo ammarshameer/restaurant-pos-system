@@ -1,3 +1,5 @@
+import { hasFeature } from './feature.service';
+
 const COST_FIELDS = new Set([
   'cost', 'costPerUnit', 'purchaseUnitCost', 'saleUnitCost', 'convertedCostPerSaleUnit',
   'unitCost', 'averageCost', 'totalCost', 'foodCost', 'netMargin', 'profit', 'cogs',
@@ -16,4 +18,24 @@ export function redactCosting<T>(payload: T): T {
     return result;
   };
   return redact(payload);
+}
+
+export function canUserViewCosting(
+  user?: { isOwnerRole?: boolean; role?: string; permissions?: string[] } | null
+): boolean {
+  if (!user) return false;
+  if (user.isOwnerRole || user.role === 'OWNER') return true;
+  return Array.isArray(user.permissions) && user.permissions.includes('costing.view');
+}
+
+export async function redactCostingIfUnauthorized<T>(
+  restaurantId: string,
+  payload: T,
+  user?: { isOwnerRole?: boolean; role?: string; permissions?: string[] } | null
+): Promise<T> {
+  if (!canUserViewCosting(user)) {
+    return redactCosting(payload);
+  }
+  const enabled = await hasFeature(restaurantId, 'costing');
+  return enabled ? payload : redactCosting(payload);
 }

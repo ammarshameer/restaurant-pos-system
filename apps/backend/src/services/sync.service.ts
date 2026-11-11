@@ -1,6 +1,8 @@
 import { OrderService } from './order.service';
+import { PaymentService } from './payment.service';
 
 const orderService = new OrderService();
+const paymentService = new PaymentService();
 
 export type SyncOperationType =
   | 'CREATE_ORDER'
@@ -103,25 +105,29 @@ export class SyncService {
       case 'UPDATE_PAYMENT_STATUS': {
         const id = payload.id || op.entityId;
         if (!id) throw new Error('update payment status requires an order id');
-        const isPaid = String(payload.paymentStatus || '').toUpperCase() === 'PAID';
-        const order = await orderService.updateOrder(
-          id,
-          {
-            paymentStatus: isPaid ? 'PAID' : 'UNPAID',
-            paymentMethod: payload.paymentMethod || 'CASH',
-            totalPaid: payload.totalPaid,
-            change: payload.change,
-            ...(isPaid ? { status: 'paid' } : {}),
-          },
-          restaurantId
-        );
+        const amount = Number(payload.amount ?? payload.totalPaid ?? 0);
+        if (amount > 0) {
+          await paymentService.createPayment(
+            {
+              orderId: id,
+              amount,
+              method: payload.paymentMethod || 'CASH',
+              tipAmount: Number(payload.tipAmount || 0),
+              settleToCredit: Boolean(payload.settleToCredit),
+              transactionId: payload.transactionId,
+              clientId: op.opId,
+            },
+            restaurantId
+          );
+        }
+        const order = await orderService.getOrderById(id, restaurantId);
         return {
           opId: op.opId,
           type: op.type,
           entityId: op.entityId,
           status: 'ok',
-          serverId: order.id,
-          orderNumber: order.orderNumber,
+          serverId: order?.id || id,
+          orderNumber: order?.orderNumber,
           order,
         };
       }

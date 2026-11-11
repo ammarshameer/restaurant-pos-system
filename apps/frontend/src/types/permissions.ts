@@ -29,13 +29,13 @@ export const PERMISSIONS = [
   'analytics.view',
   'costing.view',
   'costing.manage',
-  'accounting.view',
-  'accounting.manage',
+  'dues.view',
+  'dues.manage',
   'settings.manage',
   'backups.manage',
 ] as const;
 
-export const FEATURES = ['costing', 'accounting'] as const;
+export const FEATURES = ['costing'] as const;
 export type FeatureKey = typeof FEATURES[number];
 
 export type Permission = typeof PERMISSIONS[number];
@@ -188,12 +188,12 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     ],
   },
   {
-    id: 'accounting',
-    name: 'Accounting',
-    description: 'Financial accounting reports',
+    id: 'dues',
+    name: 'Dues & Receivables',
+    description: 'Customer credit, balance dues, and ledger management',
     permissions: [
-      { key: 'accounting.view', name: 'View Accounting', description: 'View financial accounting reports' },
-      { key: 'accounting.manage', name: 'Manage Accounting', description: 'Manage accounting configuration and reports' },
+      { key: 'dues.view', name: 'View Dues', description: 'View customer balance dues, ledger, and statements' },
+      { key: 'dues.manage', name: 'Manage Dues', description: 'Receive dues payments and make balance adjustments' },
     ],
   },
   {

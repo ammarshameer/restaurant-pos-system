@@ -32,7 +32,6 @@ async function main() {
   await prisma.tenantFeature.createMany({
     data: [
       { restaurantId: restaurant.id, featureKey: 'costing', enabled: true },
-      { restaurantId: restaurant.id, featureKey: 'accounting', enabled: true },
     ],
     skipDuplicates: true,
   });

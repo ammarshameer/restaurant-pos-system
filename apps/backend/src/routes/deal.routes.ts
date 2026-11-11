@@ -1,5 +1,7 @@
-import { Router } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { dealService } from '../services/deal.service';
+import { hasFeature } from '../services/feature.service';
+import { redactCosting, canUserViewCosting } from '../services/cost-redaction.service';
 import {
   AuthRequest,
   getAuthenticatedRestaurantId,
@@ -7,6 +9,22 @@ import {
 } from '../middleware/auth';
 
 const router = Router();
+
+router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const originalJson = res.json.bind(res);
+  res.json = ((body: any) => {
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const canView = canUserViewCosting(req.user);
+    if (!canView) {
+      return originalJson(redactCosting(body));
+    }
+    void hasFeature(restaurantId, 'costing').then((enabled) => {
+      originalJson(enabled ? body : redactCosting(body));
+    }).catch(next);
+    return res;
+  }) as any;
+  next();
+});
 
 // Get active deals directly
 router.get('/active', requirePermission('deals.view'), async (req: AuthRequest, res, next) => {

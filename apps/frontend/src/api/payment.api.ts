@@ -1,6 +1,8 @@
 import { api } from '../lib/api';
 import { PaginatedResponse } from '../types/pagination';
 import { getCurrentRestaurantId } from '../lib/session';
+import { syncEngine } from '../lib/offline/syncEngine';
+import { network, isNetworkError } from '../lib/offline/network';
 
 export interface PaymentItem {
   id: string;
@@ -102,7 +104,48 @@ export const paymentApi = {
   },
 
   createPayment: async (data: any) => {
-    return api.post('/payments', data);
+    const restaurantId = getCurrentRestaurantId();
+
+    // Payments must survive an offline POS: queue them in the sync outbox so
+    // they are replayed (idempotently) once connectivity returns.
+    const queuePayment = async () => {
+      const orderId = data?.orderId;
+      if (!orderId) throw new Error('orderId is required to queue a payment');
+      if (!restaurantId) throw new Error('Tenant restaurant ID not available. Please log in.');
+
+      const amount = Number(data.amount || 0);
+      await syncEngine.patchLocalOrder(orderId, {
+        ...(data.totalPaid !== undefined ? { totalPaid: data.totalPaid } : {}),
+        ...(data.paymentStatus ? { paymentStatus: data.paymentStatus } : {}),
+        ...(data.settleToCredit ? { settledToCredit: true } : {}),
+        syncStatus: 'PENDING',
+        pending: true,
+      });
+      await syncEngine.enqueue({
+        type: 'UPDATE_PAYMENT_STATUS',
+        restaurantId,
+        entityId: orderId,
+        payload: {
+          id: orderId,
+          amount,
+          paymentMethod: data.method || 'CASH',
+          tipAmount: Number(data.tipAmount || 0),
+          settleToCredit: Boolean(data.settleToCredit),
+          transactionId: data.transactionId,
+        },
+      });
+
+      return { orderId, amount, pending: true, customerBalance: undefined };
+    };
+
+    if (!network.isOnline()) return queuePayment();
+
+    try {
+      return await api.post('/payments', data);
+    } catch (error) {
+      if (isNetworkError(error)) return queuePayment();
+      throw error;
+    }
   },
 
   getReceiptData: async (id: string) => {

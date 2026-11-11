@@ -2,8 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store/store';
 import { loginSuccess } from '../store/slices/authSlice';
-import { settingsApi, BusinessSettings } from '../api/settings.api';
+import { settingsApi } from '../api/settings.api';
 import { cacheReceiptBranding } from '../lib/receiptBranding';
+
+const PALETTE_OPTIONS = [
+  { id: 'espresso', name: 'Espresso & Gold', hex: '#e0a93f', desc: 'Warm coffee roast & amber gold' },
+  { id: 'wine', name: 'Merlot & Rose', hex: '#e11d48', desc: 'Deep burgundy & rose gold' },
+  { id: 'ocean', name: 'Ocean & Cyan', hex: '#0284c7', desc: 'Deep oceanic slate & rich cyan' },
+  { id: 'emerald', name: 'Emerald & Mint', hex: '#059669', desc: 'Lush forest green & mint' },
+  { id: 'royal', name: 'Royal & Lilac', hex: '#7c3aed', desc: 'Regal amethyst plum & lilac' },
+  { id: 'sunset', name: 'Sunset Amber', hex: '#ea580c', desc: 'Warm charcoal & terracotta amber' },
+  { id: 'rose', name: 'Dusty Rose', hex: '#db2777', desc: 'Charcoal with ruby pink accent' },
+  { id: 'midnight', name: 'Midnight Slate', hex: '#64748b', desc: 'Modern dark slate with silver tone' },
+];
 
 export const SettingsPage: React.FC = () => {
   const dispatch = useDispatch();
@@ -13,6 +24,7 @@ export const SettingsPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   // Form Fields
   const [name, setName] = useState('');
@@ -24,6 +36,14 @@ export const SettingsPage: React.FC = () => {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoInputMode, setLogoInputMode] = useState<'upload' | 'url'>('upload');
   const [customLogoUrl, setCustomLogoUrl] = useState('');
+
+  // Appearance State
+  const [themePalette, setThemePalette] = useState<string>(() => {
+    return localStorage.getItem('pos_palette') || 'espresso';
+  });
+  const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('pos_theme') as 'dark' | 'light') || 'dark';
+  });
 
   const fetchSettings = async () => {
     try {
@@ -38,6 +58,17 @@ export const SettingsPage: React.FC = () => {
       setEmail(data.email || '');
       setTimezone(data.timezone || 'Asia/Karachi');
       setLogoUrl(data.logoUrl || null);
+
+      if (data.themePalette) {
+        setThemePalette(data.themePalette);
+        document.documentElement.setAttribute('data-palette', data.themePalette);
+        localStorage.setItem('pos_palette', data.themePalette);
+      }
+      if (data.themeMode === 'dark' || data.themeMode === 'light') {
+        setThemeMode(data.themeMode);
+        document.documentElement.setAttribute('data-theme', data.themeMode);
+        localStorage.setItem('pos_theme', data.themeMode);
+      }
     } catch (err: any) {
       setError(err?.response?.data?.message || err.message || 'Failed to load business settings');
     } finally {
@@ -48,6 +79,26 @@ export const SettingsPage: React.FC = () => {
   useEffect(() => {
     fetchSettings();
   }, []);
+
+  const handleCopyCode = () => {
+    const codeToCopy = slug || user?.restaurantSlug || '';
+    if (!codeToCopy) return;
+    navigator.clipboard.writeText(codeToCopy);
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 2500);
+  };
+
+  const handleSelectPalette = (p: string) => {
+    setThemePalette(p);
+    document.documentElement.setAttribute('data-palette', p);
+    localStorage.setItem('pos_palette', p);
+  };
+
+  const handleSelectThemeMode = (m: 'dark' | 'light') => {
+    setThemeMode(m);
+    document.documentElement.setAttribute('data-theme', m);
+    localStorage.setItem('pos_theme', m);
+  };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -108,20 +159,26 @@ export const SettingsPage: React.FC = () => {
         email: email.trim(),
         timezone,
         logoUrl: finalLogo,
+        themePalette,
+        themeMode,
       });
       cacheReceiptBranding(updated);
 
-      setSuccessMessage('Business profile and settings updated successfully!');
+      setSuccessMessage('Business profile and appearance settings updated successfully!');
       setName(updated.name);
       setLogoUrl(updated.logoUrl || null);
+      if (updated.themePalette) setThemePalette(updated.themePalette);
+      if (updated.themeMode === 'dark' || updated.themeMode === 'light') setThemeMode(updated.themeMode);
 
-      // Update Redux state and local storage so the sidebar branding reflects the update immediately
+      // Update Redux state and local storage so the sidebar and theme reflect the update immediately
       if (user) {
         const updatedUser = {
           ...user,
           restaurantName: updated.name,
           restaurantSlug: updated.slug,
           restaurantLogoUrl: updated.logoUrl,
+          themePalette: updated.themePalette || themePalette,
+          themeMode: updated.themeMode || themeMode,
         };
         const token = localStorage.getItem('auth_token') || '';
         localStorage.setItem('auth_user', JSON.stringify(updatedUser));
@@ -152,8 +209,46 @@ export const SettingsPage: React.FC = () => {
           Business Profile & Settings
         </h1>
         <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '14px' }}>
-          Manage your restaurant details, branding logo, contact information, and local timezone.
+          Manage your restaurant details, staff login credentials, branding logo, theme palettes, and timezone.
         </p>
+      </div>
+
+      {/* Staff Login Business Code Banner */}
+      <div
+        style={{
+          background: 'rgba(var(--primary-rgb, 224, 169, 63), 0.08)',
+          border: '1px solid var(--border-active, rgba(224, 169, 63, 0.4))',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          marginBottom: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
+        }}
+      >
+        <div>
+          <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700 }}>
+            Staff Login Business Code (Tenant ID)
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+            <code style={{ fontSize: '20px', fontWeight: 800, color: 'var(--primary)', letterSpacing: '0.03em' }}>
+              {slug || user?.restaurantSlug || '—'}
+            </code>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+              (Provide this code to your cashiers, chefs, and staff to log in with their PIN)
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={handleCopyCode}
+          style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          {codeCopied ? '✓ Copied to Clipboard!' : '📋 Copy Business Code'}
+        </button>
       </div>
 
       {/* Notifications */}
@@ -191,6 +286,136 @@ export const SettingsPage: React.FC = () => {
       )}
 
       <form onSubmit={handleSubmit}>
+        {/* Appearance & Themes Card */}
+        <div
+          style={{
+            background: 'var(--bg-card, #1e293b)',
+            border: '1px solid var(--border-color, rgba(255, 255, 255, 0.08))',
+            borderRadius: '16px',
+            padding: '24px',
+            marginBottom: '24px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+          }}
+        >
+          <div style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '12px', marginBottom: '16px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 4px 0' }}>
+              Appearance & Themes
+            </h2>
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
+              Choose your display mode and brand palette. Changes take effect instantly and become the default for all staff.
+            </p>
+          </div>
+
+          {/* Theme Mode Toggle (Dark vs Light) */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>
+              Display Mode
+            </label>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                type="button"
+                onClick={() => handleSelectThemeMode('dark')}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  borderRadius: '10px',
+                  border: themeMode === 'dark' ? '2px solid var(--primary)' : '1px solid var(--border-color, rgba(255,255,255,0.1))',
+                  background: themeMode === 'dark' ? 'var(--primary-tint, rgba(224,169,63,0.15))' : 'rgba(0,0,0,0.2)',
+                  color: themeMode === 'dark' ? 'var(--primary)' : 'var(--text-secondary)',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span style={{ fontSize: '18px' }}>🌙</span>
+                Dark Mode {themeMode === 'dark' && '✓'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectThemeMode('light')}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  borderRadius: '10px',
+                  border: themeMode === 'light' ? '2px solid var(--primary)' : '1px solid var(--border-color, rgba(255,255,255,0.1))',
+                  background: themeMode === 'light' ? 'var(--primary-tint, rgba(224,169,63,0.15))' : 'rgba(0,0,0,0.2)',
+                  color: themeMode === 'light' ? 'var(--primary)' : 'var(--text-secondary)',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span style={{ fontSize: '18px' }}>☀️</span>
+                Light Mode {themeMode === 'light' && '✓'}
+              </button>
+            </div>
+          </div>
+
+          {/* 8 Theme Palettes */}
+          <div>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>
+              Accent Color Palette (8 Themes)
+            </label>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>
+              Palettes change accent colors. Use Light/Dark mode above to change the background.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '12px' }}>
+              {PALETTE_OPTIONS.map((pal) => {
+                const isSelected = themePalette === pal.id;
+                return (
+                  <div
+                    key={pal.id}
+                    onClick={() => handleSelectPalette(pal.id)}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border-color, rgba(255,255,255,0.1))',
+                      background: isSelected ? 'var(--primary-tint, rgba(224,169,63,0.12))' : 'rgba(0,0,0,0.2)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span
+                          style={{
+                            width: '18px',
+                            height: '18px',
+                            borderRadius: '50%',
+                            background: pal.hex,
+                            display: 'inline-block',
+                            boxShadow: '0 0 8px ' + pal.hex + '66',
+                          }}
+                        />
+                        <span style={{ fontWeight: 700, fontSize: '13px', color: isSelected ? 'var(--primary)' : 'var(--text-primary)' }}>
+                          {pal.name}
+                        </span>
+                      </div>
+                      {isSelected && <span style={{ color: 'var(--primary)', fontWeight: 800, fontSize: '14px' }}>✓</span>}
+                    </div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {pal.desc}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Brand Identity & Logo Card */}
         <div
           style={{
             background: 'var(--bg-card, #1e293b)',

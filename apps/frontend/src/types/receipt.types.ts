@@ -39,4 +39,7 @@ export interface ReceiptData {
   totalPaid?: number;
   change?: number;
   paymentMethod?: string;
+  amountDue?: number;
+  balanceDue?: number;
+  settledToCredit?: boolean;
 }

@@ -204,6 +204,49 @@ export const CustomerSlip: React.FC<ReceiptSlipProps> = ({ receiptData }) => {
         <span>{formatPKR(receiptData.total)}</span>
       </div>
 
+      {/* Payment / Settlement Status Banner */}
+      <div
+        style={{
+          margin: '6px 0',
+          padding: '4px 8px',
+          borderRadius: '4px',
+          textAlign: 'center',
+          fontWeight: 800,
+          fontSize: '12px',
+          letterSpacing: '0.5px',
+          background:
+            (!receiptData.amountDue || receiptData.amountDue <= 0.01) &&
+            receiptData.totalPaid !== undefined &&
+            receiptData.totalPaid >= receiptData.total - 0.01
+              ? '#dcfce7'
+              : receiptData.settledToCredit
+              ? '#e0e7ff'
+              : receiptData.totalPaid && receiptData.totalPaid > 0
+              ? '#fef3c7'
+              : '#fee2e2',
+          color:
+            (!receiptData.amountDue || receiptData.amountDue <= 0.01) &&
+            receiptData.totalPaid !== undefined &&
+            receiptData.totalPaid >= receiptData.total - 0.01
+              ? '#166534'
+              : receiptData.settledToCredit
+              ? '#3730a3'
+              : receiptData.totalPaid && receiptData.totalPaid > 0
+              ? '#92400e'
+              : '#991b1b',
+        }}
+      >
+        {(!receiptData.amountDue || receiptData.amountDue <= 0.01) &&
+        receiptData.totalPaid !== undefined &&
+        receiptData.totalPaid >= receiptData.total - 0.01
+          ? '✓ PAID IN FULL'
+          : receiptData.settledToCredit
+          ? '✓ SETTLED TO UDHAAR / CREDIT'
+          : receiptData.totalPaid && receiptData.totalPaid > 0
+          ? `⚠️ PARTIALLY PAID (DUE: ${formatPKR(receiptData.amountDue || 0)})`
+          : '⚠️ UNPAID'}
+      </div>
+
       <div className="receipt-row" style={{ marginTop: '8px', fontSize: '12px' }}>
         <span>Payment Method</span>
         <span style={{ fontWeight: 700 }}>{receiptData.paymentMethod || 'CASH'}</span>
@@ -211,8 +254,28 @@ export const CustomerSlip: React.FC<ReceiptSlipProps> = ({ receiptData }) => {
 
       {receiptData.totalPaid !== undefined && receiptData.totalPaid > 0 && (
         <div className="receipt-row" style={{ fontSize: '12px' }}>
-          <span>Amount Tendered</span>
+          <span>Amount Paid</span>
           <span>{formatPKR(receiptData.totalPaid)}</span>
+        </div>
+      )}
+
+      {receiptData.amountDue !== undefined && receiptData.amountDue > 0 && (
+        <div className="receipt-row" style={{ fontSize: '12px', fontWeight: 800, color: '#dc2626' }}>
+          <span>Remaining Balance Due</span>
+          <span>{formatPKR(receiptData.amountDue)}</span>
+        </div>
+      )}
+
+      {receiptData.balanceDue !== undefined && receiptData.balanceDue > 0 && (
+        <div className="receipt-row" style={{ fontSize: '12px', fontWeight: 700 }}>
+          <span>Total Customer Udhaar</span>
+          <span>{formatPKR(receiptData.balanceDue)}</span>
+        </div>
+      )}
+
+      {receiptData.settledToCredit && (
+        <div className="receipt-row" style={{ fontSize: '11px', fontStyle: 'italic', color: '#4b5563' }}>
+          <span>* Balance settled to Customer Credit / Udhaar</span>
         </div>
       )}
 

@@ -24,7 +24,8 @@ import permissionRoutes from './routes/permission.routes';
 import roleRoutes from './routes/roles.routes';
 import settingRoutes from './routes/settings.routes';
 import customerRoutes from './routes/customer.routes';
-import accountingRoutes from './routes/accounting.routes';
+import costingRoutes from './routes/costing.routes';
+import duesRoutes from './routes/dues.routes';
 import { backupService } from './services/backup.service';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticate } from './middleware/auth';
@@ -184,7 +185,8 @@ app.use('/api/sync', authenticate, syncRoutes);
 app.use('/api/roles', authenticate, roleRoutes);
 app.use('/api/settings', authenticate, settingRoutes);
 app.use('/api/customers', authenticate, customerRoutes);
-app.use('/api/accounting', authenticate, accountingRoutes);
+app.use('/api/costing', authenticate, costingRoutes);
+app.use('/api/dues', authenticate, duesRoutes);
 
 // WebSocket setup
 setupWebSocket(io);
