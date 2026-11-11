@@ -40,6 +40,12 @@ model Restaurant {
   deals                   Deal[]
   tenantFeatures          TenantFeature[]
   customers               Customer[]
+  expenseCategories       ExpenseCategory[]
+  expenses                Expense[]
+  recurringExpenses       RecurringExpense[]
+  payrollSettings         PayrollSettings?
+  employeeAdvances        EmployeeAdvance[]
+  payrollRuns             PayrollRun[]
 }
 
 model TenantFeature {
@@ -109,19 +115,26 @@ model Employee {
   roleId          String?
   pin             String
   passwordHash    String
-  hourlyRate      Float?
-  restaurantId    String
-  isActive        Boolean             @default(true)
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  hourlyRate          Float?
+  salaryType          String              @default("MONTHLY") // MONTHLY | DAILY | HOURLY
+  monthlySalary       Float?              @default(0)
+  dailyRate           Float?              @default(0)
+  overtimeEligible    Boolean             @default(true)
+  restaurantId        String
+  isActive            Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
   
-  restaurant      Restaurant          @relation(fields: [restaurantId], references: [id])
-  roleRecord      Role?               @relation(fields: [roleId], references: [id])
-  orders          Order[]             @relation("ServerOrders")
+  restaurant          Restaurant          @relation(fields: [restaurantId], references: [id])
+  roleRecord          Role?               @relation(fields: [roleId], references: [id])
+  orders              Order[]             @relation("ServerOrders")
   timeEntries         TimeEntry[]
   modifications       OrderModification[]
   refreshTokens       RefreshToken[]
   permissionOverrides EmployeePermission[]
+  expensesCreated     Expense[]           @relation("ExpensesCreated")
+  employeeAdvances    EmployeeAdvance[]
+  payrollLines        PayrollLine[]
 
   @@unique([restaurantId, username])
 }
@@ -148,14 +161,25 @@ model RefreshToken {
 }
 
 model TimeEntry {
-  id              String    @id @default(cuid())
-  employeeId      String
-  clockIn         DateTime
-  clockOut        DateTime?
-  hoursWorked     Float?
-  createdAt       DateTime  @default(now())
+  id                    String    @id @default(cuid())
+  employeeId            String
+  restaurantId          String?
+  clockIn               DateTime
+  clockOut              DateTime?
+  hoursWorked           Float?
+  overtimeHours         Float?    @default(0)
+  overtimeApproved      Boolean?  @default(false)
+  overtimeApprovedById  String?
+  isCorrected           Boolean   @default(false)
+  correctionReason      String?
+  correctedById         String?
+  correctedAt           DateTime?
+  createdAt             DateTime  @default(now())
   
-  employee        Employee  @relation(fields: [employeeId], references: [id])
+  employee              Employee  @relation(fields: [employeeId], references: [id])
+
+  @@index([restaurantId, clockIn])
+  @@index([employeeId, clockIn])
 }
 
 // ============================================
@@ -550,4 +574,184 @@ model PlatformAuditLog {
   
   platformUser   PlatformUser  @relation(fields: [platformUserId], references: [id])
   restaurant     Restaurant?   @relation(fields: [restaurantId], references: [id])
+}
+
+// ============================================
+// EXPENSES & RECURRING EXPENSES
+// ============================================
+
+model ExpenseCategory {
+  id                String             @id @default(cuid())
+  restaurantId      String
+  name              String
+  description       String?
+  isSystem          Boolean            @default(false)
+  deletedAt         DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  restaurant        Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  expenses          Expense[]
+  recurringExpenses RecurringExpense[]
+
+  @@unique([restaurantId, name])
+  @@index([restaurantId, deletedAt])
+}
+
+model Expense {
+  id                  String            @id @default(cuid())
+  restaurantId        String
+  categoryId          String
+  expenseDate         DateTime
+  amount              Float             // in PKR
+  method              String            @default("CASH") // CASH | BANK_TRANSFER | CHEQUE | CARD
+  payee               String?
+  referenceNo         String?           // Bill / receipt no.
+  billingPeriod       String?           // e.g. "2026-11"
+  dueDate             DateTime?
+  status              String            @default("PAID") // PAID | UNPAID
+  paidAt              DateTime?
+  note                String?
+  billPhotoUrl        String?
+  source              String            @default("MANUAL") // MANUAL | PAYROLL | RECURRING
+  payrollLineId       String?           @unique
+  recurringExpenseId  String?
+  clientRef           String?
+  createdById         String?
+  voidedAt            DateTime?
+  voidReason          String?
+  voidedById          String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  restaurant          Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  category            ExpenseCategory   @relation(fields: [categoryId], references: [id])
+  createdBy           Employee?         @relation("ExpensesCreated", fields: [createdById], references: [id], onDelete: SetNull)
+  payrollLine         PayrollLine?      @relation(fields: [payrollLineId], references: [id], onDelete: SetNull)
+  recurringExpense    RecurringExpense? @relation(fields: [recurringExpenseId], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId, expenseDate])
+  @@index([restaurantId, status])
+  @@index([restaurantId, categoryId])
+  @@index([restaurantId, clientRef])
+}
+
+model RecurringExpense {
+  id                 String          @id @default(cuid())
+  restaurantId       String
+  categoryId         String
+  name               String
+  amount             Float           // in PKR
+  method             String          @default("BANK_TRANSFER")
+  payee              String?
+  dayOfMonth         Int             @default(1)
+  note               String?
+  isActive           Boolean         @default(true)
+  lastGeneratedMonth String?         // "YYYY-MM"
+  deletedAt          DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  restaurant         Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  category           ExpenseCategory @relation(fields: [categoryId], references: [id])
+  expenses           Expense[]
+
+  @@index([restaurantId, isActive])
+  @@index([restaurantId, deletedAt])
+}
+
+// ============================================
+// PAYROLL & ADVANCES
+// ============================================
+
+model PayrollSettings {
+  id                       String      @id @default(cuid())
+  restaurantId             String      @unique
+  workdayHours             Float       @default(8)
+  workdaysPerMonth         Int         @default(26)
+  overtimeMultiplier       Float       @default(1.5)
+  overtimeApprovalRequired Boolean     @default(true)
+  createdAt                DateTime    @default(now())
+  updatedAt                DateTime    @updatedAt
+
+  restaurant               Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+}
+
+model EmployeeAdvance {
+  id                String       @id @default(cuid())
+  restaurantId      String
+  employeeId        String
+  amount            Float        // in PKR
+  remainingAmount   Float        // in PKR
+  monthlyInstalment Float?       // in PKR
+  advanceDate       DateTime     @default(now())
+  reason            String?
+  status            String       @default("ACTIVE") // ACTIVE | FULLY_RECOVERED | CANCELLED
+  clientRef         String?
+  createdById       String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  restaurant        Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  employee          Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, employeeId])
+  @@index([restaurantId, status])
+  @@index([restaurantId, clientRef])
+}
+
+model PayrollRun {
+  id              String        @id @default(cuid())
+  restaurantId    String
+  month           String        // "YYYY-MM"
+  status          String        @default("DRAFT") // DRAFT | FINALIZED | PAID
+  totalGross      Float         @default(0)
+  totalNet        Float         @default(0)
+  totalOvertime   Float         @default(0)
+  totalDeductions Float         @default(0)
+  totalAdvances   Float         @default(0)
+  employeeCount   Int           @default(0)
+  finalizedAt     DateTime?
+  finalizedById   String?
+  paidAt          DateTime?
+  paidById        String?
+  paymentMethod   String?       @default("BANK_TRANSFER")
+  note            String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  lines           PayrollLine[]
+
+  @@unique([restaurantId, month])
+  @@index([restaurantId, status])
+}
+
+model PayrollLine {
+  id               String       @id @default(cuid())
+  payrollRunId     String
+  employeeId       String
+  salaryType       String       // MONTHLY | DAILY | HOURLY
+  base             Float        @default(0)
+  regularHours     Float        @default(0)
+  overtimeHours    Float        @default(0)
+  overtimePay      Float        @default(0)
+  allowances       Float        @default(0)
+  bonus            Float        @default(0)
+  deductions       Float        @default(0)
+  advanceRecovered Float        @default(0)
+  advanceId        String?
+  absentDays       Float        @default(0)
+  absenceDeduction Float        @default(0)
+  netPay           Float        @default(0)
+  note             String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  payrollRun       PayrollRun   @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee         Employee     @relation(fields: [employeeId], references: [id])
+  expense          Expense?
+
+  @@index([payrollRunId])
+  @@index([employeeId])
 }

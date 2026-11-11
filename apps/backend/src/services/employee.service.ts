@@ -140,7 +140,11 @@ export class EmployeeService {
           role: true,
           roleId: true,
           isActive: true,
+          salaryType: true,
+          monthlySalary: true,
+          dailyRate: true,
           hourlyRate: true,
+          overtimeEligible: true,
           phone: true,
           createdAt: true,
           updatedAt: true,
@@ -197,7 +201,11 @@ export class EmployeeService {
         role: true,
         roleId: true,
         isActive: true,
+        salaryType: true,
+        monthlySalary: true,
+        dailyRate: true,
         hourlyRate: true,
+        overtimeEligible: true,
         phone: true,
         createdAt: true,
         updatedAt: true,
@@ -234,6 +242,10 @@ export class EmployeeService {
       roleId?: string;
       pin?: string;
       hourlyRate?: number;
+      salaryType?: string;
+      monthlySalary?: number;
+      dailyRate?: number;
+      overtimeEligible?: boolean;
       phone?: string;
       permissionOverrides?: Array<{ permission: string; granted: boolean }>;
     },
@@ -393,7 +405,11 @@ export class EmployeeService {
         role: targetRole.key,
         roleId: targetRole.id,
         pin: hashedPin,
-        hourlyRate: data.hourlyRate || null,
+        hourlyRate: data.hourlyRate !== undefined ? Number(data.hourlyRate) : null,
+        salaryType: data.salaryType || 'MONTHLY',
+        monthlySalary: data.monthlySalary !== undefined ? Number(data.monthlySalary) : null,
+        dailyRate: data.dailyRate !== undefined ? Number(data.dailyRate) : null,
+        overtimeEligible: data.overtimeEligible !== undefined ? Boolean(data.overtimeEligible) : true,
         phone: data.phone?.trim() || null,
         isActive: true,
         ...(data.permissionOverrides && data.permissionOverrides.length > 0
@@ -416,7 +432,11 @@ export class EmployeeService {
         role: true,
         roleId: true,
         isActive: true,
+        salaryType: true,
+        monthlySalary: true,
+        dailyRate: true,
         hourlyRate: true,
+        overtimeEligible: true,
         phone: true,
         createdAt: true,
       },
@@ -482,7 +502,11 @@ export class EmployeeService {
     if (data.firstName !== undefined) updateData.firstName = data.firstName.trim();
     if (data.lastName !== undefined) updateData.lastName = data.lastName.trim();
     if (data.phone !== undefined) updateData.phone = data.phone?.trim() || null;
-    if (data.hourlyRate !== undefined) updateData.hourlyRate = Number(data.hourlyRate) || null;
+    if (data.hourlyRate !== undefined) updateData.hourlyRate = data.hourlyRate !== null ? Number(data.hourlyRate) : null;
+    if (data.salaryType !== undefined) updateData.salaryType = data.salaryType;
+    if (data.monthlySalary !== undefined) updateData.monthlySalary = data.monthlySalary !== null ? Number(data.monthlySalary) : null;
+    if (data.dailyRate !== undefined) updateData.dailyRate = data.dailyRate !== null ? Number(data.dailyRate) : null;
+    if (data.overtimeEligible !== undefined) updateData.overtimeEligible = Boolean(data.overtimeEligible);
 
     if (data.username !== undefined) {
       if (data.username && data.username.trim()) {
@@ -642,7 +666,11 @@ export class EmployeeService {
         role: true,
         roleId: true,
         isActive: true,
+        salaryType: true,
+        monthlySalary: true,
+        dailyRate: true,
         hourlyRate: true,
+        overtimeEligible: true,
         phone: true,
         updatedAt: true,
         roleRecord: {

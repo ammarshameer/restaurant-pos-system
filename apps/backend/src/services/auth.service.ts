@@ -7,6 +7,7 @@ import { REQUIRED_MODULES } from './feature.service';
 import { JWT_SECRET, JWT_REFRESH_SECRET } from '../config/secrets';
 import { getEnabledFeatures } from './feature.service';
 import { attemptLockService } from './attempt-lock.service';
+import { DEFAULT_EXPENSE_CATEGORIES } from './expenses.service';
 import { ValidationError } from '../lib/errors';
 
 export type EmployeeRole = 'OWNER' | 'MANAGER' | 'CHEF' | 'WAITER' | 'CASHIER' | string;
@@ -259,6 +260,28 @@ export class AuthService {
           },
         });
       }
+
+      // 6. Create default expense categories
+      for (const cat of DEFAULT_EXPENSE_CATEGORIES) {
+        await tx.expenseCategory.create({
+          data: {
+            restaurantId: restaurant.id,
+            name: cat.name,
+            isSystem: cat.isSystem,
+          },
+        });
+      }
+
+      // 7. Create default payroll settings
+      await tx.payrollSettings.create({
+        data: {
+          restaurantId: restaurant.id,
+          workdayHours: 8,
+          workdaysPerMonth: 26,
+          overtimeMultiplier: 1.5,
+          overtimeApprovalRequired: true,
+        },
+      });
 
       return {
         restaurant,

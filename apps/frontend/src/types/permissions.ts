@@ -29,12 +29,15 @@ export const PERMISSIONS = [
   'analytics.view',
   'costing.view',
   'costing.manage',
+  'profit.view',
   'dues.view',
   'dues.manage',
   'expenses.view',
+  'expenses.create',
   'expenses.manage',
   'payroll.view',
   'payroll.manage',
+  'payroll.pay',
   'settings.manage',
   'backups.manage',
 ] as const;
@@ -81,6 +84,7 @@ export const MODULE_TO_FEATURE: Record<string, FeatureKey | null> = {
   roles: 'roles',
   analytics: 'analytics',
   costing: 'costing',
+  profit: 'costing',
   expenses: 'expenses',
   payroll: 'payroll',
   settings: 'settings',
@@ -101,7 +105,9 @@ export function filterPermissionsByFeatures(
   return permissions.filter((p) => {
     const [mod] = p.split('.');
     if (!mod || mod === 'dashboard') return true;
-    return enabledSet.has(mod);
+    const feat = MODULE_TO_FEATURE[mod];
+    if (!feat) return true;
+    return enabledSet.has(feat);
   });
 }
 
@@ -269,12 +275,13 @@ export const PERMISSION_MODULES: PermissionModule[] = [
   },
   {
     id: 'costing',
-    name: 'Costing',
-    description: 'Menu, recipe, and inventory cost data',
+    name: 'Costing & Profit',
+    description: 'Menu, recipe, inventory cost data, and profit & loss',
     featureKey: 'costing',
     permissions: [
       { key: 'costing.view', name: 'View Costs', description: 'View menu and inventory cost information' },
       { key: 'costing.manage', name: 'Manage Costs', description: 'Update recipe and inventory costs' },
+      { key: 'profit.view', name: 'View Profit & Loss', description: 'Access monthly profit and loss financial statements' },
     ],
   },
   {
@@ -284,17 +291,19 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     featureKey: 'expenses',
     permissions: [
       { key: 'expenses.view', name: 'View Expenses', description: 'Browse business expense records and reports' },
-      { key: 'expenses.manage', name: 'Manage Expenses', description: 'Record and update company expense receipts' },
+      { key: 'expenses.create', name: 'Create Expenses', description: 'Submit new expense receipts and recurring templates' },
+      { key: 'expenses.manage', name: 'Manage Expenses', description: 'Approve, pay, and void expense records' },
     ],
   },
   {
     id: 'payroll',
     name: 'Payroll',
-    description: 'Employee wages, salaries, and payroll processing',
+    description: 'Employee wages, salaries, advances, and payroll processing',
     featureKey: 'payroll',
     permissions: [
-      { key: 'payroll.view', name: 'View Payroll', description: 'View salary sheets and employee payout history' },
-      { key: 'payroll.manage', name: 'Manage Payroll', description: 'Process salary payouts and wage calculations' },
+      { key: 'payroll.view', name: 'View Payroll', description: 'View salary sheets, time entries, and payslips' },
+      { key: 'payroll.manage', name: 'Manage Payroll', description: 'Edit payroll drafts, advances, and time entry corrections' },
+      { key: 'payroll.pay', name: 'Pay Payroll', description: 'Execute final payroll payout and generate salary expenses' },
     ],
   },
   {

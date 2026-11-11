@@ -820,6 +820,49 @@ async function main() {
     },
   });
 
+  // Seed default expense categories
+  const defaultCategories = [
+    { name: 'Electricity', isSystem: false },
+    { name: 'Gas', isSystem: false },
+    { name: 'Water', isSystem: false },
+    { name: 'Rent', isSystem: false },
+    { name: 'Internet & Phone', isSystem: false },
+    { name: 'Salaries', isSystem: true },
+    { name: 'Maintenance & Repairs', isSystem: false },
+    { name: 'Cleaning & Supplies', isSystem: false },
+    { name: 'Packaging', isSystem: false },
+    { name: 'Marketing', isSystem: false },
+    { name: 'Transport & Fuel', isSystem: false },
+    { name: 'Licences & Taxes', isSystem: false },
+    { name: 'Miscellaneous', isSystem: false },
+  ];
+
+  for (const cat of defaultCategories) {
+    await prisma.expenseCategory.upsert({
+      where: { restaurantId_name: { restaurantId: restaurant.id, name: cat.name } },
+      update: {},
+      create: {
+        restaurantId: restaurant.id,
+        name: cat.name,
+        isSystem: cat.isSystem,
+      },
+    });
+  }
+
+  // Seed payroll settings
+  await prisma.payrollSettings.upsert({
+    where: { restaurantId: restaurant.id },
+    update: {},
+    create: {
+      restaurantId: restaurant.id,
+      workdayHours: 8,
+      workdaysPerMonth: 26,
+      overtimeMultiplier: 1.5,
+      overtimeApprovalRequired: true,
+    },
+  });
+
+  console.log('✓ Expense categories and payroll settings seeded');
   console.log('✓ Platform Super Admin and Support accounts seeded');
   console.log('🎉 Database seeding complete!');
 }

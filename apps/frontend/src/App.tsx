@@ -36,6 +36,8 @@ import ForbiddenPage from './pages/ForbiddenPage';
 import CustomersPage from './pages/CustomersPage';
 import CostingPage from './pages/CostingPage';
 import DuesPage from './pages/DuesPage';
+import { ExpensesPage } from './pages/ExpensesPage';
+import { PayrollPage } from './pages/PayrollPage';
 
 // Platform Pages
 import PlatformLoginPage from './pages/PlatformLoginPage';
@@ -223,6 +225,8 @@ export const App: React.FC = () => {
     if (perms.has('inventory.view')) return '/inventory';
     if (perms.has('dues.view')) return '/dues';
     if (perms.has('costing.view')) return '/costing';
+    if (perms.has('expenses.view')) return '/expenses';
+    if (perms.has('payroll.view')) return '/payroll';
     if (perms.has('employees.view')) return '/employees';
     if (perms.has('roles.view') || perms.has('roles.manage')) return '/roles';
     if (perms.has('settings.manage')) return '/settings';
@@ -243,6 +247,8 @@ export const App: React.FC = () => {
   const canSeeCustomers = permsSet.has('customers.view') || permsSet.has('customers.manage');
   const canSeeDues = permsSet.has('dues.view');
   const canSeeCosting = permsSet.has('costing.view');
+  const canSeeExpenses = permsSet.has('expenses.view');
+  const canSeePayroll = permsSet.has('payroll.view');
   const canSeeEmployees = permsSet.has('employees.view');
   const canSeeRoles = permsSet.has('roles.view') || permsSet.has('roles.manage');
   const canSeeSettings = permsSet.has('settings.manage');
@@ -307,6 +313,10 @@ export const App: React.FC = () => {
         return '💳 Customer Dues & Receivables (Udhaar)';
       case '/costing':
         return '📊 Menu & Inventory Costing (COGS)';
+      case '/expenses':
+        return '💸 Operational Expenses & Bills';
+      case '/payroll':
+        return '💼 Employee Payroll & Compensation';
       case '/employees':
         return '👥 Staff Directory & Time Clock';
       case '/roles':
@@ -438,6 +448,20 @@ export const App: React.FC = () => {
               <NavLink to="/costing" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                 <span className="nav-icon">📊</span>
                 <span>Costing</span>
+              </NavLink>
+            )}
+
+            {canSeeExpenses && (
+              <NavLink to="/expenses" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">💸</span>
+                <span>Expenses</span>
+              </NavLink>
+            )}
+
+            {canSeePayroll && (
+              <NavLink to="/payroll" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">💼</span>
+                <span>Payroll</span>
               </NavLink>
             )}
 
@@ -752,6 +776,26 @@ export const App: React.FC = () => {
                   <RequireFeature feature="costing">
                     <RequirePermission permissions={['costing.view']}>
                       <CostingPage />
+                    </RequirePermission>
+                  </RequireFeature>
+                }
+              />
+              <Route
+                path="/expenses"
+                element={
+                  <RequireFeature feature="expenses">
+                    <RequirePermission permissions={['expenses.view']}>
+                      <ExpensesPage />
+                    </RequirePermission>
+                  </RequireFeature>
+                }
+              />
+              <Route
+                path="/payroll"
+                element={
+                  <RequireFeature feature="payroll">
+                    <RequirePermission permissions={['payroll.view']}>
+                      <PayrollPage />
                     </RequirePermission>
                   </RequireFeature>
                 }

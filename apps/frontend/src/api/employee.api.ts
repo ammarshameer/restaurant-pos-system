@@ -13,6 +13,10 @@ export interface Employee {
   roleName?: string;
   isOwner?: boolean;
   hourlyRate: number;
+  salaryType?: 'MONTHLY' | 'DAILY' | 'HOURLY';
+  monthlySalary?: number;
+  dailyRate?: number;
+  overtimeEligible?: boolean;
   pin?: string;
   phone?: string;
   isActive: boolean;
@@ -43,6 +47,10 @@ function mapEmployee(e: any): Employee {
     roleName: e.roleName || e.roleRecord?.name || e.role,
     isOwner: Boolean(e.isOwner || e.role === 'OWNER' || e.roleRecord?.isOwnerRole),
     hourlyRate: Number(e.hourlyRate || 0),
+    salaryType: e.salaryType,
+    monthlySalary: e.monthlySalary !== undefined ? Number(e.monthlySalary) : undefined,
+    dailyRate: e.dailyRate !== undefined ? Number(e.dailyRate) : undefined,
+    overtimeEligible: e.overtimeEligible !== undefined ? Boolean(e.overtimeEligible) : undefined,
     pin: e.pin,
     phone: e.phone,
     isActive: Boolean(e.isActive),

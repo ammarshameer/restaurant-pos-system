@@ -26,6 +26,8 @@ import settingRoutes from './routes/settings.routes';
 import customerRoutes from './routes/customer.routes';
 import costingRoutes from './routes/costing.routes';
 import duesRoutes from './routes/dues.routes';
+import expensesRoutes from './routes/expenses.routes';
+import payrollRoutes from './routes/payroll.routes';
 import { backupService } from './services/backup.service';
 import { migrateExistingBusinesses } from './services/feature.service';
 import { errorHandler } from './middleware/errorHandler';
@@ -188,6 +190,8 @@ app.use('/api/settings', authenticate, settingRoutes);
 app.use('/api/customers', authenticate, customerRoutes);
 app.use('/api/costing', authenticate, costingRoutes);
 app.use('/api/dues', authenticate, duesRoutes);
+app.use('/api/expenses', authenticate, expensesRoutes);
+app.use('/api/payroll', authenticate, payrollRoutes);
 
 // WebSocket setup
 setupWebSocket(io);

@@ -5,11 +5,18 @@ import {
   MenuCostItem,
   InventoryValuationResponse,
   CostingTransactionItem,
+  ProfitLossReport,
 } from '../api/costing.api';
 import { formatPKR } from '../utils/format';
+import { useSelector } from 'react-redux';
+import { RootState } from '../store/store';
 
 export const CostingPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'menu' | 'inventory' | 'transactions'>('overview');
+  const user = useSelector((state: RootState) => state.auth.user);
+  const perms = user?.permissions || [];
+  const canSeeProfit = Boolean(user?.isOwnerRole || user?.role === 'OWNER' || perms.includes('profit.view'));
+
+  const [activeTab, setActiveTab] = useState<'overview' | 'menu' | 'inventory' | 'transactions' | 'profit-loss'>('overview');
   const [dateRange, setDateRange] = useState<'today' | '7d' | '30d' | 'all'>('30d');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -21,6 +28,11 @@ export const CostingPage: React.FC = () => {
   const [transactions, setTransactions] = useState<CostingTransactionItem[]>([]);
   const [transPage, setTransPage] = useState(1);
   const [transTotal, setTransTotal] = useState(0);
+
+  // Profit & Loss state
+  const [pnlMonth, setPnlMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [pnlReport, setPnlReport] = useState<ProfitLossReport | null>(null);
+  const [pnlLoading, setPnlLoading] = useState<boolean>(false);
 
   useEffect(() => {
     const now = new Date();
@@ -44,9 +56,25 @@ export const CostingPage: React.FC = () => {
     }
   }, [dateRange]);
 
+  const loadPnl = async () => {
+    setPnlLoading(true);
+    try {
+      const res = await costingApi.profitLoss(pnlMonth);
+      setPnlReport(res);
+    } catch (err) {
+      console.error('Failed to load profit and loss:', err);
+    } finally {
+      setPnlLoading(false);
+    }
+  };
+
   useEffect(() => {
-    loadData();
-  }, [activeTab, startDate, endDate, transPage]);
+    if (activeTab === 'profit-loss') {
+      loadPnl();
+    } else {
+      loadData();
+    }
+  }, [activeTab, startDate, endDate, transPage, pnlMonth]);
 
   const loadData = async () => {
     setLoading(true);
@@ -163,6 +191,15 @@ export const CostingPage: React.FC = () => {
         >
           🧾 Order Margins
         </button>
+        {canSeeProfit && (
+          <button
+            className={`btn ${activeTab === 'profit-loss' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}
+            onClick={() => setActiveTab('profit-loss')}
+          >
+            📈 Monthly Profit & Loss
+          </button>
+        )}
       </div>
 
       {/* OVERVIEW TAB */}
@@ -435,6 +472,235 @@ export const CostingPage: React.FC = () => {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* PROFIT & LOSS TAB */}
+      {activeTab === 'profit-loss' && (
+        <div>
+          {/* Month selector & Refresh */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card, #1e293b)', padding: '16px 20px', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+            <div>
+              <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Reporting Month</label>
+              <input
+                type="month"
+                value={pnlMonth}
+                onChange={(e) => setPnlMonth(e.target.value)}
+                className="form-control"
+                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: '#fff' }}
+              />
+            </div>
+
+            <button
+              onClick={loadPnl}
+              disabled={pnlLoading}
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <span>🔄</span> {pnlLoading ? 'Computing...' : 'Refresh Statement'}
+            </button>
+          </div>
+
+          {pnlLoading ? (
+            <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Calculating monthly profit & loss statement...
+            </div>
+          ) : !pnlReport ? (
+            <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              No data available for month {pnlMonth}.
+            </div>
+          ) : (
+            <div>
+              {/* Financial KPI Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                <div style={{ background: 'var(--bg-card, #1e293b)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Net Revenue</div>
+                  <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '8px', color: '#f8fafc' }}>
+                    {formatPKR(pnlReport.summary.netSales)}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Gross: {formatPKR(pnlReport.summary.grossSales)}
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg-card, #1e293b)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: '13px', color: '#f87171', textTransform: 'uppercase' }}>Cost of Goods (COGS)</div>
+                  <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '8px', color: '#f87171' }}>
+                    {formatPKR(pnlReport.summary.cogs)}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Recipe & sale costs
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg-card, #1e293b)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: '13px', color: '#38bdf8', textTransform: 'uppercase' }}>Gross Profit</div>
+                  <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '8px', color: '#38bdf8' }}>
+                    {formatPKR(pnlReport.summary.grossProfit)}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#38bdf8', marginTop: '4px' }}>
+                    {pnlReport.summary.grossMarginPercent}% gross margin
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg-card, #1e293b)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: '13px', color: '#fbbf24', textTransform: 'uppercase' }}>Operating Expenses</div>
+                  <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '8px', color: '#fbbf24' }}>
+                    {formatPKR(pnlReport.summary.totalExpenses)}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Overheads & Payroll
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg-card, #1e293b)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: '13px', color: pnlReport.summary.netProfit >= 0 ? '#34d399' : '#f87171', textTransform: 'uppercase' }}>
+                    Net Profit / (Loss)
+                  </div>
+                  <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '8px', color: pnlReport.summary.netProfit >= 0 ? '#10b981' : '#ef4444' }}>
+                    {formatPKR(pnlReport.summary.netProfit)}
+                  </div>
+                  <div style={{ fontSize: '12px', color: pnlReport.summary.netProfit >= 0 ? '#10b981' : '#ef4444', marginTop: '4px' }}>
+                    {pnlReport.summary.netMarginPercent}% net margin
+                  </div>
+                </div>
+              </div>
+
+              {/* Two Column Layout: Income Statement & Balance / Cash Flow */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '20px' }}>
+                {/* Income Statement Table */}
+                <div style={{ background: 'var(--bg-card, #1e293b)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 16px 0', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
+                    📄 Income Statement ({pnlMonth})
+                  </h3>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '14px' }}>
+                    <div style={{ fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '12px', marginTop: '4px' }}>
+                      Revenue
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Gross Sales & Charges</span>
+                      <span style={{ fontWeight: 600 }}>{formatPKR(pnlReport.summary.grossSales)}</span>
+                    </div>
+                    {pnlReport.summary.discounts > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                        <span>Less: Discounts</span>
+                        <span>-{formatPKR(pnlReport.summary.discounts)}</span>
+                      </div>
+                    )}
+                    {pnlReport.summary.refunds > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                        <span>Less: Refunds</span>
+                        <span>-{formatPKR(pnlReport.summary.refunds)}</span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '6px' }}>
+                      <span>Net Sales</span>
+                      <span>{formatPKR(pnlReport.summary.netSales)}</span>
+                    </div>
+
+                    <div style={{ fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '12px', marginTop: '12px' }}>
+                      Cost of Goods Sold (COGS)
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: '#f87171' }}>
+                      <span>Food & Recipe Cost (costAtSale)</span>
+                      <span>-{formatPKR(pnlReport.summary.cogs)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '6px', color: '#38bdf8' }}>
+                      <span>Gross Profit ({pnlReport.summary.grossMarginPercent}%)</span>
+                      <span>{formatPKR(pnlReport.summary.grossProfit)}</span>
+                    </div>
+
+                    <div style={{ fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '12px', marginTop: '12px' }}>
+                      Operating Expenses
+                    </div>
+                    {pnlReport.expensesByCategory.length === 0 ? (
+                      <div style={{ fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        No non-voided paid expenses recorded this month.
+                      </div>
+                    ) : (
+                      pnlReport.expensesByCategory.map((cat) => (
+                        <div key={cat.categoryId} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>
+                            {cat.categoryName} {cat.isSystem && <span style={{ fontSize: '11px', color: '#c084fc' }}>[Payroll]</span>}
+                          </span>
+                          <span style={{ fontWeight: 600 }}>{formatPKR(cat.amount)}</span>
+                        </div>
+                      ))
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '6px', color: '#fbbf24' }}>
+                      <span>Total Operating Expenses</span>
+                      <span>-{formatPKR(pnlReport.summary.totalExpenses)}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '16px', borderTop: '2px solid var(--border-color)', paddingTop: '10px', marginTop: '8px', color: pnlReport.summary.netProfit >= 0 ? '#10b981' : '#ef4444' }}>
+                      <span>NET OPERATING PROFIT</span>
+                      <span>{formatPKR(pnlReport.summary.netProfit)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cash Flow vs Receivables & Labor Card */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {/* Cash vs Receivables */}
+                  <div style={{ background: 'var(--bg-card, #1e293b)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 16px 0', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
+                      💰 Cash Flow vs Customer Credit (Receivables)
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Total Cash Inflow Collected</span>
+                        <span style={{ fontWeight: 700, color: '#10b981' }}>{formatPKR(pnlReport.cashFlowVsDues.totalCashCollected)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)', paddingLeft: '12px' }}>
+                        <span>• Direct POS Order Payments</span>
+                        <span>{formatPKR(pnlReport.cashFlowVsDues.regularPayments)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)', paddingLeft: '12px' }}>
+                        <span>• Customer Dues / Udhaar Settlements</span>
+                        <span>{formatPKR(pnlReport.cashFlowVsDues.duesPaymentsCollected)}</span>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>New Credit / Udhaar Extended</span>
+                        <span style={{ fontWeight: 600, color: '#fbbf24' }}>{formatPKR(pnlReport.cashFlowVsDues.newCreditCharges)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Total Outstanding Customer Receivables</span>
+                        <span style={{ fontWeight: 700, color: '#f87171' }}>{formatPKR(pnlReport.cashFlowVsDues.totalOutstandingDues)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Real Payroll / Labor Details */}
+                  <div style={{ background: 'var(--bg-card, #1e293b)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: 800, margin: '0 0 16px 0', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
+                      💼 Real Payroll & Labor Cost Integration
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Month Payroll Run Status</span>
+                        <span className="badge badge-secondary">{pnlReport.payrollLabor.payrollRunStatus}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Real Labor Cost</span>
+                        <span style={{ fontWeight: 700, color: '#38bdf8' }}>{formatPKR(pnlReport.payrollLabor.realLaborCost)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Recorded in Salaries Expense</span>
+                        <span style={{ fontWeight: 600 }}>{formatPKR(pnlReport.payrollLabor.recordedSalariesExpense)}</span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        ℹ️ No double counting: Salaries come exclusively from finalized Payroll runs.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

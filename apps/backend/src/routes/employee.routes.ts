@@ -1,5 +1,6 @@
-import { Router } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { EmployeeService } from '../services/employee.service';
+import { redactSalaryIfUnauthorized, redactSalary } from '../services/salary-redaction.service';
 import {
   AuthRequest,
   getAuthenticatedRestaurantId,
@@ -8,6 +9,27 @@ import {
 
 const router = Router();
 const employeeService = new EmployeeService();
+
+// Automatically redact sensitive compensation/salary fields unless requester has payroll.view
+router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const originalJson = res.json.bind(res);
+  res.json = ((body: any) => {
+    try {
+      const restaurantId = getAuthenticatedRestaurantId(req);
+      void redactSalaryIfUnauthorized(restaurantId, body, req.user)
+        .then((redacted) => {
+          originalJson(redacted);
+        })
+        .catch(() => {
+          originalJson(redactSalary(body));
+        });
+    } catch {
+      originalJson(redactSalary(body));
+    }
+    return res;
+  }) as any;
+  next();
+});
 
 function hasManagePermission(req: AuthRequest): boolean {
   if (req.user?.isOwnerRole || req.user?.role === 'OWNER') return true;

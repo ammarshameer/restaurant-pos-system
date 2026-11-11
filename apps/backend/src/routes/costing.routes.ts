@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { CostingService } from '../services/costing.service';
+import { ProfitService } from '../services/profit.service';
 import {
   AuthRequest,
   getAuthenticatedRestaurantId,
@@ -9,6 +10,7 @@ import {
 
 const router = Router();
 const costingService = new CostingService();
+const profitService = new ProfitService();
 
 // Entire router is guarded by costing feature
 router.use(requireFeature('costing'));
@@ -59,6 +61,17 @@ router.get('/transactions', requirePermission('costing.view'), async (req: AuthR
       endDate,
     });
     res.json(transactions);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/profit-loss', requirePermission('profit.view'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const restaurantId = getAuthenticatedRestaurantId(req);
+    const month = String(req.query.month || new Date().toISOString().slice(0, 7));
+    const report = await profitService.getMonthlyProfitAndLoss(restaurantId, month);
+    res.json(report);
   } catch (error) {
     next(error);
   }

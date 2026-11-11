@@ -171,9 +171,11 @@ export const AnalyticsPage: React.FC = () => {
   const isOwner = Boolean(authUser?.isOwnerRole || authUser?.role === 'OWNER');
   const perms = authUser?.permissions || [];
   const canViewCosting = isOwner || perms.includes('costing.view');
+  const canViewPayroll = isOwner || perms.includes('payroll.view');
 
   const startDateStr = toInputDate(dateRangeBounds.start);
   const endDateStr = toInputDate(dateRangeBounds.end);
+  const monthStr = startDateStr.slice(0, 7) || new Date().toISOString().slice(0, 7);
 
   const { data: costingSummary } = useQuery<CostingSummary>({
     queryKey: ['costing-summary', startDateStr, endDateStr],
@@ -181,10 +183,19 @@ export const AnalyticsPage: React.FC = () => {
     enabled: Boolean(canViewCosting),
   });
 
+  const { data: pnlData } = useQuery({
+    queryKey: ['analytics-pnl-labor', monthStr],
+    queryFn: () => costingApi.profitLoss(monthStr),
+    enabled: Boolean(canViewCosting || canViewPayroll),
+  });
+
   const foodCost = canViewCosting && costingSummary ? costingSummary.cogs : null;
   const grossProfit = canViewCosting && costingSummary ? costingSummary.grossProfit : null;
   const foodCostPercent = canViewCosting && costingSummary ? costingSummary.foodCostPercent : null;
   const missingCostItems = canViewCosting && costingSummary?.missingCostItems ? costingSummary.missingCostItems : [];
+
+  const realLaborCost = pnlData?.payrollLabor?.realLaborCost ?? null;
+  const payrollRunStatus = pnlData?.payrollLabor?.payrollRunStatus ?? null;
 
   // Hourly Sales & Rush Hour Throughput (computed dynamically from filtered orders)
   const hourlySalesData: HourlyData[] = useMemo(() => {
@@ -689,6 +700,36 @@ export const AnalyticsPage: React.FC = () => {
               {canViewCosting
                 ? `${totalSales > 0 && grossProfit !== null ? ((grossProfit / totalSales) * 100).toFixed(1) : 0}% gross margin`
                 : 'Requires costing.view'}
+            </div>
+          </div>
+
+          {/* Card 5: Real Payroll Labor Cost */}
+          <div
+            className="metric-card"
+            style={{
+              borderTop: '4px solid #a855f7',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>💼 Real Payroll Labor</span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  background: 'rgba(168, 85, 247, 0.15)',
+                  color: '#c084fc',
+                  padding: '2px 7px',
+                  borderRadius: '9999px',
+                  fontWeight: 800,
+                }}
+              >
+                PAYROLL
+              </span>
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: canViewPayroll ? '#c084fc' : 'var(--text-muted)', marginTop: '8px' }}>
+              {canViewPayroll ? (realLaborCost !== null ? formatPKR(realLaborCost) : 'Loading...') : '🔒 Restricted'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 500 }}>
+              {canViewPayroll ? (payrollRunStatus ? `Run status: ${payrollRunStatus}` : 'Active monthly payroll') : 'Requires payroll.view'}
             </div>
           </div>
         </div>

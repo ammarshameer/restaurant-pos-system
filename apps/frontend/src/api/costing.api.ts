@@ -70,6 +70,43 @@ export interface CostingTransactionItem {
   itemCount: number;
 }
 
+export interface ProfitLossReport {
+  month: string;
+  currency: string;
+  summary: {
+    grossSales: number;
+    discounts: number;
+    refunds: number;
+    netSales: number;
+    cogs: number;
+    grossProfit: number;
+    grossMarginPercent: number;
+    totalExpenses: number;
+    netProfit: number;
+    netMarginPercent: number;
+    missingCostItemsCount: number;
+  };
+  expensesByCategory: Array<{
+    categoryId: string;
+    categoryName: string;
+    isSystem: boolean;
+    amount: number;
+  }>;
+  cashFlowVsDues: {
+    totalCashCollected: number;
+    regularPayments: number;
+    duesPaymentsCollected: number;
+    newCreditCharges: number;
+    totalOutstandingDues: number;
+  };
+  payrollLabor: {
+    recordedSalariesExpense: number;
+    payrollRunStatus: string;
+    realLaborCost: number;
+    payrollRunId: string | null;
+  };
+}
+
 export const costingApi = {
   summary: (startDate?: string, endDate?: string): Promise<CostingSummary> =>
     api.get('/costing/summary', { params: { startDate, endDate } }),
@@ -88,5 +125,8 @@ export const costingApi = {
     hasMore: boolean;
   }> =>
     api.get('/costing/transactions', { params }),
+
+  profitLoss: (month?: string): Promise<ProfitLossReport> =>
+    api.get('/costing/profit-loss', { params: { month } }),
 };
 

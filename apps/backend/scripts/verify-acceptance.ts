@@ -2635,14 +2635,409 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
-    // TEST 53: Verification Summary
+    // TEST 53: Overtime maths for monthly and hourly staff (Task 9)
+    // ------------------------------------------------------------------------
+    // Enable expenses and payroll modules for tenant A
+    await request(`/platform/restaurants/${tenantAId}/features`, {
+      method: 'PUT',
+      token: superAdminToken,
+      body: {
+        features: [
+          { key: 'expenses', enabled: true },
+          { key: 'payroll', enabled: true },
+        ],
+      },
+    });
+
+    // Configure payroll settings: 8h workday, 26 workdays, 1.5x overtime multiplier
+    await request('/payroll/settings', {
+      method: 'PUT',
+      token: tenantAOwnerToken,
+      body: {
+        workdayHours: 8,
+        workdaysPerMonth: 26,
+        overtimeMultiplier: 1.5,
+        overtimeApprovalRequired: false,
+      },
+    });
+
+    // Create a monthly staff employee
+    const monthlyEmp = await prisma.employee.create({
+      data: {
+        restaurantId: tenantAId,
+        firstName: 'Monthly',
+        lastName: 'Worker',
+        email: `monthly.${Date.now()}@example.com`,
+        username: `mworker_${Date.now()}`,
+        pin: '1234',
+        passwordHash: 'dummy_hash',
+        salaryType: 'MONTHLY',
+        monthlySalary: 52000,
+        overtimeEligible: true,
+        role: 'STAFF',
+      },
+    });
+
+    // Create an hourly staff employee
+    const hourlyEmp = await prisma.employee.create({
+      data: {
+        restaurantId: tenantAId,
+        firstName: 'Hourly',
+        lastName: 'Worker',
+        email: `hourly.${Date.now()}@example.com`,
+        username: `hworker_${Date.now()}`,
+        pin: '5678',
+        passwordHash: 'dummy_hash',
+        salaryType: 'HOURLY',
+        hourlyRate: 200,
+        overtimeEligible: true,
+        role: 'STAFF',
+      },
+    });
+
+    // Month for testing: 2026-06
+    const testMonth = '2026-06';
+    // Monthly employee worked 12 hours on 2026-06-10 (8 regular, 4 overtime)
+    // Monthly rate equivalent: 52000 / (26 * 8) = 250/hr
+    // Overtime pay: 4 * 250 * 1.5 = 1500. Gross = 52000 + 1500 = 53500.
+    await prisma.timeEntry.create({
+      data: {
+        employeeId: monthlyEmp.id,
+        clockIn: new Date('2026-06-10T09:00:00Z'),
+        clockOut: new Date('2026-06-10T21:00:00Z'),
+        hoursWorked: 12,
+        overtimeHours: 4,
+        overtimeApproved: true,
+      },
+    });
+
+    // Hourly employee worked 12 hours on 2026-06-11 (8 regular, 4 overtime)
+    // Regular pay: 8 * 200 = 1600.
+    // Overtime pay: 4 * 200 * 1.5 = 1200. Gross = 1600 + 1200 = 2800.
+    await prisma.timeEntry.create({
+      data: {
+        employeeId: hourlyEmp.id,
+        clockIn: new Date('2026-06-11T09:00:00Z'),
+        clockOut: new Date('2026-06-11T21:00:00Z'),
+        hoursWorked: 12,
+        overtimeHours: 4,
+        overtimeApproved: true,
+      },
+    });
+
+    const draftRes = await request('/payroll/runs', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { month: testMonth },
+    });
+
+    const mLine = draftRes.data?.lines?.find((l: any) => l.employeeId === monthlyEmp.id);
+    const hLine = draftRes.data?.lines?.find((l: any) => l.employeeId === hourlyEmp.id);
+
+    const test53Pass =
+      draftRes.status === 201 &&
+      mLine &&
+      mLine.base === 52000 &&
+      mLine.overtimeHours === 4 &&
+      mLine.overtimePay === 1500 &&
+      mLine.netPay === 53500 &&
+      hLine &&
+      hLine.base === 1600 &&
+      hLine.overtimeHours === 4 &&
+      hLine.overtimePay === 1200 &&
+      hLine.netPay === 2800;
+
+    logTest(
+      53,
+      'Overtime maths for monthly and hourly staff match formula (monthly hourly equivalent and hourly rate with multiplier)',
+      Boolean(test53Pass),
+      `Draft: ${draftRes.status}, Monthly net: ${mLine?.netPay} (expected 53500), Hourly net: ${hLine?.netPay} (expected 2800)`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 54: Advance recovery in payroll run and balance deduction (Task 9)
+    // ------------------------------------------------------------------------
+    const advRes = await request('/payroll/advances', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        employeeId: monthlyEmp.id,
+        amount: 10000,
+        monthlyInstalment: 4000,
+        disbursementDate: '2026-06-01',
+        reason: 'Emergency household expenses',
+      },
+    });
+
+    // Recalculate draft for 2026-06
+    const draftWithAdvRes = await request('/payroll/runs', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { month: testMonth },
+    });
+
+    const mLineWithAdv = draftWithAdvRes.data?.lines?.find((l: any) => l.employeeId === monthlyEmp.id);
+    const runId = draftWithAdvRes.data?.id;
+
+    // Finalize run
+    const finalizeRes = await request(`/payroll/runs/${runId}/finalize`, {
+      method: 'POST',
+      token: tenantAOwnerToken,
+    });
+
+    // Pay run
+    const payRes = await request(`/payroll/runs/${runId}/pay`, {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { paymentMethod: 'BANK_TRANSFER' },
+    });
+
+    // Check advance remaining balance in DB
+    const advAfter = await prisma.employeeAdvance.findUnique({
+      where: { id: advRes.data?.id },
+    });
+
+    const test54Pass =
+      advRes.status === 201 &&
+      mLineWithAdv?.advanceRecovered === 4000 &&
+      mLineWithAdv?.netPay === 49500 &&
+      finalizeRes.status === 200 &&
+      payRes.status === 200 &&
+      advAfter?.remainingAmount === 6000 &&
+      advAfter?.status === 'ACTIVE';
+
+    logTest(
+      54,
+      'Salary advance auto-recovers instalment in payroll run and updates advance remaining balance upon payout',
+      Boolean(test54Pass),
+      `Adv create: ${advRes.status}, Recovered: ${mLineWithAdv?.advanceRecovered}/4000, Net: ${mLineWithAdv?.netPay}/49500, Remaining: ${advAfter?.remainingAmount}/6000`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 55: Locked paid month creates Expense under Salaries and cannot be edited (Task 9)
+    // ------------------------------------------------------------------------
+    const payrollExpense = await prisma.expense.findFirst({
+      where: {
+        restaurantId: tenantAId,
+        source: 'PAYROLL',
+        billingPeriod: testMonth,
+        payrollLine: { employeeId: monthlyEmp.id },
+      },
+      include: { category: true },
+    });
+
+    const editPaidLineRes = await request(`/payroll/lines/${mLineWithAdv?.id}`, {
+      method: 'PATCH',
+      token: tenantAOwnerToken,
+      body: { bonus: 500 },
+    });
+
+    const repayRes = await request(`/payroll/runs/${runId}/pay`, {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { paymentMethod: 'CASH' },
+    });
+
+    const recomputePaidMonthRes = await request('/payroll/runs', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { month: testMonth },
+    });
+
+    const test55Pass =
+      payrollExpense !== null &&
+      payrollExpense.status === 'PAID' &&
+      payrollExpense.category.name === 'Salaries' &&
+      payrollExpense.amount === 49500 &&
+      editPaidLineRes.status === 400 &&
+      repayRes.status === 400 &&
+      recomputePaidMonthRes.status === 400;
+
+    logTest(
+      55,
+      'Paid payroll month creates locked Expense in Salaries, locks run against recalculation, re-payment and line edits',
+      Boolean(test55Pass),
+      `Salaries Expense: ${payrollExpense?.id} (amount: ${payrollExpense?.amount}), Edit line: ${editPaidLineRes.status}, Repay: ${repayRes.status}, Recalculate: ${recomputePaidMonthRes.status}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 56: Voiding an expense records reason/date and prevents voiding payroll expense (Task 9)
+    // ------------------------------------------------------------------------
+    const miscCat = await prisma.expenseCategory.findFirst({
+      where: { restaurantId: tenantAId, isSystem: false },
+    });
+
+    const manualExpRes = await request('/expenses', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        categoryId: miscCat?.id,
+        amount: 2500,
+        expenseDate: new Date().toISOString(),
+        payee: 'City Hardware Supplies',
+        note: 'Repair parts',
+        method: 'CASH',
+        status: 'PAID',
+      },
+    });
+
+    const voidRes = await request(`/expenses/${manualExpRes.data?.id}/void`, {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { reason: 'Order canceled and refunded by vendor' },
+    });
+
+    const voidPayrollRes = await request(`/expenses/${payrollExpense?.id}/void`, {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: { reason: 'Unauthorized void attempt' },
+    });
+
+    const salariesCat = await prisma.expenseCategory.findFirst({
+      where: { restaurantId: tenantAId, name: 'Salaries' },
+    });
+    const manualSalariesRes = await request('/expenses', {
+      method: 'POST',
+      token: tenantAOwnerToken,
+      body: {
+        categoryId: salariesCat?.id,
+        amount: 10000,
+        expenseDate: new Date().toISOString(),
+        source: 'MANUAL',
+      },
+    });
+
+    const test56Pass =
+      manualExpRes.status === 201 &&
+      voidRes.status === 200 &&
+      voidRes.data?.voidedAt !== null &&
+      voidRes.data?.voidReason === 'Order canceled and refunded by vendor' &&
+      voidPayrollRes.status === 400 &&
+      manualSalariesRes.status === 400;
+
+    logTest(
+      56,
+      'Voiding an expense records voidReason and voidedAt, while payroll expenses and manual entries to Salaries are rejected',
+      Boolean(test56Pass),
+      `Manual create: ${manualExpRes.status}, Void: ${voidRes.status}, Void payroll: ${voidPayrollRes.status}, Manual salary: ${manualSalariesRes.status}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 57: Salary fields hidden from staff without payroll.view (Task 9)
+    // ------------------------------------------------------------------------
+    const viewerStaff = await prisma.employee.create({
+      data: {
+        restaurantId: tenantAId,
+        firstName: 'Viewer',
+        lastName: 'Staff',
+        email: `viewer.${Date.now()}@example.com`,
+        username: `viewer_${Date.now()}`,
+        pin: '8833',
+        passwordHash: 'dummy_hash',
+        role: 'STAFF',
+      },
+    });
+
+    await prisma.employeePermission.create({
+      data: {
+        employeeId: viewerStaff.id,
+        permission: 'employees.view',
+        granted: true,
+      },
+    });
+
+    const t57ViewerLogin = await request('/auth/pin-login', {
+      method: 'POST',
+      body: { pin: '8833', tenantSlug: tenantASlug },
+    });
+    const t57ViewerToken = t57ViewerLogin.data?.accessToken;
+
+    // Request employee list as viewerStaff (who has employees.view but lacks payroll.view)
+    const viewerEmpRes = await request('/employees', { token: t57ViewerToken });
+    const rawViewerList = viewerEmpRes.data?.data || (Array.isArray(viewerEmpRes.data) ? viewerEmpRes.data : []);
+    const viewerMonthlyEmp = rawViewerList.find((e: any) => e.id === monthlyEmp.id);
+
+    // Request employee list as owner (who has payroll.view)
+    const ownerEmpRes = await request('/employees', { token: tenantAOwnerToken });
+    const rawOwnerList = ownerEmpRes.data?.data || (Array.isArray(ownerEmpRes.data) ? ownerEmpRes.data : []);
+    const ownerMonthlyEmp = rawOwnerList.find((e: any) => e.id === monthlyEmp.id);
+
+    const test57Pass =
+      viewerEmpRes.status === 200 &&
+      viewerMonthlyEmp &&
+      viewerMonthlyEmp.monthlySalary === undefined &&
+      viewerMonthlyEmp.salaryType === undefined &&
+      viewerMonthlyEmp.hourlyRate === undefined &&
+      viewerMonthlyEmp.overtimeEligible === undefined &&
+      ownerEmpRes.status === 200 &&
+      ownerMonthlyEmp &&
+      ownerMonthlyEmp.monthlySalary === 52000 &&
+      ownerMonthlyEmp.salaryType === 'MONTHLY';
+
+    logTest(
+      57,
+      'All salary and compensation fields are redacted from staff responses without payroll.view and present for authorized users',
+      Boolean(test57Pass),
+      `Viewer status: ${viewerEmpRes.status} (salary: ${viewerMonthlyEmp?.monthlySalary}), Owner status: ${ownerEmpRes.status} (salary: ${ownerMonthlyEmp?.monthlySalary})`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 58: Disabled module returns 403 for /expenses and /payroll (Task 9)
+    // ------------------------------------------------------------------------
+    const disableExpRes = await request(`/platform/restaurants/${tenantAId}/features`, {
+      method: 'PUT',
+      token: superAdminToken,
+      body: {
+        features: [{ key: 'expenses', enabled: false }],
+      },
+    });
+
+    const ownerExpensesRes = await request('/expenses', { token: tenantAOwnerToken });
+
+    const disablePayRes = await request(`/platform/restaurants/${tenantAId}/features`, {
+      method: 'PUT',
+      token: superAdminToken,
+      body: {
+        features: [{ key: 'payroll', enabled: false }],
+      },
+    });
+
+    const ownerPayrollRes = await request('/payroll/settings', { token: tenantAOwnerToken });
+
+    // Restore both modules
+    await request(`/platform/restaurants/${tenantAId}/features`, {
+      method: 'PUT',
+      token: superAdminToken,
+      body: {
+        features: [
+          { key: 'expenses', enabled: true },
+          { key: 'payroll', enabled: true },
+        ],
+      },
+    });
+
+    const test58Pass =
+      disableExpRes.status === 200 &&
+      ownerExpensesRes.status === 403 &&
+      disablePayRes.status === 200 &&
+      ownerPayrollRes.status === 403;
+
+    logTest(
+      58,
+      'Disabled expenses and payroll modules return 403 FORBIDDEN even for direct API calls by the business Owner',
+      Boolean(test58Pass),
+      `Expenses blocked: ${ownerExpensesRes.status} (expected 403), Payroll blocked: ${ownerPayrollRes.status} (expected 403)`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 59: Verification Summary
     // ------------------------------------------------------------------------
     const passedCount = results.filter((r) => r.passed).length;
     logTest(
-      53,
+      59,
       'All Acceptance Verification Criteria Met',
-      passedCount === 52,
-      `Passed ${passedCount} / 52 criteria (100% test pass rate)`
+      passedCount === 58,
+      `Passed ${passedCount} / 58 criteria (100% test pass rate)`
     );
 
   } catch (err: any) {
