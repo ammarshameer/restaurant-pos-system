@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store/store';
 import { loginSuccess } from '../store/slices/authSlice';
@@ -8,6 +9,7 @@ import { PALETTE_OPTIONS } from '../lib/themePalettes';
 
 export const SettingsPage: React.FC = () => {
   const dispatch = useDispatch();
+  const navigate = useNavigate();
   const { user } = useSelector((state: RootState) => state.auth);
 
   const [loading, setLoading] = useState(true);
@@ -201,6 +203,14 @@ export const SettingsPage: React.FC = () => {
         <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '14px' }}>
           Manage your restaurant details, staff login credentials, branding logo, theme palettes, and timezone.
         </p>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          style={{ marginTop: '10px' }}
+          onClick={() => navigate('/website-settings')}
+        >
+          🌐 Website & WhatsApp Orders
+        </button>
       </div>
 
       {/* Staff Login Business Code Banner */}

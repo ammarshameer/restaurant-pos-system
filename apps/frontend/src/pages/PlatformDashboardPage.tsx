@@ -56,6 +56,7 @@ const PRESET_MODULES: Record<'starter' | 'standard' | 'full', string[]> = {
     'costing',
     'expenses',
     'payroll',
+    'website',
   ],
 };
 
@@ -93,6 +94,7 @@ const MODULE_GROUPS = [
   {
     title: 'Analytics & Administration',
     modules: [
+      { key: 'website', name: 'Website & WhatsApp Orders', hint: 'Public menu page + WhatsApp ordering' },
       { key: 'analytics', name: 'Analytics & Reports', hint: 'Auto-enables orders' },
       { key: 'expenses', name: 'Business Expenses' },
       { key: 'settings', name: 'Store Settings', required: true },
@@ -1317,7 +1319,7 @@ export const PlatformDashboardPage: React.FC = () => {
                       fontWeight: 600,
                     }}
                   >
-                    Full (19 modules)
+                    Full (20 modules)
                   </button>
                 </div>
               </div>
@@ -1728,7 +1730,7 @@ export const PlatformDashboardPage: React.FC = () => {
                       fontWeight: 600,
                     }}
                   >
-                    Full (19 modules)
+                    Full (20 modules)
                   </button>
                 </div>
               </div>

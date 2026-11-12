@@ -1,5 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
+@tailwind components;
+@tailwind utilities;
+
 :root,
 [data-theme="dark"] {
   --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -117,6 +120,24 @@
   --shadow-card-hover: 0 8px 30px rgba(0, 0, 0, 0.12), 0 3px 6px rgba(0, 0, 0, 0.06);
   --shadow-glow: 0 0 20px var(--primary-glow);
 }
+
+/* ---- Public customer menu page (/m/:slug) helpers ---- */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.pub-food-pattern {
+  background-color: #241a10;
+  background-image:
+    radial-gradient(ellipse 60% 80% at 20% 10%, rgba(224,169,63,0.35), transparent 60%),
+    radial-gradient(ellipse 50% 70% at 85% 15%, rgba(248,146,60,0.22), transparent 60%),
+    radial-gradient(ellipse 70% 60% at 50% 110%, rgba(224,169,63,0.18), transparent 65%),
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.025) 0 2px, transparent 2px 14px),
+    repeating-linear-gradient(-45deg, rgba(255,255,255,0.02) 0 2px, transparent 2px 14px);
+}
+.pub-card-glow { transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.pub-card-glow:hover { border-color: var(--border-active); box-shadow: 0 8px 28px rgba(0,0,0,0.45), var(--shadow-glow); transform: translateY(-2px); }
+.pub-sheet-shadow { box-shadow: 0 -10px 40px rgba(0,0,0,0.6); }
+.pub-root[data-lang="ur"] { font-family: 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Outfit', Tahoma, serif; }
+.pub-root { font-family: var(--font-sans); }
 
 /* ==========================================================================
    PALETTES (8 Distinct Palettes layered on Dark / Light Mode)

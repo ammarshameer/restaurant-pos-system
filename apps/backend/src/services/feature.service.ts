@@ -42,6 +42,7 @@ export const MODULE_PRESETS = {
     'costing',
     'expenses',
     'payroll',
+    'website',
   ] as FeatureKey[],
 } as const;
 

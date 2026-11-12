@@ -119,6 +119,7 @@ export class OrderService {
     paymentStatus?: string;
     paymentMethod?: string;
     paymentClientId?: string;
+    source?: string;
     createdAt?: string | Date;
     items: Array<{
       menuItemId?: string;
@@ -365,6 +366,7 @@ export class OrderService {
         change: data.change || 0,
         status: initialStatus,
         paymentStatus: initialPaymentStatus,
+        source: (data.source as any) || 'POS',
         notes: data.notes || null,
         items: {
           create: orderItemsData,

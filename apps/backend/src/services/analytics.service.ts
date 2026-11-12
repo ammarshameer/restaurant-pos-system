@@ -61,8 +61,16 @@ export class AnalyticsService {
     let standaloneItemsSold = 0;
     let dealRevenue = 0;
     let standaloneRevenue = 0;
+    const sourceTotals: Record<string, { orders: number; revenue: number }> = {};
 
     orders.forEach((order) => {
+      const source = order.source === 'WEBSITE' ? 'WEBSITE' : 'POS';
+      const orderPaid = order.payments.reduce((pSum: number, payment: any) => pSum + Number(payment.amount), 0);
+      const orderRevenue = orderPaid > 0 ? orderPaid : Number(order.total);
+      if (!sourceTotals[source]) sourceTotals[source] = { orders: 0, revenue: 0 };
+      sourceTotals[source].orders += 1;
+      sourceTotals[source].revenue += orderRevenue;
+
       order.items.forEach((item) => {
         const itemQty = Number(item.quantity) || 1;
         const price = Number(item.unitPrice || item.price || item.deal?.price || item.menuItem?.price || 0);
@@ -88,6 +96,16 @@ export class AnalyticsService {
       standaloneItemsSold,
       dealRevenue: +dealRevenue.toFixed(2),
       standaloneRevenue: +standaloneRevenue.toFixed(2),
+      salesBySource: {
+        POS: {
+          orders: sourceTotals.POS?.orders || 0,
+          revenue: +(sourceTotals.POS?.revenue || 0).toFixed(2),
+        },
+        WEBSITE: {
+          orders: sourceTotals.WEBSITE?.orders || 0,
+          revenue: +(sourceTotals.WEBSITE?.revenue || 0).toFixed(2),
+        },
+      },
     };
   }
 

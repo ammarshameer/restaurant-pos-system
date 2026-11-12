@@ -132,6 +132,18 @@ export const AnalyticsPage: React.FC = () => {
   const totalOrders = filteredOrders.length;
   const avgOrderValue = totalOrders > 0 ? +(totalSales / totalOrders).toFixed(2) : 0;
 
+  // Sales split by source channel (POS terminal vs Website / WhatsApp orders)
+  const salesBySource = useMemo(() => {
+    let posOrders = 0; let posRevenue = 0;
+    let webOrders = 0; let webRevenue = 0;
+    filteredOrders.forEach((o: any) => {
+      const src = (o.source === 'WEBSITE' || o.source === 'website') ? 'WEBSITE' : 'POS';
+      if (src === 'WEBSITE') { webOrders++; webRevenue += Number(o.total) || 0; }
+      else { posOrders++; posRevenue += Number(o.total) || 0; }
+    });
+    return { posOrders, posRevenue, webOrders, webRevenue };
+  }, [filteredOrders]);
+
   // Commercial Revenue Streams (Deals vs Standalone Menu Items)
   const { dealRevenue, standaloneRevenue, dealsCount, standaloneCount } = useMemo(() => {
     let dRev = 0;
@@ -516,7 +528,21 @@ export const AnalyticsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Card 2: Deal Sales Revenue */}
+        {/* Card 2: Sales by Source (POS vs Website) */}
+        <div className="stat-card" style={{ borderLeft: '4px solid #3b82f6' }}>
+          <div className="stat-icon" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa' }}>
+            🖥️
+          </div>
+          <div>
+            <div className="stat-val" style={{ color: '#60a5fa' }}>{formatPKR(salesBySource.posRevenue)}</div>
+            <div className="stat-label">POS Sales ({salesBySource.posOrders} orders)</div>
+            <div className="stat-label" style={{ marginTop: '2px' }}>
+              🌐 Website: {formatPKR(salesBySource.webRevenue)} ({salesBySource.webOrders} orders)
+            </div>
+          </div>
+        </div>
+
+        {/* Card 3: Deal Sales Revenue */}
         <div className="stat-card" style={{ borderLeft: '4px solid var(--accent)' }}>
           <div className="stat-icon" style={{ background: 'rgba(var(--primary-rgb), 0.15)', color: 'var(--accent)' }}>
             🎁

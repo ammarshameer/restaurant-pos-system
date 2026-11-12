@@ -28,6 +28,9 @@ import costingRoutes from './routes/costing.routes';
 import duesRoutes from './routes/dues.routes';
 import expensesRoutes from './routes/expenses.routes';
 import payrollRoutes from './routes/payroll.routes';
+import publicRoutes from './routes/public.routes';
+import weborderRoutes from './routes/weborder.routes';
+import { expireStaleWebOrders, purgeOldWebOrders } from './services/weborder.service';
 import { backupService } from './services/backup.service';
 import { migrateExistingBusinesses } from './services/feature.service';
 import { errorHandler } from './middleware/errorHandler';
@@ -193,6 +196,11 @@ app.use('/api/dues', authenticate, duesRoutes);
 app.use('/api/expenses', authenticate, expensesRoutes);
 app.use('/api/payroll', authenticate, payrollRoutes);
 
+// Public (no-login) website ordering API — rate limited per IP inside the router
+app.use('/api/public', publicRoutes);
+// POS-side Website & WhatsApp Orders module (403 when the module is off)
+app.use('/api/weborders', authenticate, weborderRoutes);
+
 // WebSocket setup
 setupWebSocket(io);
 
@@ -237,6 +245,15 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 
   // Migrate any existing businesses to ensure full module availability
   migrateExistingBusinesses().catch((err) => console.error('Migration error:', err));
+
+  // Website order lifecycle: expire unaccepted orders and purge old data
+  const WEBORDER_SWEEP_MS = 60 * 1000;
+  setInterval(() => {
+    expireStaleWebOrders().catch((err) => console.warn('[WebOrder] expiry sweep failed:', err?.message));
+  }, WEBORDER_SWEEP_MS);
+  setInterval(() => {
+    purgeOldWebOrders().catch((err) => console.warn('[WebOrder] purge failed:', err?.message));
+  }, 6 * 60 * 60 * 1000); // every 6 hours
 
   // Perform automated startup database backup & start daily timer
   backupService.performBackup('startup');

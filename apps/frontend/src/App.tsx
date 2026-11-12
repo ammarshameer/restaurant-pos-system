@@ -38,6 +38,15 @@ import CostingPage from './pages/CostingPage';
 import DuesPage from './pages/DuesPage';
 import { ExpensesPage } from './pages/ExpensesPage';
 import { PayrollPage } from './pages/PayrollPage';
+import { OnlineOrdersPage } from './pages/OnlineOrdersPage';
+import { WebsiteSettingsPage } from './pages/WebsiteSettingsPage';
+import { PublicMenuPage } from './pages/public/PublicMenuPage';
+
+/**
+ * The Website & WhatsApp Orders module is cloud-only: it is hidden inside the
+ * Electron / offline desktop build where there is no public web presence.
+ */
+const IS_ELECTRON_BUILD = typeof (window as any).electronAPI !== 'undefined';
 
 // Platform Pages
 import PlatformLoginPage from './pages/PlatformLoginPage';
@@ -253,6 +262,21 @@ export const App: React.FC = () => {
   const canSeeRoles = permsSet.has('roles.view') || permsSet.has('roles.manage');
   const canSeeSettings = permsSet.has('settings.manage');
   const canSeeAnalytics = permsSet.has('analytics.view');
+  const canSeeWebsite =
+    !IS_ELECTRON_BUILD &&
+    (user?.features?.includes('website') ?? true) &&
+    (permsSet.has('weborders.view') || permsSet.has('weborders.manage') || permsSet.has('website.settings'));
+
+  // ============================================
+  // 0. PUBLIC MENU PAGE (no login — /m/:slug)
+  // ============================================
+  if (location.pathname.startsWith('/m/')) {
+    return (
+      <Routes>
+        <Route path="/m/:slug" element={<PublicMenuPage />} />
+      </Routes>
+    );
+  }
 
   // ============================================
   // 1. PLATFORM ROUTE HANDLING
@@ -325,6 +349,10 @@ export const App: React.FC = () => {
         return '⚙️ Business Profile & Store Settings';
       case '/analytics':
         return '📊 Analytics & Sales Reports';
+      case '/online-orders':
+        return '📥 Online Orders Inbox';
+      case '/website-settings':
+        return '🌐 Website & WhatsApp Orders';
       case '/forbidden':
         return '🔒 Access Restricted';
       default:
@@ -483,6 +511,20 @@ export const App: React.FC = () => {
               <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                 <span className="nav-icon">⚙️</span>
                 <span>Store Settings</span>
+              </NavLink>
+            )}
+
+            {canSeeWebsite && (
+              <NavLink to="/online-orders" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">📥</span>
+                <span>Online Orders</span>
+              </NavLink>
+            )}
+
+            {IS_ELECTRON_BUILD === false && permsSet.has('website.settings') && (
+              <NavLink to="/website-settings" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="nav-icon">🌐</span>
+                <span>Website & WhatsApp</span>
               </NavLink>
             )}
 
@@ -743,6 +785,22 @@ export const App: React.FC = () => {
                 element={
                   <RequirePermission permissions={['deals.view']}>
                     <DealsPage />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/online-orders"
+                element={
+                  <RequirePermission permissions={['weborders.view', 'weborders.manage']}>
+                    <OnlineOrdersPage />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/website-settings"
+                element={
+                  <RequirePermission permissions={['website.settings']}>
+                    <WebsiteSettingsPage />
                   </RequirePermission>
                 }
               />

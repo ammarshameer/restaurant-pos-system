@@ -40,6 +40,9 @@ export const PERMISSIONS = [
   'payroll.pay',
   'settings.manage',
   'backups.manage',
+  'weborders.view',
+  'weborders.manage',
+  'website.settings',
 ] as const;
 
 export const FEATURES = [
@@ -62,6 +65,7 @@ export const FEATURES = [
   'payroll',
   'settings',
   'backups',
+  'website',
 ] as const;
 
 export type FeatureKey = (typeof FEATURES)[number];
@@ -89,6 +93,8 @@ export const MODULE_TO_FEATURE: Record<string, FeatureKey | null> = {
   payroll: 'payroll',
   settings: 'settings',
   backups: 'backups',
+  weborders: 'website',
+  website: 'website',
 };
 
 export function getFeatureForPermission(permission: string): FeatureKey | null {
@@ -322,6 +328,17 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     featureKey: 'backups',
     permissions: [
       { key: 'backups.manage', name: 'Manage Backups', description: 'Trigger manual database backups and view logs' },
+    ],
+  },
+  {
+    id: 'website',
+    name: 'Website & WhatsApp Orders',
+    description: 'Public online menu, web orders inbox, and WhatsApp order handoff',
+    featureKey: 'website',
+    permissions: [
+      { key: 'weborders.view', name: 'View Online Orders', description: 'View the website order inbox and web order history' },
+      { key: 'weborders.manage', name: 'Manage Online Orders', description: 'Accept, reject, and fulfil incoming website orders' },
+      { key: 'website.settings', name: 'Manage Website Settings', description: 'Configure the public menu page, WhatsApp number, hours, and delivery settings' },
     ],
   },
 ];

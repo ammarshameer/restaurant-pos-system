@@ -35,6 +35,14 @@ export function validateLogo(logoUrl?: string | null): { valid: boolean; error?:
 
   // Check base64 byte size
   const base64Data = match[2];
+  // A base64 string whose length is 1 mod 4 cannot be decoded. This is the
+  // signature of an image that was previously truncated mid-payload.
+  if (base64Data.length % 4 === 1) {
+    return {
+      valid: false,
+      error: 'The image data is incomplete or corrupted. Please upload the image again.',
+    };
+  }
   const approximateBytes = Math.ceil((base64Data.length * 3) / 4);
   if (approximateBytes > MAX_LOGO_BYTES) {
     return {
