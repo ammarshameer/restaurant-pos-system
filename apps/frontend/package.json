@@ -5,8 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "lint": "eslint src --ext .ts,.tsx"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
@@ -27,7 +26,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/node": "^26.4.1",
+    "@types/node": "^20.11.19",
     "@types/react": "^18.2.56",
     "@types/react-beautiful-dnd": "^13.1.8",
     "@types/react-dom": "^18.2.19",

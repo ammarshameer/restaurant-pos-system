@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { io } from 'socket.io-client';
 import { getDevPlatformCredentials } from '../src/config/dev-credentials';
 import { normalizeTenantPins } from '../prisma/backfill-multi-tenant';
+import { FEATURES } from '../src/permissions';
 
 const prisma = new PrismaClient();
 
@@ -2576,7 +2577,7 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
-    // TEST 52: Super Admin Business Creation with Starter Preset Stores 19 Rows and Enforces Scoping
+    // TEST 52: Super Admin Business Creation with Starter Preset Stores 20 Rows (all modules) and Enforces Scoping
     // ------------------------------------------------------------------------
     const starterPreset = ['pos', 'tables', 'orders', 'payments', 'invoices', 'menu', 'kitchen', 'settings'];
     const starterRestRes = await request('/platform/restaurants', {
@@ -2612,7 +2613,7 @@ async function runAcceptanceTests() {
     const starterAnalyticsRes = await request('/analytics/sales', { token: starterToken });
     const starterDuesRes = await request('/dues', { token: starterToken });
 
-    // DB verification: 19 TenantFeature rows exist
+    // DB verification: 20 TenantFeature rows exist (one per module in FEATURES)
     const dbFeatureCount = await prisma.tenantFeature.count({
       where: { restaurantId: starterTenantId },
     });
@@ -2623,15 +2624,15 @@ async function runAcceptanceTests() {
       starterMenuRes.status === 200 &&
       starterAnalyticsRes.status === 403 &&
       starterDuesRes.status === 403 &&
-      dbFeatureCount === 19 &&
+      dbFeatureCount === FEATURES.length &&
       starterUser.features.includes('pos') &&
       !starterUser.features.includes('analytics');
 
     logTest(
       52,
-      'Super Admin business creation with module presets records 19 module rows and limits Owner to enabled modules',
+      'Super Admin business creation with module presets records one row per module and limits Owner to enabled modules',
       test52Pass,
-      `Created: ${starterRestRes.status}, DB rows: ${dbFeatureCount}/19, Enabled menu: ${starterMenuRes.status}, Disabled analytics: ${starterAnalyticsRes.status}, Disabled dues: ${starterDuesRes.status}`
+      `Created: ${starterRestRes.status}, DB rows: ${dbFeatureCount}/${FEATURES.length}, Enabled menu: ${starterMenuRes.status}, Disabled analytics: ${starterAnalyticsRes.status}, Disabled dues: ${starterDuesRes.status}`
     );
 
     // ------------------------------------------------------------------------
