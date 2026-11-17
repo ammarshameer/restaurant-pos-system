@@ -3,8 +3,7 @@ import './config/secrets';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import path from 'path';
-import fs from 'fs';
+import * as Sentry from '@sentry/node';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { PrismaClient } from '@prisma/client';
@@ -16,9 +15,7 @@ import employeeRoutes from './routes/employee.routes';
 import inventoryRoutes from './routes/inventory.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import paymentRoutes from './routes/payment.routes';
-import backupRoutes from './routes/backup.routes';
 import dealRoutes from './routes/deal.routes';
-import syncRoutes from './routes/sync.routes';
 import platformRoutes from './routes/platform.routes';
 import permissionRoutes from './routes/permission.routes';
 import roleRoutes from './routes/roles.routes';
@@ -31,18 +28,29 @@ import payrollRoutes from './routes/payroll.routes';
 import publicRoutes from './routes/public.routes';
 import weborderRoutes from './routes/weborder.routes';
 import { expireStaleWebOrders, purgeOldWebOrders } from './services/weborder.service';
-import { backupService } from './services/backup.service';
 import { migrateExistingBusinesses } from './services/feature.service';
 import { errorHandler } from './middleware/errorHandler';
+import { requestLogger } from './middleware/requestLogger';
 import { authenticate } from './middleware/auth';
 import { setupWebSocket } from './websocket';
+
+const PROCESS_STARTED_AT = new Date();
+
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    // Never attach request bodies or user identifiers to reported events.
+    sendDefaultPii: false,
+    integrations: [Sentry.expressIntegration()],
+  });
+  console.log('✓ Error tracking enabled');
+}
 
 const app = express();
 const httpServer = createServer(app);
 
 // Frontend origins allowed by CORS.
-// FRONTEND_URL may hold a single origin or a comma-separated list, e.g.
-// FRONTEND_URL="https://dimlight-cafe.vercel.app,https://pos.gsmpilot.com"
 const envOrigins = (process.env.FRONTEND_URL || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -64,7 +72,7 @@ const allowedOrigins = [
 const io = new Server(httpServer, {
   cors: {
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, electron file:// or same-origin)
+      // Requests without an origin include server-to-server calls and curl.
       if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
         return callback(null, true);
       }
@@ -74,32 +82,19 @@ const io = new Server(httpServer, {
   },
 });
 
-// Dynamic Prisma initialization with support for app.getPath('userData') database location
-const dbUrl = process.env.DATABASE_URL;
-if (dbUrl) {
-  const safeDbUrl = dbUrl.replace(/:\/\/([^:]+):[^@]*@/, '://$1:***@');
-  console.log(`📦 Prisma connecting to: ${safeDbUrl}`);
-}
-export const prisma = new PrismaClient(
-  dbUrl
-    ? {
-        datasources: {
-          db: {
-            url: dbUrl,
-          },
-        },
-      }
-    : undefined
-);
+export const prisma = new PrismaClient();
 
 // Production Environment Hardening Check
 if (process.env.NODE_ENV === 'production') {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'restaurant-pos-super-secret-jwt-key-change-in-production') {
     console.warn(`⚠️ [SECURITY WARNING] Insecure default JWT_SECRET detected in production environment! Please set a strong, random JWT_SECRET.`);
   }
+  if (!process.env.TURNSTILE_SECRET_KEY) {
+    console.warn('⚠️ [SECURITY WARNING] TURNSTILE_SECRET_KEY is missing in production. Public online orders will be refused until human verification is configured.');
+  }
 }
 
-// Trust proxy for Render / Railway / reverse proxies
+// Trust proxy for cloud hosting / reverse proxies
 app.set('trust proxy', 1);
 
 // Middleware
@@ -111,7 +106,7 @@ app.use(
 );
 
 const isOriginAllowed = (origin: string | undefined): boolean => {
-  if (!origin) return true; // Electron, mobile apps, local file://, curl, server-to-server
+  if (!origin) return true; // Server-to-server, curl, mobile clients
   if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) return true;
   // Allow any local dev server, including IPv6 localhost and HTTPS dev servers.
   if (process.env.NODE_ENV !== 'production' &&
@@ -136,27 +131,18 @@ app.use(
 
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
+app.use(requestLogger);
 
-// Lightweight structured request logger for cloud debugging
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    const authRestId = (req as any).user?.restaurantId || (req as any).restaurantId || '-';
-    if (!req.path.startsWith('/health') && !req.path.startsWith('/socket.io')) {
-      console.log(`[HTTP] ${req.method} ${req.path} -> ${res.statusCode} (${duration}ms) [Tenant: ${authRestId}]`);
-    }
-  });
-  next();
-});
-
-// Health check endpoint for Render/Railway/Electron polling
+// Health check endpoint for uptime monitoring
 const handleHealthCheck = async (req: express.Request, res: express.Response) => {
   try {
+    await prisma.$queryRaw`SELECT 1`;
     res.json({
       status: 'ok',
-      mode: process.env.DATABASE_PROVIDER || (process.env.DATABASE_URL?.startsWith('postgres') ? 'online-postgres' : 'offline-sqlite'),
+      mode: 'postgresql',
       dbConnected: true,
+      uptimeSeconds: Math.floor(process.uptime()),
+      startedAt: PROCESS_STARTED_AT.toISOString(),
       timestamp: new Date().toISOString(),
       env: process.env.NODE_ENV || 'development',
     });
@@ -164,8 +150,11 @@ const handleHealthCheck = async (req: express.Request, res: express.Response) =>
     console.error('[Health Check DB Error]', dbErr.message);
     res.status(503).json({
       status: 'degraded',
+      mode: 'postgresql',
       dbConnected: false,
-      error: dbErr.message,
+      uptimeSeconds: Math.floor(process.uptime()),
+      startedAt: PROCESS_STARTED_AT.toISOString(),
+      error: dbErr instanceof Error ? dbErr.message : 'Database check failed',
       timestamp: new Date().toISOString(),
     });
   }
@@ -185,9 +174,7 @@ app.use('/api/employees', authenticate, employeeRoutes);
 app.use('/api/inventory', authenticate, inventoryRoutes);
 app.use('/api/analytics', authenticate, analyticsRoutes);
 app.use('/api/payments', authenticate, paymentRoutes);
-app.use('/api/backups', backupRoutes);
 app.use('/api/deals', authenticate, dealRoutes);
-app.use('/api/sync', authenticate, syncRoutes);
 app.use('/api/roles', authenticate, roleRoutes);
 app.use('/api/settings', authenticate, settingRoutes);
 app.use('/api/customers', authenticate, customerRoutes);
@@ -204,72 +191,30 @@ app.use('/api/weborders', authenticate, weborderRoutes);
 // WebSocket setup
 setupWebSocket(io);
 
-// Static frontend serving for Electron / Production
-const candidateFrontendPaths = [
-  process.env.FRONTEND_DIST_PATH,
-  path.join(__dirname, '../../frontend/dist'),
-  path.join(__dirname, '../frontend/dist'),
-  path.join(process.cwd(), 'apps/frontend/dist'),
-  path.join(process.cwd(), 'frontend/dist'),
-].filter(Boolean) as string[];
-
-let resolvedFrontendDist: string | null = null;
-for (const p of candidateFrontendPaths) {
-  if (fs.existsSync(p) && fs.existsSync(path.join(p, 'index.html'))) {
-    resolvedFrontendDist = p;
-    break;
-  }
-}
-
-if (resolvedFrontendDist) {
-  console.log(`🌐 Serving static frontend assets from: ${resolvedFrontendDist}`);
-  app.use(express.static(resolvedFrontendDist));
-
-  // SPA fallback for all non-API GET requests
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/socket.io') || req.path.startsWith('/health')) {
-      return next();
-    }
-    res.sendFile(path.join(resolvedFrontendDist!, 'index.html'));
-  });
-}
-
-// Error handling middleware
+// Error handling middleware (Sentry first, then our JSON responder)
+app.use(Sentry.expressErrorHandler());
 app.use(errorHandler);
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
 httpServer.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Restaurant POS Backend running on http://127.0.0.1:${PORT}`);
+  console.log(`🚀 Restaurant POS Backend running on http://0.0.0.0:${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
 
   // Migrate any existing businesses to ensure full module availability
   migrateExistingBusinesses().catch((err) => console.error('Migration error:', err));
 
   // Website order lifecycle: expire unaccepted orders and purge old data
-  const WEBORDER_SWEEP_MS = 60 * 1000;
   setInterval(() => {
     expireStaleWebOrders().catch((err) => console.warn('[WebOrder] expiry sweep failed:', err?.message));
-  }, WEBORDER_SWEEP_MS);
+  }, 60 * 1000);
   setInterval(() => {
     purgeOldWebOrders().catch((err) => console.warn('[WebOrder] purge failed:', err?.message));
-  }, 6 * 60 * 60 * 1000); // every 6 hours
-
-  // Perform automated startup database backup & start daily timer
-  backupService.performBackup('startup');
-  backupService.startDailyTimer();
+  }, 6 * 60 * 60 * 1000);
 });
 
-// Graceful shutdown helper
 const gracefulShutdown = async (signal: string) => {
   console.log(`\n🛑 ${signal} received: closing database & HTTP server...`);
-  
-  // Trigger backup automatically on clean app shutdown
-  try {
-    backupService.performBackup('clean shutdown');
-  } catch (backupErr) {
-    console.error('Error during shutdown backup:', backupErr);
-  }
 
   try {
     await prisma.$disconnect();
@@ -283,7 +228,6 @@ const gracefulShutdown = async (signal: string) => {
     process.exit(0);
   });
 
-  // Force shutdown if not closed within 3 seconds
   setTimeout(() => {
     console.error('⚠️ Forcefully terminating server process');
     process.exit(1);
@@ -292,10 +236,5 @@ const gracefulShutdown = async (signal: string) => {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('message', (msg) => {
-  if (msg === 'shutdown') {
-    gracefulShutdown('IPC shutdown');
-  }
-});
 
 export { io };

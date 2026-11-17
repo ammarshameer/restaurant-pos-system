@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers deploying the Restaurant POS system to production for offline/local network and cloud POS environments.
+This guide covers deploying the Restaurant POS system to production as an online-only web application. An internet connection and PostgreSQL are required.
 
 ## Overview
 

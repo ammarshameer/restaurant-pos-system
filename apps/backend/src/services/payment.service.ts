@@ -53,7 +53,7 @@ export class PaymentService {
         throw new Error('Order not found or unauthorized');
       }
 
-      // Idempotency: an offline replay carries the same clientId. Return the
+      // Idempotency: a retried request carries the same clientId. Return the
       // original payment instead of charging the customer twice.
       if (data.clientId) {
         const existingPayment = await tx.payment.findFirst({
@@ -117,7 +117,7 @@ export class PaymentService {
             amount: paymentAmount,
             tipAmount: data.tipAmount || 0,
             method: data.method || 'CASH',
-            status: 'COMPLETED', // Cash/offline payments in POS are settled immediately
+            status: 'COMPLETED', // Cash payments in POS are settled immediately
             splitNumber: data.splitNumber,
             transactionId: data.transactionId || `CASH-${Date.now().toString().slice(-6)}`,
             processedAt: new Date(),

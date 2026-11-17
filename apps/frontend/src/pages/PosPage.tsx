@@ -12,7 +12,7 @@ import { orderApi } from '../api/order.api';
 import { dealApi } from '../api/deal.api';
 import { Deal } from '../types/deal.types';
 import { getCategoryVisual } from '../utils/image';
-import { uuid } from '../lib/offline/id';
+import { uuid } from '../lib/id';
 import { customerApi, Customer } from '../api/customer.api';
 import { paymentApi } from '../api/payment.api';
 import CustomerPicker, { CustomerPickerValue } from '../components/CustomerPicker';
@@ -20,10 +20,8 @@ import CustomerPicker, { CustomerPickerValue } from '../components/CustomerPicke
 export type OrderType = 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY';
 
 /**
- * Generates a locally-unique, human-friendly order number. A persistent
- * counter keeps numbers from colliding between consecutive offline orders on
- * the same terminal; the server remains authoritative and will reassign if
- * two terminals happen to produce the same number.
+ * Generates a human-friendly order number. The server remains authoritative
+ * and reassigns the number if it is already in use for this business.
  */
 function nextLocalOrderNumber(): number {
   try {

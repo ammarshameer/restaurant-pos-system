@@ -4,14 +4,12 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from './store/store';
 import { logout, loginSuccess, updateUserPreferences } from './store/slices/authSlice';
 import { setMenuItems } from './store/slices/menuSlice';
-import { setOrders, updateOrder } from './store/slices/orderSlice';
+import { setOrders } from './store/slices/orderSlice';
 import { menuApi } from './api/menu.api';
-import { orderApi, mapOrderRecord } from './api/order.api';
+import { orderApi } from './api/order.api';
 import { socketClient } from './lib/socket';
-import { syncEngine } from './lib/offline/syncEngine';
 import { clearSession, exitSupportMode, getRefreshToken, getPlatformAccessToken, isSupportMode } from './lib/session';
 import { api } from './lib/api';
-import SyncStatusIndicator from './components/SyncStatusIndicator';
 import RequirePermission from './components/RequirePermission';
 import RequireFeature from './components/RequireFeature';
 import { settingsApi } from './api/settings.api';
@@ -41,12 +39,6 @@ import { PayrollPage } from './pages/PayrollPage';
 import { OnlineOrdersPage } from './pages/OnlineOrdersPage';
 import { WebsiteSettingsPage } from './pages/WebsiteSettingsPage';
 import { PublicMenuPage } from './pages/public/PublicMenuPage';
-
-/**
- * The Website & WhatsApp Orders module is cloud-only: it is hidden inside the
- * Electron / offline desktop build where there is no public web presence.
- */
-const IS_ELECTRON_BUILD = typeof (window as any).electronAPI !== 'undefined';
 
 // Platform Pages
 import PlatformLoginPage from './pages/PlatformLoginPage';
@@ -119,13 +111,6 @@ export const App: React.FC = () => {
     };
   }, [themeMenuOpen]);
 
-  useEffect(() => {
-    const getVersion = window.electronAPI?.getVersion;
-    if (getVersion) {
-      void getVersion().then(setAppVersion).catch(() => undefined);
-    }
-  }, []);
-
   const handleSelectThemeMode = (mode: 'dark' | 'light') => {
     setTheme(mode);
     dispatch(updateUserPreferences({ themeMode: mode }));
@@ -148,17 +133,6 @@ export const App: React.FC = () => {
         clearSession();
       }
     }
-  }, [dispatch, isAuthenticated]);
-
-  // Start offline sync engine for tenant orders
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    void syncEngine.init();
-    const unsubscribe = syncEngine.onServerOrder(({ serverOrder }) => {
-      if (!serverOrder) return;
-      dispatch(updateOrder(mapOrderRecord(serverOrder)));
-    });
-    return () => unsubscribe();
   }, [dispatch, isAuthenticated]);
 
   // Hydrate Menu Items & Orders ONLY when authenticated
@@ -263,7 +237,6 @@ export const App: React.FC = () => {
   const canSeeSettings = permsSet.has('settings.manage');
   const canSeeAnalytics = permsSet.has('analytics.view');
   const canSeeWebsite =
-    !IS_ELECTRON_BUILD &&
     (user?.features?.includes('website') ?? true) &&
     (permsSet.has('weborders.view') || permsSet.has('weborders.manage') || permsSet.has('website.settings'));
 
@@ -521,7 +494,7 @@ export const App: React.FC = () => {
               </NavLink>
             )}
 
-            {IS_ELECTRON_BUILD === false && permsSet.has('website.settings') && (
+            {permsSet.has('website.settings') && (
               <NavLink to="/website-settings" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                 <span className="nav-icon">🌐</span>
                 <span>Website & WhatsApp</span>
@@ -738,7 +711,6 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              <SyncStatusIndicator />
             </div>
           </header>
 

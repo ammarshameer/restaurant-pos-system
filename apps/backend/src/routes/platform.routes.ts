@@ -1,5 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
+import fs from 'fs';
+import path from 'path';
+import archiver from 'archiver';
 import { PlatformService } from '../services/platform.service';
 import {
   authenticatePlatform,
@@ -343,6 +346,47 @@ router.get(
 
       const logs = await platformService.getAuditLogs({ page, limit, restaurantId, action });
       res.json(logs);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Platform Super Admin export: download current database backups as a ZIP.
+// Only dump files from BACKUP_DIR are included — never env files or secrets.
+router.get(
+  '/backups/export',
+  authorizePlatform(['SUPER_ADMIN']),
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const backupDir = path.resolve(process.env.BACKUP_DIR || '/var/backups/restaurant-pos');
+      const prefix = process.env.BACKUP_PREFIX || 'restaurant-pos';
+      if (!fs.existsSync(backupDir)) {
+        return res.status(404).json({ error: 'No backups directory is configured on the server.' });
+      }
+
+      const fileNames = fs
+        .readdirSync(backupDir)
+        .filter((name) => name.startsWith(`${prefix}-`) && name.endsWith('.sql.gz'))
+        .filter((name) => fs.statSync(path.join(backupDir, name)).isFile())
+        .sort()
+        .reverse();
+
+      if (fileNames.length === 0) {
+        return res.status(404).json({ error: 'No backups are available yet.' });
+      }
+
+      const date = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${prefix}-backups-${date}.zip"`);
+
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      archive.on('error', (error) => next(error));
+      archive.pipe(res);
+      for (const name of fileNames) {
+        archive.file(path.join(backupDir, name), { name });
+      }
+      await archive.finalize();
     } catch (error) {
       next(error);
     }

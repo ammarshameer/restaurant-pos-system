@@ -44,8 +44,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   const [loadingPrinters, setLoadingPrinters] = useState(false);
   const [printerError, setPrinterError] = useState<string | null>(null);
   const [renderMode, setRenderMode] = useState<PrintRenderMode>(readRenderMode);
-  const androidBrowser = /Android/i.test(navigator.userAgent) && !window.electronAPI;
-  const hostPlatform = window.electronAPI?.platform ||
+  const androidBrowser = /Android/i.test(navigator.userAgent);
+  const hostPlatform =
     (/Windows/i.test(navigator.userAgent)
       ? 'win32'
       : /Linux/i.test(navigator.userAgent)

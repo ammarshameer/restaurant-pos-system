@@ -19,7 +19,7 @@ import {
   buildWhatsAppUrl,
   buildWhatsAppMessage,
 } from '../services/weborder.service';
-import { normalizePhone } from '../utils/phone';
+import { normalizePhone, PHONE_FORMAT_ERROR } from '../utils/phone';
 
 const router = Router();
 
@@ -73,7 +73,7 @@ router.post(
       if (!settings) return res.status(404).json({ error: 'Restaurant not found' });
       const digits = normalizePhone(String(settings.whatsappNumber || req.body?.number || ''));
       if (!digits) {
-        return res.status(400).json({ error: 'Set a valid WhatsApp number first (e.g. 0300 1234567)' });
+        return res.status(400).json({ error: `Set a valid WhatsApp number first. ${PHONE_FORMAT_ERROR}` });
       }
       const url = buildWhatsAppUrl(
         digits,

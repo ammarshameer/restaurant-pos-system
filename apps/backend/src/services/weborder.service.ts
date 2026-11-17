@@ -1,5 +1,5 @@
 import { PrismaClient, Prisma } from '@prisma/client';
-import { normalizePhone, digitsOnly } from '../utils/phone';
+import { normalizePhone, digitsOnly, PHONE_FORMAT_ERROR } from '../utils/phone';
 import { validateLogo } from '../utils/validateLogo';
 
 const prisma = new PrismaClient();
@@ -30,7 +30,7 @@ const RESERVED_SLUGS = new Set([
   'm', 'www', 'pos', 'kitchen', 'orders', 'order', 'menu', 'settings', 'platform',
   'dashboard', 'invoices', 'payments', 'employees', 'customers', 'inventory',
   'deals', 'roles', 'analytics', 'expenses', 'payroll', 'dues', 'costing',
-  'backups', 'health', 'socket.io', 'static', 'assets', 'new', 'null', 'undefined',
+  'health', 'socket.io', 'static', 'assets', 'new', 'null', 'undefined',
 ]);
 
 export interface SlugValidation {
@@ -228,7 +228,7 @@ export function quoteItems(
       unitPrice: unitPrice + modifierTotal,
       lineTotal,
       modifiers: quotedModifiers,
-      notes: sanitizeText(ci.notes, 200),
+      notes: sanitizeText(ci.notes, 200, { maxLineBreaks: MAX_NOTE_LINE_BREAKS }),
     });
   }
 
@@ -242,15 +242,38 @@ export function quoteItems(
 // TEXT SANITIZATION
 // ============================================
 
-/** Strip control characters and clamp length for any customer-provided text. */
-export function sanitizeText(input: unknown, maxLen: number): string | null {
+/** Notes may span a few lines; names, addresses and other fields may not. */
+export const MAX_NOTE_LINE_BREAKS = 3;
+
+export interface SanitizeTextOptions {
+  /** Maximum line breaks to keep (default 3). 0 collapses them into spaces. */
+  maxLineBreaks?: number;
+}
+
+/**
+ * Strip control characters and clamp length for any customer-provided text.
+ * Multi-line notes keep up to three line breaks; single-line fields such as
+ * customer names and addresses pass maxLineBreaks: 0 to collapse them.
+ */
+export function sanitizeText(
+  input: unknown,
+  maxLen: number,
+  options: SanitizeTextOptions = {}
+): string | null {
   if (input === undefined || input === null) return null;
   const s = String(input)
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/\r\n?/g, '\n')
     .trim();
   if (!s) return null;
-  return s.slice(0, maxLen);
+
+  const maxLineBreaks = options.maxLineBreaks ?? MAX_NOTE_LINE_BREAKS;
+  const cleaned = maxLineBreaks > 0
+    ? s.split('\n').map((line) => line.trim()).slice(0, maxLineBreaks + 1).join('\n')
+    : s.replace(/\n/g, ' ').replace(/[ \t]+/g, ' ').trim();
+  if (!cleaned) return null;
+  return cleaned.slice(0, maxLen);
 }
 
 /**
@@ -303,7 +326,7 @@ export async function checkPhoneSpam(restaurantId: string, phone: string): Promi
 
 const rs = (n: number) => `Rs ${Math.round(n * 100) / 100}`;
 
-export function buildWhatsAppMessage(opts: {
+export interface WhatsAppMessageOptions {
   reference: string;
   businessName: string;
   items: QuotedItem[];
@@ -318,7 +341,9 @@ export function buildWhatsAppMessage(opts: {
   lng?: number | null;
   paymentNote?: string | null;
   notes?: string | null;
-}): string {
+}
+
+export function buildWhatsAppMessage(opts: WhatsAppMessageOptions): string {
   const lines: string[] = [];
   lines.push(`New order ${opts.reference} - ${opts.businessName}`);
   for (const item of opts.items) {
@@ -357,6 +382,87 @@ export function formatPhoneDisplayForMessage(digits: string): string {
 
 export function buildWhatsAppUrl(phoneDigits: string, message: string): string {
   return `https://wa.me/${digitsOnly(phoneDigits)}?text=${encodeURIComponent(message)}`;
+}
+
+/** wa.me links longer than this are unreliable on some phones / WhatsApp clients. */
+export const MAX_WHATSAPP_URL_LENGTH = 1800;
+
+/** Compact message used when a full order would produce an over-long wa.me link. */
+export function buildShortWhatsAppMessage(opts: {
+  reference: string;
+  businessName: string;
+  items: QuotedItem[];
+  total: number;
+  customerName: string;
+  customerPhone: string;
+}): string {
+  const itemCount = opts.items.reduce((sum, i) => sum + (Number(i.qty) || 0), 0);
+  return [
+    `New order ${opts.reference} - ${opts.businessName}`,
+    `Total: ${rs(opts.total)}`,
+    `Items: ${itemCount}`,
+    `Name: ${opts.customerName}`,
+    `Phone: ${formatPhoneDisplayForMessage(opts.customerPhone)}`,
+    `Full details are in the order system under ${opts.reference}`,
+  ].join('\n');
+}
+
+/** Shorten the message only when the encoded wa.me URL would exceed the limit. */
+export function buildWhatsAppUrlForMessage(
+  phoneDigits: string,
+  fullMessage: string,
+  shortOpts: Parameters<typeof buildShortWhatsAppMessage>[0]
+): string {
+  const fullUrl = buildWhatsAppUrl(phoneDigits, fullMessage);
+  if (fullUrl.length <= MAX_WHATSAPP_URL_LENGTH) return fullUrl;
+  return buildWhatsAppUrl(phoneDigits, buildShortWhatsAppMessage(shortOpts));
+}
+
+/** Rebuild the WhatsApp link for an order already saved in the database. */
+export function whatsappUrlForStoredOrder(restaurant: any, order: any): string {
+  const items: QuotedItem[] = (order.items || []).map((item: any) => {
+    let modifiers: QuotedModifier[] = [];
+    try {
+      const parsed = JSON.parse(item.modifiers || '[]');
+      if (Array.isArray(parsed)) modifiers = parsed;
+    } catch {
+      // Keep an empty modifier list when stored JSON is unreadable.
+    }
+    const unitPrice = Number(item.unitPrice) || 0;
+    const qty = Number(item.qty) || 0;
+    return {
+      menuItemId: item.menuItemId || undefined,
+      dealId: item.dealId || undefined,
+      name: item.name,
+      qty,
+      unitPrice,
+      lineTotal: unitPrice * qty,
+      modifiers,
+      notes: item.notes || null,
+    };
+  });
+
+  const opts: WhatsAppMessageOptions = {
+    reference: order.reference,
+    businessName: restaurant.name,
+    items,
+    subtotal: Number(order.subtotal) || 0,
+    deliveryFee: Number(order.deliveryFee) || 0,
+    total: Number(order.total) || 0,
+    orderType: order.orderType,
+    customerName: order.customerName,
+    customerPhone: order.customerPhone,
+    address: order.address,
+    lat: order.lat,
+    lng: order.lng,
+    paymentNote: restaurant.websitePaymentNote,
+    notes: order.notes,
+  };
+  return buildWhatsAppUrlForMessage(
+    restaurant.whatsappNumber || '',
+    buildWhatsAppMessage(opts),
+    opts
+  );
 }
 
 // ============================================
@@ -484,12 +590,21 @@ export interface CreatePublicOrderInput {
   notes?: string;
   paymentMethod?: string;
   cfToken?: string;
+  /** Client-generated UUID so a retried submit never creates a second order. */
+  clientRef?: string;
   ip?: string;
 }
 
 export async function verifyTurnstile(token: string | undefined, ip?: string): Promise<{ ok: boolean; error?: string }> {
   const secret = process.env.TURNSTILE_SECRET_KEY;
-  if (!secret) return { ok: true }; // Not configured -> rely on rate limits
+  if (!secret) {
+    // Public ordering is exposed to the internet: never run it in production
+    // without human verification. Rate limits alone are not enough.
+    if (process.env.NODE_ENV === 'production') {
+      return { ok: false, error: 'Online ordering is temporarily unavailable. Please try again later.' };
+    }
+    return { ok: true }; // Development only -> rely on rate limits
+  }
   if (!token) return { ok: false, error: 'Please complete the human verification' };
   try {
     const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
@@ -505,6 +620,23 @@ export async function verifyTurnstile(token: string | undefined, ip?: string): P
   }
 }
 
+function findOrderByClientRef(restaurantId: string, clientRef: string) {
+  return db.webOrder.findFirst({
+    where: { restaurantId, clientRef },
+    include: { items: true },
+  });
+}
+
+function successfulOrderResult(restaurant: any, webOrder: any, duplicate = false) {
+  return {
+    webOrder,
+    reference: webOrder.reference,
+    total: Number(webOrder.total) || 0,
+    whatsappUrl: whatsappUrlForStoredOrder(restaurant, webOrder),
+    duplicate,
+  };
+}
+
 export async function createPublicOrder(input: CreatePublicOrderInput) {
   const restaurant = await getPublicRestaurantBySlug(input.slug);
   if (!restaurant || !restaurant.isActive) {
@@ -516,6 +648,15 @@ export async function createPublicOrder(input: CreatePublicOrderInput) {
 
   if (!restaurant.onlineOrderingEnabled) {
     return { error: 'Online ordering is currently unavailable', status: 403 };
+  }
+
+  // Idempotency: the checkout page generates a UUID when it opens. If the same
+  // submit arrives again (retry, double tap, reload), return the saved order
+  // instead of charging the customer a second order / hitting rate limits.
+  const clientRef = sanitizeText(input.clientRef, 100, { maxLineBreaks: 0 });
+  if (clientRef) {
+    const existing = await findOrderByClientRef(restaurant.id, clientRef);
+    if (existing) return successfulOrderResult(restaurant, existing, true);
   }
 
   // Opening hours
@@ -531,10 +672,10 @@ export async function createPublicOrder(input: CreatePublicOrderInput) {
 
   const phone = normalizePhone(input.phone);
   if (!phone) {
-    return { error: 'Please enter a valid phone number (e.g. 0300 1234567)', status: 400 };
+    return { error: PHONE_FORMAT_ERROR, status: 400 };
   }
 
-  const customerName = sanitizeText(input.name, 60);
+  const customerName = sanitizeText(input.name, 60, { maxLineBreaks: 0 });
   if (!customerName) {
     return { error: 'Please enter your name', status: 400 };
   }
@@ -545,15 +686,15 @@ export async function createPublicOrder(input: CreatePublicOrderInput) {
     return { error: 'Invalid order type', status: 400 };
   }
 
-  const address = sanitizeText(input.address, 250);
+  const address = sanitizeText(input.address, 250, { maxLineBreaks: 0 });
   if (orderType === 'DELIVERY' && !address) {
     return { error: 'Please enter your delivery address', status: 400 };
   }
 
   const lat = Number.isFinite(Number(input.lat)) ? Number(input.lat) : null;
   const lng = Number.isFinite(Number(input.lng)) ? Number(input.lng) : null;
-  const notes = sanitizeText(input.notes, 300);
-  const paymentMethod = sanitizeText(input.paymentMethod, 40);
+  const notes = sanitizeText(input.notes, 300, { maxLineBreaks: MAX_NOTE_LINE_BREAKS });
+  const paymentMethod = sanitizeText(input.paymentMethod, 40, { maxLineBreaks: 0 });
 
   // Rate limit per phone
   if (!(await checkPhoneSpam(restaurant.id, phone))) {
@@ -593,40 +734,52 @@ export async function createPublicOrder(input: CreatePublicOrderInput) {
   const total = quote.subtotal + deliveryFee;
   const reference = await nextReference(restaurant.id);
 
-  const webOrder = await db.webOrder.create({
-    data: {
-      restaurantId: restaurant.id,
-      reference,
-      status: 'NEW',
-      customerName,
-      customerPhone: phone,
-      orderType,
-      address,
-      lat,
-      lng,
-      notes,
-      subtotal: quote.subtotal,
-      deliveryFee,
-      total,
-      paymentMethod,
-      customerIp: input.ip ? String(input.ip).slice(0, 60) : null,
-      expiresAt: new Date(Date.now() + ttlMinutes() * 60 * 1000),
-      items: {
-        create: quote.items.map((item) => ({
-          menuItemId: item.menuItemId || null,
-          dealId: item.dealId || null,
-          name: item.name,
-          qty: item.qty,
-          unitPrice: item.unitPrice,
-          modifiers: JSON.stringify(item.modifiers),
-          notes: item.notes,
-        })),
+  let webOrder: any;
+  try {
+    webOrder = await db.webOrder.create({
+      data: {
+        restaurantId: restaurant.id,
+        reference,
+        status: 'NEW',
+        clientRef,
+        customerName,
+        customerPhone: phone,
+        orderType,
+        address,
+        lat,
+        lng,
+        notes,
+        subtotal: quote.subtotal,
+        deliveryFee,
+        total,
+        paymentMethod,
+        customerIp: input.ip ? String(input.ip).slice(0, 60) : null,
+        expiresAt: new Date(Date.now() + ttlMinutes() * 60 * 1000),
+        items: {
+          create: quote.items.map((item) => ({
+            menuItemId: item.menuItemId || null,
+            dealId: item.dealId || null,
+            name: item.name,
+            qty: item.qty,
+            unitPrice: item.unitPrice,
+            modifiers: JSON.stringify(item.modifiers),
+            notes: item.notes,
+          })),
+        },
       },
-    },
-    include: { items: true },
-  });
+      include: { items: true },
+    });
+  } catch (err: any) {
+    // The DB unique index is the final guard when two submits race.
+    const uniqueClash = err?.code === 'P2002' || /unique constraint/i.test(String(err?.message || ''));
+    if (clientRef && uniqueClash) {
+      const existing = await findOrderByClientRef(restaurant.id, clientRef);
+      if (existing) return successfulOrderResult(restaurant, existing, true);
+    }
+    throw err;
+  }
 
-  const message = buildWhatsAppMessage({
+  const messageOpts: WhatsAppMessageOptions = {
     reference,
     businessName: restaurant.name,
     items: quote.items,
@@ -641,7 +794,12 @@ export async function createPublicOrder(input: CreatePublicOrderInput) {
     lng,
     paymentNote: restaurant.websitePaymentNote,
     notes,
-  });
+  };
+  const whatsappUrl = buildWhatsAppUrlForMessage(
+    restaurant.whatsappNumber || '',
+    buildWhatsAppMessage(messageOpts),
+    messageOpts
+  );
 
   // Notify the POS inbox live
   notifyNewWebOrder(restaurant.id, webOrder.id);
@@ -650,7 +808,8 @@ export async function createPublicOrder(input: CreatePublicOrderInput) {
     webOrder,
     reference,
     total,
-    whatsappUrl: buildWhatsAppUrl(restaurant.whatsappNumber || '', message),
+    whatsappUrl,
+    duplicate: false,
   };
 }
 
@@ -766,60 +925,93 @@ export async function acceptWebOrder(
 
   const now = new Date();
 
-  // Create a normal POS order (kitchen, receipts, stock deduction as usual).
-  let posOrder: any = null;
   try {
-    posOrder = await createPosOrderForWebOrder({
-      restaurantId,
-      serverId: acceptedByEmployeeId,
-      orderType: webOrder.orderType === 'DELIVERY' ? 'DELIVERY' : 'TAKE_AWAY',
-      orderTypeLabel: webOrder.orderType === 'DELIVERY' ? 'Delivery (Website)' : 'Take Away (Website)',
-      customerName: webOrder.customerName,
-      customerPhone: webOrder.customerPhone,
-      deliveryAddress: webOrder.address || undefined,
-      subtotal: webOrder.subtotal,
-      deliveryCharge: webOrder.orderType === 'DELIVERY' ? deliveryFee : 0,
-      total: orderTotal,
-      notes: webOrder.notes || undefined,
-      source: 'WEBSITE',
-      status: 'confirmed',
-      paymentStatus: 'UNPAID',
-      items: webOrder.items.map((item: any) => {
-        let modifiers: any[] = [];
-        try {
-          modifiers = JSON.parse(item.modifiers || '[]');
-        } catch {
-          modifiers = [];
-        }
-        const modifierText = modifiers.map((m) => m.name).filter(Boolean).join(', ');
-        return {
-          menuItemId: item.menuItemId || undefined,
-          dealId: item.dealId || undefined,
-          name: item.name,
-          quantity: item.qty,
-          unitPrice: item.unitPrice,
-          notes: [item.notes, modifierText ? `+ ${modifierText}` : null].filter(Boolean).join(' | ') || undefined,
-        };
-      }),
+    const updated = await db.$transaction(async (tx: any) => {
+      // Atomic claim: exactly one concurrent accept can flip NEW -> ACCEPTED.
+      const claim = await tx.webOrder.updateMany({
+        where: { id: webOrder.id, restaurantId, status: 'NEW' },
+        data: { status: 'ACCEPTED', acceptedAt: now },
+      });
+      if (claim.count !== 1) {
+        const err: any = new Error('Order was already claimed');
+        err.code = 'ALREADY_CLAIMED';
+        throw err;
+      }
+
+      // Create a normal POS order (kitchen, receipts, stock deduction as usual).
+      let posOrder: any;
+      try {
+        posOrder = await createPosOrderForWebOrder({
+          restaurantId,
+          serverId: acceptedByEmployeeId,
+          orderType: webOrder.orderType === 'DELIVERY' ? 'DELIVERY' : 'TAKE_AWAY',
+          orderTypeLabel: webOrder.orderType === 'DELIVERY' ? 'Delivery (Website)' : 'Take Away (Website)',
+          customerName: webOrder.customerName,
+          customerPhone: webOrder.customerPhone,
+          deliveryAddress: webOrder.address || undefined,
+          subtotal: webOrder.subtotal,
+          deliveryCharge: webOrder.orderType === 'DELIVERY' ? deliveryFee : 0,
+          total: orderTotal,
+          notes: webOrder.notes || undefined,
+          source: 'WEBSITE',
+          status: 'confirmed',
+          paymentStatus: 'UNPAID',
+          items: webOrder.items.map((item: any) => {
+            let modifiers: any[] = [];
+            try {
+              modifiers = JSON.parse(item.modifiers || '[]');
+            } catch {
+              modifiers = [];
+            }
+            const modifierText = modifiers.map((m) => m.name).filter(Boolean).join(', ');
+            return {
+              menuItemId: item.menuItemId || undefined,
+              dealId: item.dealId || undefined,
+              name: item.name,
+              quantity: item.qty,
+              unitPrice: item.unitPrice,
+              notes: [item.notes, modifierText ? `+ ${modifierText}` : null].filter(Boolean).join(' | ') || undefined,
+            };
+          }),
+        });
+      } catch (err: any) {
+        console.error('[WebOrder] Failed to create POS order for web order', webOrder.reference, err?.message);
+        const failure: any = new Error('POS order creation failed');
+        failure.code = 'POS_ORDER_FAILED';
+        throw failure;
+      }
+
+      // Same transaction as the claim: the order never appears ACCEPTED to the
+      // POS inbox without its linked POS order.
+      return tx.webOrder.update({
+        where: { id: webOrder.id },
+        data: {
+          status: 'ACCEPTED',
+          acceptedAt: now,
+          posOrderId: posOrder.id,
+          deliveryFee: webOrder.orderType === 'DELIVERY' ? deliveryFee : 0,
+          total: orderTotal,
+        },
+        include: { items: true },
+      });
     });
+    return { webOrder: updated };
   } catch (err: any) {
-    console.error('[WebOrder] Failed to create POS order for web order', webOrder.reference, err?.message);
-    return { error: 'Could not create the POS order. Please try again.', status: 500 };
+    if (err?.code === 'ALREADY_CLAIMED') {
+      const current = await getWebOrderForTenant(restaurantId, webOrderId);
+      return { error: current ? `Order already ${current.status.toLowerCase()}` : 'Order not found', status: 400 };
+    }
+    if (err?.code === 'POS_ORDER_FAILED') {
+      // The transaction rollback restores NEW; this also covers test fakes and
+      // any driver that committed the claim separately.
+      await db.webOrder.updateMany({
+        where: { id: webOrder.id, restaurantId, status: 'ACCEPTED' },
+        data: { status: 'NEW', acceptedAt: null, posOrderId: null },
+      });
+      return { error: 'Could not create the POS order. Please try again.', status: 500 };
+    }
+    throw err;
   }
-
-  const updated = await db.webOrder.update({
-    where: { id: webOrder.id },
-    data: {
-      status: 'ACCEPTED',
-      acceptedAt: now,
-      posOrderId: posOrder.id,
-      deliveryFee: webOrder.orderType === 'DELIVERY' ? deliveryFee : 0,
-      total: orderTotal,
-    },
-    include: { items: true },
-  });
-
-  return { webOrder: updated };
 }
 
 export async function rejectWebOrder(
@@ -832,7 +1024,7 @@ export async function rejectWebOrder(
   if (webOrder.status !== 'NEW') {
     return { error: `Order already ${webOrder.status.toLowerCase()}`, status: 400 };
   }
-  const cleanReason = sanitizeText(reason, 200);
+  const cleanReason = sanitizeText(reason, 200, { maxLineBreaks: 0 });
   if (!cleanReason) {
     return { error: 'A rejection reason is required', status: 400 };
   }
@@ -942,7 +1134,7 @@ export async function updateWebsiteSettings(
       // WhatsApp number is required before enabling ordering.
       const digits = normalizePhone(String(update.whatsappNumber ?? restaurant.whatsappNumber ?? ''));
       if (!digits) {
-        return { error: 'A valid WhatsApp number (e.g. 0300 1234567) is required to enable online ordering', status: 400 };
+        return { error: `A valid WhatsApp number is required to enable online ordering. ${PHONE_FORMAT_ERROR}`, status: 400 };
       }
       data.whatsappNumber = digits;
     }
@@ -955,7 +1147,7 @@ export async function updateWebsiteSettings(
     } else {
       const digits = normalizePhone(String(update.whatsappNumber));
       if (!digits) {
-        return { error: 'Invalid WhatsApp number. Use e.g. 0300 1234567 or +92 300 1234567', status: 400 };
+        return { error: `Invalid WhatsApp number. ${PHONE_FORMAT_ERROR} You can also use +92 300 1234567.`, status: 400 };
       }
       data.whatsappNumber = digits;
     }

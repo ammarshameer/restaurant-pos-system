@@ -48,7 +48,7 @@ flowchart TD
 ### Layer 2: Business Owner (Tenant Admin)
 - Created **exclusively** by the Super Admin during business provisioning.
 - Fields configured at creation: Business Name, Address, Phone, Business Email, Timezone, Logo URL, Owner First/Last Name, Email, Phone, Password, and PIN.
-- Assigned the immutable `OWNER` system role with all 28 permissions.
+- Assigned the immutable `OWNER` system role with all 43 permissions.
 - Full authority within their restaurant: can create custom staff roles, assign module permissions, hire staff, adjust menu recipes, configure tables, and update business profile/logo.
 - **Strict Boundary**: Cannot create other owners or restaurants, cannot access platform routes (`/api/platform/*`), and cannot access any other restaurant's data.
 
@@ -58,7 +58,7 @@ flowchart TD
 - Access strictly constrained to granted permissions. For example:
   - `menu.manage`: allows creating, editing, and deleting dishes and recipes.
   - `menu.view`: view-only access (mutations return `403 Forbidden`).
-  - `WAITER`: blocked from employee directories, role creation, store settings, backups, and analytics.
+  - `WAITER`: blocked from employee directories, role creation, store settings, and analytics.
 
 ---
 
@@ -69,7 +69,7 @@ flowchart TD
 2. **Client Parameter Spoofing Defeated**: Client-supplied query parameters (e.g. `?restaurantId=...`) or body fields are ignored in favor of the token's authenticated claim.
 3. **Database Constraints**: Every database query uses `{ where: { restaurantId, ... } }`.
 4. **WebSocket Rooms**: Sockets join room `restaurant:<restaurantId>` derived from the verified token. Platform tokens are blocked from tenant socket rooms.
-5. **Dual Database Portability**: Prisma models use standard `String` and JSON-string primitives so the exact same schema runs flawlessly on local SQLite (`dev.db`) and cloud PostgreSQL.
+5. **Single Database**: Prisma is configured for PostgreSQL only. Schema changes are applied with checked-in migrations (`prisma migrate deploy`).
 
 ### Frontend Scoping
 1. **Decoupled Session Storage**:
@@ -84,7 +84,7 @@ flowchart TD
 
 ## 3. Canonical Permission Catalogue & System Roles
 
-### Permissions (28 Total)
+### Permissions (43 Total)
 
 | Permission Key | Module | Description |
 |---|---|---|
@@ -111,16 +111,31 @@ flowchart TD
 | `kitchen.manage` | Kitchen | Bump order items, change station status, route orders |
 | `employees.view` | Staff | View staff directory, wage hours, and shift punches |
 | `employees.manage`| Staff | Add/edit staff, set pay rates, view & configure PINs |
+| `customers.view` | Customers | View customer directory and credit balances |
+| `customers.manage`| Customers | Add/edit customers and adjust dues |
 | `roles.view` | Roles | View tenant roles and assigned permission sets |
 | `roles.manage` | Roles | Create, edit, and delete custom staff roles |
 | `analytics.view` | Analytics | View revenue reports, peak hours, and product charts |
+| `costing.view` | Costing | View recipe costs and margins |
+| `costing.manage`| Costing | Update recipe costs and target margins |
+| `profit.view` | Profit | View profit reports |
+| `dues.view` | Dues | View customer dues and ledger entries |
+| `dues.manage` | Dues | Record and settle customer dues |
+| `expenses.view` | Expenses | View business expenses |
+| `expenses.create`| Expenses | Record new expenses |
+| `expenses.manage`| Expenses | Edit or delete expenses |
+| `payroll.view` | Payroll | View payroll and attendance |
+| `payroll.manage`| Payroll | Configure pay rates and payroll runs |
+| `payroll.pay` | Payroll | Mark payroll as paid |
 | `settings.manage`| Settings | Update business name, address, phone, timezone, logo |
-| `backups.manage` | Backups | List, export, and manually trigger database backups |
+| `weborders.view` | Website | View the public website order inbox and history |
+| `weborders.manage`| Website | Accept, reject, and fulfil website/WhatsApp orders |
+| `website.settings`| Website | Configure the public menu, payment note and WhatsApp number |
 
 ### Default System Roles (Seeded for Every Tenant)
 
-- **`OWNER`**: All 28 permissions. `isSystem: true`, `isOwnerRole: true`. Unconditionally bypasses permission checks. Cannot be modified or deleted.
-- **`MANAGER`**: All permissions except `roles.manage`, `settings.manage`, and `backups.manage`.
+- **`OWNER`**: All 43 permissions. `isSystem: true`, `isOwnerRole: true`. Unconditionally bypasses permission checks. Cannot be modified or deleted.
+- **`MANAGER`**: All permissions except `roles.manage` and `settings.manage`.
 - **`CHEF`**: `dashboard.view`, `kitchen.view`, `kitchen.manage`, `menu.view`, `inventory.view`, `orders.view`.
 - **`WAITER`**: `dashboard.view`, `pos.use`, `tables.view`, `orders.view`, `orders.create`, `orders.update`, `menu.view`, `invoices.view`.
 - **`CASHIER`**: `dashboard.view`, `pos.use`, `tables.view`, `orders.view`, `orders.create`, `payments.view`, `payments.process`, `invoices.view`, `menu.view`.
@@ -198,34 +213,32 @@ Requires `tenantSlug` or `restaurantId`. Authenticates the PIN exclusively again
 
 ## 6. Database Migration & Backfill Commands
 
-The repository uses dynamic datasource provider switching with no schema duplication.
+The Prisma datasource provider is permanently `postgresql`. PostgreSQL is required for local development, CI and production; use `docker compose up -d` at the repo root for a local instance.
 
-### SQLite (Local Development & Offline Electron)
+### Local development
 ```bash
-# Switch schema provider to sqlite and generate Prisma client
-npm run prisma:sqlite
+# Start PostgreSQL, then point DATABASE_URL at it (see apps/backend/.env.example)
+docker compose up -d
 
-# Push schema changes to dev.db
-cd apps/backend && npx prisma db push
-
-# Run idempotent multi-tenant backfill migration
-npm run db:backfill
+cd apps/backend
+npm install
+npm run db:migrate:dev          # creates/applies a migration; use only in development
+npm run db:backfill             # idempotent multi-tenant data backfill
 ```
 
-### PostgreSQL (Cloud Production SaaS)
+### Production / CI
 ```bash
-# Switch schema provider to postgresql and generate Prisma client
-npm run prisma:postgres
-
-# Push or migrate schema on PostgreSQL
-cd apps/backend && npx prisma db push
-
-# Run idempotent multi-tenant backfill migration
-npm run db:backfill
+cd apps/backend
+npm ci
+npm run build
+npm run db:migrate              # prisma migrate deploy — applies checked-in migrations only
+npm run db:backfill             # safe to re-run
 ```
+
+> All schema changes must be committed as migrations under `apps/backend/prisma/migrations/`.
 
 ### Automated Acceptance Test Suite
-Verifies all 16 multi-tenant security and functional requirements against the live backend:
+Verifies all multi-tenant security and functional requirements against the live PostgreSQL backend:
 ```bash
 npm run test:acceptance
 ```

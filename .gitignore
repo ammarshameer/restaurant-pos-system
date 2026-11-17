@@ -10,7 +10,6 @@ coverage/
 dist/
 build/
 release/
-dist-electron/
 
 # Environment variables
 .env
@@ -24,13 +23,6 @@ dist-electron/
 .env.development.local
 .env.test.local
 .env.production.local
-
-# Database / SQLite
-*.db
-*.db*
-*.db-journal
-*.sqlite
-*.sqlite3
 
 # Logs
 logs
@@ -50,8 +42,7 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
-# Prisma
-apps/backend/prisma/migrations/
+# Prisma migrations are committed and applied with `prisma migrate deploy`.
 
 # Build artifacts
 *.tsbuildinfo

@@ -25,7 +25,7 @@ const publicLimiter = rateLimit({
 
 const orderLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  limit: 10,
+  limit: 30,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { error: 'Too many orders from this network, please try again later' },
@@ -60,6 +60,7 @@ router.post('/:slug/orders', publicLimiter, orderLimiter, (req: Request, res: Re
     notes: req.body?.notes,
     paymentMethod: req.body?.paymentMethod,
     cfToken: req.body?.cfToken,
+    clientRef: req.body?.clientRef,
     ip: req.ip,
   })
     .then(async (result: any) => {

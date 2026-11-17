@@ -2,30 +2,21 @@
   "name": "restaurant-pos",
   "version": "1.0.1",
   "private": true,
-  "description": "Full-stack Restaurant POS and Management System",
-  "main": "electron/main.js",
+  "description": "Full-stack online Restaurant POS and Management System",
   "scripts": {
     "dev:backend": "cd apps/backend && npm run dev",
     "dev:frontend": "cd apps/frontend && npm run dev",
     "build:backend": "cd apps/backend && npm run build",
-    "build:backend:sqlite": "cd apps/backend && npm run build:sqlite",
-    "build:backend:postgres": "cd apps/backend && npm run build:postgres",
     "build:frontend": "cd apps/frontend && npm run build",
     "build": "npm run build:backend && npm run build:frontend",
-    "build:offline": "npm run build:backend:sqlite && npm run build:frontend",
-    "build:online": "npm run build:backend:postgres && npm run build:frontend",
     "start:backend": "cd apps/backend && npm start",
     "start:frontend": "cd apps/frontend && npm run preview",
     "db:backfill": "cd apps/backend && npm run db:backfill",
     "test:acceptance": "cd apps/backend && npm run test:acceptance",
-    "install:all": "npm install && cd apps/backend && npm install && cd ../frontend && npm install",
-    "electron:start": "electron .",
-    "electron:dev": "npm run build:offline && electron .",
-    "electron:pack": "npm run build:offline && electron-builder --dir --config electron-builder.json",
-    "dist:win": "npm run build:offline && electron-builder --win --config electron-builder.json",
-    "print-helper:start": "electron electron/print-helper",
-    "print-helper:pack": "electron-builder --dir --config electron-builder.print-helper.json",
-    "dist:print-helper": "electron-builder --win --config electron-builder.print-helper.json",
+    "install:all": "npm install && cd apps/backend && npm install && cd ../frontend && npm install && cd ../.. && npm install --prefix electron/print-helper",
+    "print-helper:start": "npm --prefix electron/print-helper exec -- electron electron/print-helper",
+    "print-helper:pack": "npm --prefix electron/print-helper exec -- electron-builder --dir --config electron-builder.print-helper.json",
+    "dist:print-helper": "npm --prefix electron/print-helper exec -- electron-builder --win --config electron-builder.print-helper.json",
     "test:print-helper": "node electron/printing/selftest.js"
   },
   "keywords": [
@@ -35,13 +26,8 @@
     "react",
     "nodejs",
     "typescript",
-    "electron",
-    "desktop"
+    "online"
   ],
   "author": "",
-  "license": "MIT",
-  "devDependencies": {
-    "electron": "^33.2.1",
-    "electron-builder": "^25.1.8"
-  }
+  "license": "MIT"
 }

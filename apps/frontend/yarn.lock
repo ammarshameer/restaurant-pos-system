@@ -288,6 +288,61 @@
   resolved "https://registry.npmjs.org/@rollup/rollup-linux-x64-gnu/-/rollup-linux-x64-gnu-4.63.1.tgz"
   integrity sha512-gfI5T24WLLuFfSKw7Go/zDXjAAV0fny0swTaDv+WjK7vqcw4cRhFfdsyKL1n+ukI+ooBxn3bVQnyrn06WpI50w==
 
+"@sentry-internal/browser-utils@9.47.2":
+  version "9.47.2"
+  resolved "https://registry.npmjs.org/@sentry-internal/browser-utils/-/browser-utils-9.47.2.tgz"
+  integrity sha512-LKRDMpyCZ+tUmhWYN6kaYlO/4X5pF5k5q5UcsoJtDQc/1vXZ6fM5AaGHseAnDTzie/Rblm46S/gEo84bVvblFg==
+  dependencies:
+    "@sentry/core" "9.47.2"
+
+"@sentry-internal/feedback@9.47.2":
+  version "9.47.2"
+  resolved "https://registry.npmjs.org/@sentry-internal/feedback/-/feedback-9.47.2.tgz"
+  integrity sha512-daa2anVNapDNT6IATGM7yJgM+azDTcY9UHknlxKVQVRiRYnir8pUnQa6gYErYqUJeAHrZedE+eEk4M5RG/t3hA==
+  dependencies:
+    "@sentry/core" "9.47.2"
+
+"@sentry-internal/replay-canvas@9.47.2":
+  version "9.47.2"
+  resolved "https://registry.npmjs.org/@sentry-internal/replay-canvas/-/replay-canvas-9.47.2.tgz"
+  integrity sha512-MWkpf0TSGmc0+uQlylrhCMreFFKMonRPNnyqcGbyI7CDmPRrL5TDYSS2bUF4BmA5d5N1vYF934/tkpONKjM71Q==
+  dependencies:
+    "@sentry-internal/replay" "9.47.2"
+    "@sentry/core" "9.47.2"
+
+"@sentry-internal/replay@9.47.2":
+  version "9.47.2"
+  resolved "https://registry.npmjs.org/@sentry-internal/replay/-/replay-9.47.2.tgz"
+  integrity sha512-8SKV9tB/bY1c4QtsWrOZfWHwFffCr8s03Nl1e6vmlqEfLX5AGoeHsQneXbm7xmqUahr25QyyGAgUDZZrfefrgw==
+  dependencies:
+    "@sentry-internal/browser-utils" "9.47.2"
+    "@sentry/core" "9.47.2"
+
+"@sentry/browser@9.47.2":
+  version "9.47.2"
+  resolved "https://registry.npmjs.org/@sentry/browser/-/browser-9.47.2.tgz"
+  integrity sha512-dqs+whBtZwXElSkU4JFgRSsERJmHX/EhC9TeevFvkv6aTtx//7qOhuhhIzA/FO7Td8OAKt6TmbLjGOmXhDk9Mg==
+  dependencies:
+    "@sentry-internal/browser-utils" "9.47.2"
+    "@sentry-internal/feedback" "9.47.2"
+    "@sentry-internal/replay" "9.47.2"
+    "@sentry-internal/replay-canvas" "9.47.2"
+    "@sentry/core" "9.47.2"
+
+"@sentry/core@9.47.2":
+  version "9.47.2"
+  resolved "https://registry.npmjs.org/@sentry/core/-/core-9.47.2.tgz"
+  integrity sha512-WYEP2ZHkTQMP7Gg5frzrQy1475TnK5Qv8wgvHiTlNerYaEBCNpAeWjUltTgfCQ8Hbv1iq4inca7Kqmmyv9gLnQ==
+
+"@sentry/react@^9.47.2":
+  version "9.47.2"
+  resolved "https://registry.npmjs.org/@sentry/react/-/react-9.47.2.tgz"
+  integrity sha512-rr5pGh4u1kCqesuGALTfZGJT8138CpT94zwbDy9hD9K0SWbntnMTV0KhCI+sq9xfpgN2pgyZXwHB6GmciU39EA==
+  dependencies:
+    "@sentry/browser" "9.47.2"
+    "@sentry/core" "9.47.2"
+    hoist-non-react-statics "^3.3.2"
+
 "@socket.io/component-emitter@~3.1.0":
   version "3.1.2"
   resolved "https://registry.npmjs.org/@socket.io/component-emitter/-/component-emitter-3.1.2.tgz"
@@ -610,11 +665,6 @@ delayed-stream@~1.0.0:
   version "1.0.0"
   resolved "https://registry.npmjs.org/delayed-stream/-/delayed-stream-1.0.0.tgz"
   integrity sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ==
-
-dexie@^4.4.6:
-  version "4.4.6"
-  resolved "https://registry.npmjs.org/dexie/-/dexie-4.4.6.tgz"
-  integrity sha512-hJP/BO6mjB+tX6hToIO1kmxYLNmun90wYbfcoAoLpKEyDYal/k33dg0TAfoUe2TDsbbLoVIzljJ3BN2UbR5EOg==
 
 didyoumean@^1.2.2:
   version "1.2.2"
@@ -1192,7 +1242,7 @@ react-router@7.18.3:
     cookie "^1.0.1"
     set-cookie-parser "^2.6.0"
 
-"react@^16.8.0 || ^17.0.0 || ^18.0.0", "react@^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react@^16.8.3 || ^17 || ^18", "react@^16.8.5 || ^17.0.0 || ^18.0.0", "react@^16.9.0 || ^17.0.0 || ^18 || ^19", "react@^18 || ^19", "react@^18.0 || ^19", react@^18.2.0, react@^18.3.1, react@>=16.8.0, react@>=18:
+"react@^16.14.0 || 17.x || 18.x || 19.x", "react@^16.8.0 || ^17.0.0 || ^18.0.0", "react@^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react@^16.8.3 || ^17 || ^18", "react@^16.8.5 || ^17.0.0 || ^18.0.0", "react@^16.9.0 || ^17.0.0 || ^18 || ^19", "react@^18 || ^19", "react@^18.0 || ^19", react@^18.2.0, react@^18.3.1, react@>=16.8.0, react@>=18:
   version "18.3.1"
   resolved "https://registry.npmjs.org/react/-/react-18.3.1.tgz"
   integrity sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ==

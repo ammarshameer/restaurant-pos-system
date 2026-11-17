@@ -4,26 +4,25 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "postinstall": "node scripts/prepare-prisma.js && prisma generate",
-    "prisma:prepare": "node scripts/prepare-prisma.js",
-    "prisma:sqlite": "DATABASE_PROVIDER=sqlite node scripts/prepare-prisma.js && node scripts/verify-provider.js sqlite && prisma generate",
-    "prisma:postgres": "DATABASE_PROVIDER=postgresql node scripts/prepare-prisma.js && node scripts/verify-provider.js postgresql && prisma generate",
-    "build:sqlite": "DATABASE_PROVIDER=sqlite node scripts/prepare-prisma.js && node scripts/verify-provider.js sqlite && prisma generate && tsc --skipLibCheck",
-    "build:postgres": "DATABASE_PROVIDER=postgresql node scripts/prepare-prisma.js && node scripts/verify-provider.js postgresql && prisma generate && tsc --skipLibCheck",
+    "postinstall": "prisma generate",
     "dev": "tsx watch src/index.ts",
-    "build": "node scripts/prepare-prisma.js && prisma generate && tsc --skipLibCheck",
+    "build": "prisma generate && tsc --skipLibCheck",
     "start": "node dist/index.js",
     "test": "npm run test:unit",
     "test:unit": "tsx --test tests/*.test.ts",
     "test:acceptance": "tsx scripts/verify-acceptance.ts",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:backfill": "tsx prisma/backfill-multi-tenant.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "db:backup": "bash scripts/backup-postgres.sh",
+    "db:restore": "bash scripts/restore-postgres.sh"
   },
   "dependencies": {
     "@prisma/client": "^5.10.2",
+    "@sentry/node": "^9.47.2",
+    "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -37,6 +36,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@types/archiver": "^6.0.4",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.5",

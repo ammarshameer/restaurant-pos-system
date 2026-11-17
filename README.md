@@ -1,6 +1,6 @@
 # Restaurant POS and Management System
 
-A comprehensive, full-stack Point of Sale and management system for restaurants, built with modern technologies including React, Node.js, Express, PostgreSQL, and real-time WebSocket communication. Designed for offline and cash-first POS workflows.
+A comprehensive, full-stack, online-only Point of Sale and management system for restaurants, built with React, Node.js, Express, PostgreSQL, and real-time WebSocket communication. It also supports public website/WhatsApp ordering.
 
 ## Features
 
@@ -66,7 +66,25 @@ restaurant-pos/
 
 ## Getting Started
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete setup and deployment instructions.
+PostgreSQL is the only supported database. For local development:
+
+```bash
+docker compose up -d
+cd apps/backend
+cp .env.example .env
+npm install
+npm run db:migrate:dev
+npm run dev
+```
+
+In another terminal:
+
+```bash
+cd apps/frontend && npm install && npm run dev
+```
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) and [CONTABO_DEPLOYMENT.md](./CONTABO_DEPLOYMENT.md)
+for production deployment instructions.
 
 ## Thermal printing
 
@@ -78,20 +96,17 @@ direct-print channels are available; the receipt modal picks whatever exists:
 - **Local print agent** — a single ~8 MB binary (`apps/print-agent`, Go) that
   bridges any installed OS printer on Windows, Linux and macOS. The receipt
   modal offers a one-shot installer per platform.
-- **Windows desktop app** — the packaged Electron POS prints natively with no
-  extra install.
-
 If none is available, Android browsers fall back to the system print dialog.
 
 ```bash
 cd apps/print-agent && go build -o local-print-agent .   # run the agent manually
-npm run print-helper:start   # legacy Windows print helper (Electron tray app)
+npm run print-helper:start   # Windows loopback print helper
 npm run dist:print-helper    # build the helper installer + portable zip
 ```
 
 See [apps/print-agent/README.md](./apps/print-agent/README.md) for the agent API
 and configuration, and [electron/print-helper/README.md](./electron/print-helper/README.md)
-for the legacy Windows helper.
+for the Windows print helper.
 
 ## Documentation
 

@@ -210,7 +210,7 @@ export const OnlineOrdersPage: React.FC = () => {
               </span>
             )}
           </div>
-          <div style={{ fontWeight: 800, fontSize: '15px' }}>{formatMoney(previewTotal)}</div>
+          <div style={{ fontWeight: 800, fontSize: '15px' }}>{formatMoney(order.total)}</div>
         </div>
 
         <div style={{ marginTop: '6px', fontSize: '13px', lineHeight: 1.6 }}>
@@ -233,12 +233,18 @@ export const OnlineOrdersPage: React.FC = () => {
               </li>
             ))}
           </ul>
+          <div style={{ fontSize: '11px', opacity: 0.65, marginTop: '8px' }}>
+            Saved items and total above are the source of truth — the customer can edit the WhatsApp text.
+          </div>
           <div style={{ opacity: 0.8, marginTop: '4px' }}>
             Subtotal {formatMoney(order.subtotal)}
             {order.orderType === 'DELIVERY'
               ? order.deliveryFee > 0
                 ? ` · Delivery ${formatMoney(order.deliveryFee)}`
                 : ' · Delivery charge not added yet'
+              : ''}
+            {isNew && order.orderType === 'DELIVERY' && previewTotal !== order.total
+              ? ` · With new charge: ${formatMoney(previewTotal)}`
               : ''}
             {order.rejectionReason ? ` · Reason: ${order.rejectionReason}` : ''}
             {order.notes ? ` · Notes: ${order.notes}` : ''}

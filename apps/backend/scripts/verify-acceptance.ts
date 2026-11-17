@@ -153,7 +153,9 @@ async function runAcceptanceTests() {
     if (ownerLoginRes.status === 200 && ownerLoginRes.data.accessToken) {
       tenantAOwnerToken = ownerLoginRes.data.accessToken;
       const user = ownerLoginRes.data.user;
-      const hasAllPerms = Array.isArray(user.permissions) && user.permissions.length >= 25;
+      // The owner receives every permission for the modules enabled on the new
+      // tenant; a few modules are disabled by default, so allow for those.
+      const hasAllPerms = Array.isArray(user.permissions) && user.permissions.length >= 30;
       logTest(
         2,
         'Business Owner login with email/password',
@@ -457,20 +459,18 @@ async function runAcceptanceTests() {
     const waiterCheckRoles = await request('/roles', { token: waiterToken });
     const waiterCheckSettings = await request('/settings/business', { token: waiterToken });
     const waiterCheckAnalytics = await request('/analytics/overview', { token: waiterToken });
-    const waiterCheckBackups = await request('/backups', { token: waiterToken });
 
     const allBlocked =
       waiterCheckEmp.status === 403 &&
       waiterCheckRoles.status === 403 &&
       waiterCheckSettings.status === 403 &&
-      waiterCheckAnalytics.status === 403 &&
-      (waiterCheckBackups.status === 403 || waiterCheckBackups.status === 401);
+      waiterCheckAnalytics.status === 403;
 
     logTest(
       10,
-      'Waiter role blocked from employees, roles, settings, analytics, backups (all 403)',
+      'Waiter role blocked from employees, roles, settings and analytics (all 403)',
       allBlocked,
-      `Blocked statuses: employees=${waiterCheckEmp.status}, roles=${waiterCheckRoles.status}, settings=${waiterCheckSettings.status}, analytics=${waiterCheckAnalytics.status}, backups=${waiterCheckBackups.status}`
+      `Blocked statuses: employees=${waiterCheckEmp.status}, roles=${waiterCheckRoles.status}, settings=${waiterCheckSettings.status}, analytics=${waiterCheckAnalytics.status}`
     );
 
     // ------------------------------------------------------------------------
@@ -1983,7 +1983,7 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
-    // TEST 40: Offline payment replay is idempotent by clientId
+    // TEST 40: Retried payment is idempotent by clientId
     // ------------------------------------------------------------------------
     const replayOrder = await prisma.order.create({
       data: {
@@ -1999,7 +1999,7 @@ async function runAcceptanceTests() {
         amountDue: 100,
       },
     });
-    const replayClientId = `offline-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const replayClientId = `retry-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const replayBody = {
       orderId: replayOrder.id,
       amount: 40,
@@ -2029,7 +2029,7 @@ async function runAcceptanceTests() {
 
     logTest(
       40,
-      'Offline payment replay with the same clientId is idempotent (one payment, no double charge)',
+      'Retried payment with the same clientId is idempotent (one payment, no double charge)',
       test40Pass,
       `First: ${replayRes1.status}, Replay: ${replayRes2.status} (duplicate=${replayRes2.data?.duplicate}), payments: ${replayPaymentCount}, paid: ${replayOrderAfter?.totalPaid}, due: ${replayOrderAfter?.amountDue}`
     );
@@ -2577,7 +2577,7 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
-    // TEST 52: Super Admin Business Creation with Starter Preset Stores 20 Rows (all modules) and Enforces Scoping
+    // TEST 52: Super Admin Business Creation with Starter Preset Stores One Row Per Module and Enforces Scoping
     // ------------------------------------------------------------------------
     const starterPreset = ['pos', 'tables', 'orders', 'payments', 'invoices', 'menu', 'kitchen', 'settings'];
     const starterRestRes = await request('/platform/restaurants', {

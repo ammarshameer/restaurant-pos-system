@@ -3,17 +3,33 @@ import ReactDOM from 'react-dom/client';
 import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as Sentry from '@sentry/react';
 import { store } from './store/store';
 import App from './App';
+import NoInternetBanner from './components/NoInternetBanner';
 import './index.css';
 
-// Register the app-shell service worker so the POS can load while offline.
-// Silently skipped where unsupported (e.g. Electron file://, insecure context).
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+if (import.meta.env.VITE_SENTRY_DSN) {
+  Sentry.init({
+    dsn: import.meta.env.VITE_SENTRY_DSN,
+    environment: import.meta.env.MODE,
+    // Do not attach personal data (emails, phones, form values) to events.
+    sendDefaultPii: false,
+  });
+}
+
+// The old app-shell worker is retired. Unregister any existing registration and
+// drop its caches so returning browsers do not keep stale offline assets.
+if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // Offline shell caching is best-effort.
-    });
+    void navigator.serviceWorker.getRegistrations()
+      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+      .catch(() => undefined);
+    if ('caches' in window) {
+      void caches.keys()
+        .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+        .catch(() => undefined);
+    }
   });
 }
 
@@ -31,6 +47,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <Provider store={store}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
+          <NoInternetBanner />
           <App />
         </BrowserRouter>
       </QueryClientProvider>

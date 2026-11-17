@@ -178,4 +178,16 @@ export const platformApi = {
     const res = await platformHttp.get('/audit-logs', { params });
     return res.data;
   },
+
+  downloadBackupZip: async (): Promise<void> => {
+    const res = await platformHttp.get('/backups/export', { responseType: 'blob' });
+    const blobUrl = URL.createObjectURL(new Blob([res.data], { type: 'application/zip' }));
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = `restaurant-pos-backups-${new Date().toISOString().slice(0, 10)}.zip`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(blobUrl);
+  },
 };

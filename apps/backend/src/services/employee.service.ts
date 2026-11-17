@@ -71,7 +71,7 @@ export class EmployeeService {
     }
     const requesterPermissions = new Set(requester.permissions || []);
     for (const permission of permissions) {
-      if (permission === 'backups.manage' || !requesterPermissions.has(permission)) {
+      if (!requesterPermissions.has(permission)) {
         throw Object.assign(
           new Error(`Cannot ${action} permissions above your own: ${permission}`),
           { statusCode: 403 }
@@ -294,8 +294,7 @@ export class EmployeeService {
       const targetPermissions = targetRole.permissions?.map((permission: any) => permission.permission) || [];
       const requesterPermissions = new Set(requester?.permissions || []);
       const elevated = targetPermissions.find((permission: string) =>
-        permission === 'backups.manage' ||
-        (!requester?.isOwnerRole && !requesterPermissions.has(permission))
+        !requester?.isOwnerRole && !requesterPermissions.has(permission)
       );
       if (!requester?.isOwnerRole && elevated) {
         throw Object.assign(new Error('Cannot assign permissions above the requester permission ceiling'), { statusCode: 403 });
@@ -1151,9 +1150,6 @@ export class EmployeeService {
       for (const ov of overrides) {
         const isGranted = Boolean((ov as any).granted ?? (ov as any).effect === 'GRANT');
         if (isGranted) {
-          if (ov.permission === 'backups.manage') {
-            throw Object.assign(new Error('Non-owner cannot grant backups.manage'), { statusCode: 403 });
-          }
           if (!requesterPerms.has(ov.permission)) {
             throw Object.assign(
               new Error(`Cannot grant permissions you do not possess: ${ov.permission}`),

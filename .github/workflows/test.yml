@@ -1,0 +1,82 @@
+name: Test (PostgreSQL)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Backend unit + acceptance on PostgreSQL
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pos
+          POSTGRES_PASSWORD: pos
+          POSTGRES_DB: restaurant_pos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pos -d restaurant_pos_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://pos:pos@localhost:5432/restaurant_pos_test?schema=public
+      NODE_ENV: test
+      PORT: 3001
+      FRONTEND_URL: http://localhost:3100
+      JWT_SECRET: ci_tenant_secret_at_least_32_characters_long_123456
+      JWT_REFRESH_SECRET: ci_refresh_secret_at_least_32_characters_long_654321
+      JWT_PLATFORM_SECRET: ci_platform_secret_at_least_32_characters_long_789012
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: apps/backend
+        run: npm ci
+
+      - name: Apply PostgreSQL migrations
+        working-directory: apps/backend
+        run: npm run db:migrate
+
+      - name: Seed platform accounts for acceptance tests
+        working-directory: apps/backend
+        run: npm run db:seed
+
+      - name: Unit tests
+        working-directory: apps/backend
+        run: npm run test:unit
+
+      - name: Acceptance tests
+        working-directory: apps/backend
+        run: npm run test:acceptance
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: apps/frontend
+        run: npm ci
+      - name: Build
+        working-directory: apps/frontend
+        run: npm run build

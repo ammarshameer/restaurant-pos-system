@@ -37,13 +37,13 @@ jobs:
             git fetch --prune origin main
             git reset --hard origin/main
 
-            echo "==> Backend: install, generate PostgreSQL client, build"
+            echo "==> Backend: install, generate client, build"
             cd "$APP_DIR/apps/backend"
-            DATABASE_PROVIDER=postgresql npm ci
-            DATABASE_PROVIDER=postgresql npm run build:postgres
+            npm ci
+            npm run build
 
-            echo "==> Database: sync schema (db push, no migrations folder)"
-            DATABASE_PROVIDER=postgresql npx prisma db push --skip-generate
+            echo "==> Database: apply checked-in PostgreSQL migrations"
+            npm run db:migrate
 
             echo "==> Frontend: install and build (VITE_API_URL from apps/frontend/.env)"
             cd "$APP_DIR/apps/frontend"

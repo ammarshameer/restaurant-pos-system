@@ -1916,3 +1916,26 @@ select.form-input option,
 
 /* Receipt printing now uses a dedicated 72 mm iframe document; see
    src/lib/print/browserPrint.tsx and src/lib/print/receiptPrintCss.ts. */
+
+/* Connectivity guard: no writes are accepted while the browser is disconnected. */
+.no-internet-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10000;
+  padding: 10px 16px;
+  text-align: center;
+  background: #b91c1c;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+body.no-internet button[type='submit'],
+body.no-internet button[data-submit],
+body.no-internet .btn-primary {
+  opacity: 0.5;
+  pointer-events: none;
+}

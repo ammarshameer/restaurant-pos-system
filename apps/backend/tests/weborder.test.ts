@@ -16,6 +16,9 @@ import {
   sanitizeImageField,
   buildWhatsAppMessage,
   buildWhatsAppUrl,
+  buildWhatsAppUrlForMessage,
+  buildShortWhatsAppMessage,
+  MAX_WHATSAPP_URL_LENGTH,
   RATE_LIMITS,
   setPrismaForTests,
   setPosOrderCreatorForTests,
@@ -23,8 +26,12 @@ import {
   checkPhoneSpam,
   getWebOrderForTenant,
   acceptWebOrder,
+  rejectWebOrder,
+  expireStaleWebOrders,
+  purgeOldWebOrders,
+  updateWebsiteSettings,
 } from '../src/services/weborder.service';
-import { normalizePhone } from '../src/utils/phone';
+import { normalizePhone, PHONE_FORMAT_ERROR } from '../src/utils/phone';
 import { MODULE_TO_FEATURE, FEATURES, PERMISSIONS } from '../src/permissions';
 
 // ============================================
@@ -43,12 +50,30 @@ function makeMenuItem(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
+function matchesWhere(order: any, where: any): boolean {
+  if (!where) return true;
+  if (where.restaurantId && order.restaurantId !== where.restaurantId) return false;
+  if (where.id && order.id !== where.id) return false;
+  if (where.reference && order.reference !== where.reference) return false;
+  if (where.clientRef && order.clientRef !== where.clientRef) return false;
+  if (where.customerPhone && order.customerPhone !== where.customerPhone) return false;
+  if (where.status) {
+    const statuses = Array.isArray(where.status.in) ? where.status.in : [where.status];
+    if (!statuses.includes(order.status)) return false;
+  }
+  if (where.createdAt?.gte && new Date(order.createdAt) < new Date(where.createdAt.gte)) return false;
+  if (where.createdAt?.lt && new Date(order.createdAt) >= new Date(where.createdAt.lt)) return false;
+  if (where.expiresAt?.lt && (!order.expiresAt || new Date(order.expiresAt) >= new Date(where.expiresAt.lt))) return false;
+  return true;
+}
+
 function fakeDb(overrides: Record<string, any> = {}) {
   const restaurants = new Map<string, any>();
   const webOrders: any[] = [];
   const store: any = {
     restaurants,
     webOrders,
+    $transaction: async (fn: any) => fn(store),
     restaurant: {
       findUnique: async ({ where }: any) => {
         if (where.websiteSlug) {
@@ -70,40 +95,37 @@ function fakeDb(overrides: Record<string, any> = {}) {
         const created = {
           id: `wo-${webOrders.length + 1}`,
           status: 'NEW',
-          items: [],
           createdAt: new Date(),
           ...data,
+          items: data.items?.create || [],
         };
         webOrders.push(created);
         return { ...created, items: data.items?.create || [] };
       },
-      findFirst: async ({ where }: any) => {
-        return (
-          webOrders.find((o) => {
-            if (where.restaurantId && o.restaurantId !== where.restaurantId) return false;
-            if (where.id && o.id !== where.id) return false;
-            if (where.reference && o.reference !== where.reference) return false;
-            if (where.customerPhone && o.customerPhone !== where.customerPhone) return false;
-            if (where.createdAt?.gte && new Date(o.createdAt) < new Date(where.createdAt.gte)) return false;
-            return true;
-          }) || null
-        );
-      },
-      count: async ({ where }: any) => {
-        return webOrders.filter((o) => {
-          if (where.restaurantId && o.restaurantId !== where.restaurantId) return false;
-          if (where.customerPhone && o.customerPhone !== where.customerPhone) return false;
-          if (where.createdAt?.gte && new Date(o.createdAt) < new Date(where.createdAt.gte)) return false;
-          return true;
-        }).length;
-      },
+      findFirst: async ({ where }: any) => webOrders.find((o) => matchesWhere(o, where)) || null,
+      count: async ({ where }: any) => webOrders.filter((o) => matchesWhere(o, where)).length,
       update: async ({ where, data }: any) => {
         const o = webOrders.find((x) => x.id === where.id);
         Object.assign(o, data);
         return o;
       },
-      updateMany: async () => ({ count: 0 }),
-      deleteMany: async () => ({ count: 0 }),
+      updateMany: async ({ where, data }: any) => {
+        let count = 0;
+        for (const o of webOrders) {
+          if (matchesWhere(o, where)) {
+            Object.assign(o, data);
+            count += 1;
+          }
+        }
+        return { count };
+      },
+      deleteMany: async ({ where }: any) => {
+        const before = webOrders.length;
+        for (let i = webOrders.length - 1; i >= 0; i--) {
+          if (matchesWhere(webOrders[i], where)) webOrders.splice(i, 1);
+        }
+        return { count: before - webOrders.length };
+      },
       findMany: async () => webOrders,
     },
     tenantFeature: {
@@ -128,12 +150,46 @@ function fakeDb(overrides: Record<string, any> = {}) {
 
 test('Pakistani local numbers convert to 92 international format', () => {
   assert.equal(normalizePhone('03001234567'), '923001234567');
+  assert.equal(normalizePhone('0300 1234567'), '923001234567');
   assert.equal(normalizePhone('3001234567'), '923001234567');
   assert.equal(normalizePhone('+92 300 1234567'), '923001234567');
   assert.equal(normalizePhone('00923001234567'), '923001234567');
   assert.equal(normalizePhone('923001234567'), '923001234567');
   assert.equal(normalizePhone('not-a-phone'), null);
+  assert.equal(normalizePhone(''), null);
+});
+
+test('extra 0 after the country code is removed', () => {
+  assert.equal(normalizePhone('+92 0300 1234567'), '923001234567');
+  assert.equal(normalizePhone('92 0300 1234567'), '923001234567');
+  assert.equal(normalizePhone('9203001234567'), '923001234567');
+  assert.equal(normalizePhone('0092 0300 1234567'), '923001234567');
+});
+
+test('local numbers must be Pakistani mobiles: landlines and <=8 digits are rejected', () => {
+  // 03xx + 9 digits is the only accepted local form.
+  assert.equal(normalizePhone('03123456789'), '923123456789');
+  // Landlines / short local numbers.
+  assert.equal(normalizePhone('04212345678'), null);
+  assert.equal(normalizePhone('02134567890'), null);
+  assert.equal(normalizePhone('+92 42 12345678'), null); // landline with country code
+  assert.equal(normalizePhone('0092 042 12345678'), null);
+  assert.equal(normalizePhone('0300123456'), null);
+  assert.equal(normalizePhone('12345678'), null);
   assert.equal(normalizePhone('123'), null);
+  // A 92-prefixed number must still have a full 10-digit local part.
+  assert.equal(normalizePhone('92 30012345'), null);
+  assert.equal(normalizePhone('920300123456'), null);
+  assert.match(PHONE_FORMAT_ERROR, /Enter a mobile number like 0300 1234567/);
+});
+
+test('international numbers require a country code and 10 to 15 digits', () => {
+  assert.equal(normalizePhone('+1 202 555 0143'), '12025550143'); // 11 digits
+  assert.equal(normalizePhone('442079460958'), '442079460958'); // 12 digits
+  assert.equal(normalizePhone('+1 234 567 8901'), '12345678901'); // 11 digits
+  assert.equal(normalizePhone('123456789'), null); // 9 digits
+  assert.equal(normalizePhone('1234567890123456'), null); // 16 digits
+  assert.equal(normalizePhone('03001234567'.slice(1)), '923001234567'); // local form still supported
 });
 
 // ============================================
@@ -226,6 +282,19 @@ test('customer text is length-limited and control chars stripped', () => {
   assert.equal(sanitizeText('   ', 50), null);
 });
 
+test('names and addresses collapse line breaks into spaces', () => {
+  assert.equal(sanitizeText('Ali\nHouse 5', 60, { maxLineBreaks: 0 }), 'Ali House 5');
+  assert.equal(sanitizeText('House 5\r\nStreet 2\rTown', 250, { maxLineBreaks: 0 }), 'House 5 Street 2 Town');
+  assert.equal(sanitizeText('  Ali  \n\n  Khan ', 60, { maxLineBreaks: 0 }), 'Ali Khan');
+});
+
+test('notes keep up to three line breaks', () => {
+  assert.equal(sanitizeText('line1\nline2\nline3\nline4', 300), 'line1\nline2\nline3\nline4');
+  assert.equal(sanitizeText('line1\nline2\nline3\nline4\nline5', 300), 'line1\nline2\nline3\nline4');
+  assert.equal(sanitizeText('a\r\nb\rc', 300), 'a\nb\nc');
+  assert.equal(sanitizeText('a\nb\nc', 300, { maxLineBreaks: 0 }), 'a b c');
+});
+
 test('website images are kept intact and unsafe image values are rejected', () => {
   const dataUrl = 'data:image/jpeg;base64,' + 'A'.repeat(2000);
   assert.equal(sanitizeImageField(dataUrl, 'Logo').value, dataUrl);
@@ -260,6 +329,47 @@ test('WhatsApp message and URL format', () => {
   const url = buildWhatsAppUrl('923001234567', message);
   assert.ok(url.startsWith('https://wa.me/923001234567?text='));
   assert.ok(decodeURIComponent(url).includes('W-4821'));
+});
+
+test('over-long wa.me links fall back to the short order message', () => {
+  const items = Array.from({ length: 12 }, (_, i) => ({
+    qty: 2, name: 'Item', lineTotal: 100, unitPrice: 50, modifiers: [], menuItemId: `i${i}`, notes: 'x'.repeat(200),
+  }));
+  const opts = {
+    reference: 'W-9001',
+    businessName: 'Test Cafe',
+    items,
+    subtotal: 1200,
+    deliveryFee: 0,
+    total: 1200,
+    orderType: 'PICKUP',
+    customerName: 'Ali',
+    customerPhone: '923001234567',
+    notes: 'x'.repeat(2000),
+  };
+  const fullMessage = buildWhatsAppMessage(opts);
+  assert.ok(buildWhatsAppUrl(opts.customerPhone, fullMessage).length > MAX_WHATSAPP_URL_LENGTH);
+
+  const shortMessage = buildShortWhatsAppMessage(opts);
+  assert.match(shortMessage, /New order W-9001 - Test Cafe/);
+  assert.match(shortMessage, /Total: Rs 1200/);
+  assert.match(shortMessage, /Items: 24/);
+  assert.match(shortMessage, /Name: Ali/);
+  assert.match(shortMessage, /Phone: \+923001234567/);
+  assert.match(shortMessage, /Full details are in the order system under W-9001/);
+
+  const shortUrl = buildWhatsAppUrlForMessage(opts.customerPhone, fullMessage, opts);
+  assert.ok(shortUrl.length <= MAX_WHATSAPP_URL_LENGTH);
+  assert.match(decodeURIComponent(shortUrl), /Full details are in the order system under W-9001/);
+  assert.doesNotMatch(decodeURIComponent(shortUrl), /x{200}/);
+
+  // Normal-length orders keep the full itemised message.
+  const smallOpts = { ...opts, items: [items[0]], notes: null };
+  const smallMessage = buildWhatsAppMessage(smallOpts);
+  assert.equal(
+    buildWhatsAppUrlForMessage(opts.customerPhone, smallMessage, smallOpts),
+    buildWhatsAppUrl(opts.customerPhone, smallMessage)
+  );
 });
 
 // ============================================
@@ -427,6 +537,103 @@ test('happy path: server prices, delivery fee rules, reference and whatsapp link
   assert.equal(small.total, 600); // 500 + 100 delivery fee
 });
 
+test('long orders placed through the public API get the short WhatsApp link', async () => {
+  const longItems = Array.from({ length: 12 }, (_, i) =>
+    makeMenuItem(`i${i}`, { name: `Different item ${i} `.repeat(12), price: 100 })
+  );
+  const db = fakeDb({ features: ACTIVE_FEATURES, menuItems: longItems });
+  db.restaurants.set('rest1', baseRestaurant());
+  setPrismaForTests(db);
+  const result: any = await createPublicOrder({
+    slug: 'test-cafe',
+    items: longItems.map((i) => ({ id: i.id, qty: 1 })),
+    name: 'Ali',
+    phone: '03001234567',
+    orderType: 'PICKUP',
+  });
+  assert.ok(!result.error);
+  assert.ok(result.whatsappUrl.length <= MAX_WHATSAPP_URL_LENGTH);
+  assert.match(decodeURIComponent(result.whatsappUrl), /Full details are in the order system under/);
+  assert.match(decodeURIComponent(result.whatsappUrl), /Items: 12/);
+});
+
+test('saved name/address are single-line while notes keep their line breaks', async () => {
+  const db = fakeDb({ features: ACTIVE_FEATURES, menuItems: [makeMenuItem('i1')] });
+  db.restaurants.set('rest1', baseRestaurant());
+  setPrismaForTests(db);
+  const result: any = await createPublicOrder({
+    slug: 'test-cafe',
+    items: [{ id: 'i1', qty: 1 }],
+    name: 'Ali\nKhan',
+    phone: '03001234567',
+    orderType: 'DELIVERY',
+    address: 'House 5\nStreet 2',
+    notes: 'line1\nline2\nline3\nline4\nline5',
+  });
+  assert.ok(!result.error);
+  assert.equal(result.webOrder.customerName, 'Ali Khan');
+  assert.equal(result.webOrder.address, 'House 5 Street 2');
+  assert.equal(result.webOrder.notes, 'line1\nline2\nline3\nline4');
+});
+
+test('duplicate submit with the same clientRef returns the existing order', async () => {
+  const db = fakeDb({ features: ACTIVE_FEATURES, menuItems: [makeMenuItem('i1')] });
+  db.restaurants.set('rest1', baseRestaurant());
+  setPrismaForTests(db);
+  const input = {
+    slug: 'test-cafe',
+    items: [{ id: 'i1', qty: 1 }],
+    name: 'Ali',
+    phone: '03001234567',
+    orderType: 'PICKUP' as const,
+    clientRef: '9f1c2b7a-1c34-4a56-8e7f-0a1b2c3d4e5f',
+  };
+  const first: any = await createPublicOrder(input);
+  const second: any = await createPublicOrder({ ...input, name: 'Someone else' });
+
+  assert.ok(!first.error);
+  assert.equal(second.duplicate, true);
+  assert.equal(second.reference, first.reference);
+  assert.equal(second.total, first.total);
+  assert.equal(second.webOrder.id, first.webOrder.id);
+  assert.equal(second.webOrder.clientRef, input.clientRef);
+  assert.ok(second.whatsappUrl.startsWith('https://wa.me/923001234567?text='));
+  assert.match(decodeURIComponent(second.whatsappUrl), new RegExp(first.reference));
+  // Only one order was saved, even though the request arrived twice.
+  assert.equal(db.webOrders.length, 1);
+});
+
+test('clientRef idempotency is scoped per business', async () => {
+  const db = fakeDb({
+    features: { rest1: [{ featureKey: 'website', enabled: true }], rest2: [{ featureKey: 'website', enabled: true }] },
+    menuItems: [makeMenuItem('i1')],
+  });
+  db.restaurants.set('rest1', baseRestaurant());
+  db.restaurants.set('rest2', baseRestaurant({ id: 'rest2', name: 'Other Cafe', websiteSlug: 'other-cafe' }));
+  setPrismaForTests(db);
+  const clientRef = 'same-uuid-for-both-businesses';
+  const first: any = await createPublicOrder({ slug: 'test-cafe', items: [{ id: 'i1', qty: 1 }], name: 'Ali', phone: '03001234567', orderType: 'PICKUP', clientRef });
+  const second: any = await createPublicOrder({ slug: 'other-cafe', items: [{ id: 'i1', qty: 1 }], name: 'Ali', phone: '03001234567', orderType: 'PICKUP', clientRef });
+  assert.ok(!first.error && !second.error);
+  assert.notEqual(second.webOrder.id, first.webOrder.id);
+  assert.equal(db.webOrders.length, 2);
+});
+
+test('business WhatsApp number follows the same mobile rules', async () => {
+  const db = fakeDb({ features: ACTIVE_FEATURES });
+  db.restaurants.set('rest1', baseRestaurant());
+  setPrismaForTests(db);
+
+  for (const bad of ['04212345678', '12345678', '+1 202 555 01']) {
+    const result = await updateWebsiteSettings('rest1', { whatsappNumber: bad });
+    assert.equal(result.status, 400, `${bad} should be rejected`);
+    assert.match(result.error || '', /Enter a mobile number like 0300 1234567/);
+  }
+  const good = await updateWebsiteSettings('rest1', { whatsappNumber: '+92 0300 1234567' });
+  assert.ok(!good.error);
+  assert.equal(good.restaurant.whatsappNumber, '923001234567');
+});
+
 test('below minimum order is rejected', async () => {
   const db = fakeDb({ features: ACTIVE_FEATURES, menuItems: [makeMenuItem('i2', { price: 100 })] });
   db.restaurants.set('rest1', baseRestaurant());
@@ -561,4 +768,137 @@ test('phone spam check counts per hour', async () => {
   assert.equal(await checkPhoneSpam('r1', '923001234567'), false);
   assert.equal(await checkPhoneSpam('r1', '923007777777'), true);
   assert.equal(await checkPhoneSpam('r2', '923001234567'), true);
+});
+
+// ============================================
+// LIFECYCLE / CONCURRENCY (A1, A2, A12)
+// ============================================
+
+function newWebOrder(overrides: Record<string, unknown> = {}) {
+  return {
+    id: `wo-${Math.random().toString(36).slice(2, 8)}`,
+    restaurantId: 'rest1',
+    reference: 'W-5000',
+    status: 'NEW',
+    customerName: 'Ali',
+    customerPhone: '923001234567',
+    orderType: 'PICKUP',
+    subtotal: 500,
+    deliveryFee: 0,
+    total: 500,
+    notes: null,
+    items: [{ name: 'Burger', qty: 1, unitPrice: 500, menuItemId: 'i1', dealId: null, modifiers: '[]', notes: null }],
+    ...overrides,
+  };
+}
+
+test('two simultaneous accepts create exactly one POS order', async () => {
+  const db = fakeDb({});
+  const order = newWebOrder();
+  db.webOrders.push(order);
+  setPrismaForTests(db);
+
+  let posCalls = 0;
+  setPosOrderCreatorForTests(async () => {
+    posCalls += 1;
+    await Promise.resolve(); // simulate the real async POS-order creation
+    return { id: `pos-${posCalls}` };
+  });
+
+  const results = await Promise.all([
+    acceptWebOrder('rest1', order.id),
+    acceptWebOrder('rest1', order.id),
+  ]);
+  const ok = results.filter((r) => !r.error);
+  const failed = results.filter((r) => r.error);
+  assert.equal(ok.length, 1);
+  assert.equal(failed.length, 1);
+  assert.equal(failed[0].status, 400);
+  assert.equal(posCalls, 1);
+  assert.equal(ok[0].webOrder.posOrderId, 'pos-1');
+  assert.equal(db.webOrders.filter((o: any) => o.id === order.id && o.status === 'ACCEPTED').length, 1);
+});
+
+test('failed POS order creation rolls the claim back to NEW', async () => {
+  const db = fakeDb({});
+  const order = newWebOrder();
+  db.webOrders.push(order);
+  setPrismaForTests(db);
+  setPosOrderCreatorForTests(async () => { throw new Error('printer offline'); });
+
+  const result = await acceptWebOrder('rest1', order.id);
+  assert.equal(result.status, 500);
+  assert.match(result.error || '', /Could not create the POS order/);
+  assert.equal(order.status, 'NEW');
+  assert.equal(order.posOrderId, null);
+});
+
+test('reject stores the reason and blocks a second decision', async () => {
+  const db = fakeDb({});
+  const order = newWebOrder();
+  db.webOrders.push(order);
+  setPrismaForTests(db);
+
+  const first = await rejectWebOrder('rest1', order.id, 'Sold out\nPlease try later');
+  assert.ok(!first.error);
+  assert.equal(first.webOrder.status, 'REJECTED');
+  assert.equal(first.webOrder.rejectionReason, 'Sold out Please try later');
+  const again = await rejectWebOrder('rest1', order.id, 'Another reason');
+  assert.equal(again.status, 400);
+});
+
+test('expiry sweep only expires stale NEW orders', async () => {
+  const db = fakeDb({});
+  db.webOrders.push(newWebOrder({ id: 'stale', status: 'NEW', expiresAt: new Date(Date.now() - 60_000) }));
+  db.webOrders.push(newWebOrder({ id: 'fresh', status: 'NEW', expiresAt: new Date(Date.now() + 60_000) }));
+  db.webOrders.push(newWebOrder({ id: 'accepted', status: 'ACCEPTED', expiresAt: new Date(Date.now() - 60_000) }));
+  setPrismaForTests(db);
+
+  assert.equal(await expireStaleWebOrders(), 1);
+  assert.equal(db.webOrders.find((o: any) => o.id === 'stale').status, 'EXPIRED');
+  assert.equal(db.webOrders.find((o: any) => o.id === 'fresh').status, 'NEW');
+  assert.equal(db.webOrders.find((o: any) => o.id === 'accepted').status, 'ACCEPTED');
+});
+
+test('purge removes only old expired/rejected orders', async () => {
+  const db = fakeDb({});
+  const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+  const recent = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+  db.webOrders.push(newWebOrder({ id: 'old-rejected', status: 'REJECTED', createdAt: old }));
+  db.webOrders.push(newWebOrder({ id: 'old-expired', status: 'EXPIRED', createdAt: old }));
+  db.webOrders.push(newWebOrder({ id: 'new-rejected', status: 'REJECTED', createdAt: recent }));
+  db.webOrders.push(newWebOrder({ id: 'old-delivered', status: 'DELIVERED', createdAt: old }));
+  db.webOrders.push(newWebOrder({ id: 'old-new', status: 'NEW', createdAt: old }));
+  setPrismaForTests(db);
+
+  assert.equal(await purgeOldWebOrders(), 2);
+  assert.deepEqual(db.webOrders.map((o: any) => o.id), ['new-rejected', 'old-delivered', 'old-new']);
+});
+
+test('production refuses public orders when Turnstile secret is missing', async () => {
+  const db = fakeDb({ features: ACTIVE_FEATURES, menuItems: [makeMenuItem('i1')] });
+  db.restaurants.set('rest1', baseRestaurant());
+  setPrismaForTests(db);
+  const previousEnv = process.env.NODE_ENV;
+  const previousSecret = process.env.TURNSTILE_SECRET_KEY;
+  process.env.NODE_ENV = 'production';
+  delete process.env.TURNSTILE_SECRET_KEY;
+  try {
+    const result = await createPublicOrder({
+      slug: 'test-cafe', items: [{ id: 'i1', qty: 1 }], name: 'Ali', phone: '03001234567', orderType: 'PICKUP',
+    });
+    assert.equal(result.status, 400);
+    assert.match(result.error || '', /temporarily unavailable|verification/i);
+    assert.equal(db.webOrders.length, 0);
+  } finally {
+    if (previousEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousEnv;
+    if (previousSecret === undefined) delete process.env.TURNSTILE_SECRET_KEY;
+    else process.env.TURNSTILE_SECRET_KEY = previousSecret;
+  }
+});
+
+test('website module depends on the menu module', async () => {
+  const { MODULE_DEPENDENCIES } = await import('../src/services/feature.service');
+  assert.deepEqual(MODULE_DEPENDENCIES.website, ['menu']);
 });

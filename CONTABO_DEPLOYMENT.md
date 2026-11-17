@@ -1,7 +1,7 @@
 # 🖥️ Server Handoff Document — Restaurant POS on Contabo VPS
 
 **Prepared for:** Server/DevOps person
-**Project:** Restaurant POS & Management System (multi-tenant SaaS)
+**Project:** Restaurant POS & Management System (multi-tenant SaaS, online only)
 **Target server:** Contabo VPS (Ubuntu 22.04 / 24.04)
 **Repo:** `https://github.com/dutchiono/restaurant-pos-system.git`
 
@@ -9,12 +9,13 @@
 
 ## 1. What This System Is
 
-A full-stack restaurant POS with **two deployment modes**. We are deploying the **online / multi-tenant mode**:
+A full-stack, **online-only** restaurant POS:
 
-- Cashiers and managers use a **web app** in the browser.
+- Cashiers and managers use a **web app** in the browser. An internet connection is required to sign in and to save data.
 - Multiple restaurants (tenants) share one database, isolated by `restaurantId`.
 - Realtime kitchen/order updates via **WebSockets (Socket.IO)**.
-- The app has an offline-sync layer (IndexedDB) that auto-flushes to the API when back online.
+- Customers place orders through a tenant's public website; orders are handed off to the POS inbox and WhatsApp.
+- When connectivity drops, the UI shows a blocking banner and retries idempotent writes. Nothing is saved locally for later sync.
 
 ---
 
@@ -24,18 +25,17 @@ A full-stack restaurant POS with **two deployment modes**. We are deploying the 
 |---|---|---|
 | Frontend | React 18 + Vite 7 + Tailwind CSS + Redux Toolkit + React Query | TypeScript |
 | Backend | Node.js 20 LTS + Express 4 + Socket.IO 4 + JWT + Zod | TypeScript (compiled to JS) |
-| ORM | Prisma 5 | TypeScript schema |
-| Database | **PostgreSQL 16** (REQUIRED — not MySQL, not Mongo) | SQL |
-| Offline cache | Dexie / IndexedDB (browser-side only) | TypeScript |
+| ORM | Prisma 5 (checked-in migrations, `prisma migrate deploy`) | TypeScript schema |
+| Database | **PostgreSQL 16** (REQUIRED — not MySQL, not Mongo, not SQLite) | SQL |
 | Process manager | PM2 | — |
 | Web server / SSL | Nginx + Certbot (Let's Encrypt) | — |
-| CI/CD | GitHub Actions (`deploy.yml`) → SSH into the server | YAML |
+| CI/CD | GitHub Actions (`.github/workflows/deploy.yml`) → SSH into the server | YAML |
 
 ### Database facts
-- **PostgreSQL is the only database needed on the server.**
-- SQLite exists **only** for the Electron desktop build — do NOT install it on the server.
-- **Redis is NOT needed** (it's an unused dependency in package.json).
-- Prisma auto-switches provider to `postgresql` when `DATABASE_URL` starts with `postgres://`.
+- **PostgreSQL is the only database.** The Prisma schema provider is permanently `postgresql`.
+- Prisma migrations are checked into `apps/backend/prisma/migrations/`; deploy with `npm run db:migrate` (`prisma migrate deploy`). Schema syncing commands are not used.
+- Redis is optional: only needed if you run more than one backend instance and want shared socket state.
+- Sentry (optional, recommended): set `SENTRY_DSN` to enable server-side error reporting. Set `SENTRY_FRONTEND_DSN` + `VITE_SENTRY_DSN` for browser errors.
 
 ---
 
@@ -57,6 +57,7 @@ Internet
 │                └── Prisma ──► PostgreSQL    │
 │                     localhost:5432          │
 │                     db: restaurant_pos      │
+│                └── daily backup ──► off-server storage
 └─────────────────────────────────────────────┘
 ```
 
@@ -112,46 +113,52 @@ git clone https://github.com/dutchiono/restaurant-pos-system.git .
 ```ini
 NODE_ENV=production
 PORT=3000
-DATABASE_PROVIDER=postgresql
 DATABASE_URL=postgresql://pos_user:REPLACE_WITH_STRONG_PASSWORD@localhost:5432/restaurant_pos
 JWT_SECRET=GENERATE_96_CHAR_RANDOM_HEX_HERE
 JWT_REFRESH_SECRET=GENERATE_ANOTHER_96_CHAR_RANDOM_HEX
-FRONTEND_URL=https://dimlight-cafe.vercel.app
+JWT_PLATFORM_SECRET=GENERATE_A_THIRD_96_CHAR_RANDOM_HEX
+FRONTEND_URL=https://pos.yourdomain.com
+TURNSTILE_SECRET_KEY=your_cloudflare_turnstile_secret
+# Optional but recommended
+SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0
+# Off-server backup destination (see section 7)
+BACKUP_DIR=/var/backups/restaurant-pos
+BACKUP_REMOTE=pos-backups:restaurant-pos
+BACKUP_RETENTION_DAYS=30
 ```
 
 > Generate secrets with: `openssl rand -hex 48`
-> `FRONTEND_URL` must match the exact domain (used for CORS).
+> `FRONTEND_URL` must match the exact domain (used for CORS). Public orders are refused in production if `TURNSTILE_SECRET_KEY` is missing.
 
 **Create `/var/www/restaurant-pos/apps/frontend/.env`:**
 
 ```ini
-VITE_API_URL=https://pos.gsmpilot.com/api
+VITE_API_URL=https://pos.yourdomain.com/api
+VITE_SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0
 ```
 
-> ⚠️ The frontend env var is baked in at **build time** — it must be set before `npm run build`.
+> ⚠️ Frontend env vars are baked in at **build time** — set them before `npm run build`.
 
-### 4.5 Build
+### 4.5 Build and migrate
 
 ```bash
-# Backend (switches Prisma to PostgreSQL, generates client, compiles TS)
-cd /var/www/restaurant-pos/apps/backend
-npm install
-DATABASE_PROVIDER=postgresql npm run build:postgres
+cd /var/www/restaurant-pos
+npm run install:all
 
-# Create database schema
-npx prisma db push --skip-generate
+# Backend: generate client, compile TS, then apply checked-in migrations
+cd apps/backend
+npm run build
+npm run db:migrate          # prisma migrate deploy
 
-# Optional: load demo/seed data
-npx tsx prisma/seed.ts
+# Optional: load demo/seed data (never on a live tenant database)
+# npx tsx prisma/seed.ts
 
 # Frontend
-cd /var/www/restaurant-pos/apps/frontend
-npm install
-VITE_API_URL=https://pos.gsmpilot.com/api npm run build
+cd ../frontend
+npm run build
 ```
 
-> ⚠️ **Important:** there is NO `prisma/migrations/` folder in the repo, so
-> `prisma migrate deploy` will fail/do nothing. **Use `prisma db push`** as shown above.
+> ⚠️ Schema changes must go through a checked-in Prisma migration so every environment stays in sync.
 
 ### 4.6 Run backend with PM2
 
@@ -163,7 +170,7 @@ pm2 startup    # run the command it prints, for boot-time start
 ```
 
 Check: `pm2 logs restaurant-pos` and `curl http://127.0.0.1:3000/health`
-Expected: `{"status":"ok","mode":"online-postgres","dbConnected":true,...}`
+Expected: `{"status":"ok","mode":"postgresql","dbConnected":true,...}`
 
 ### 4.7 Nginx config
 
@@ -207,7 +214,6 @@ server {
         proxy_pass http://127.0.0.1:3000;
     }
 
-    # Basic hardening
     client_max_body_size 15M;   # matches backend JSON limit
 }
 ```
@@ -238,59 +244,64 @@ sudo ufw status
 
 ## 5. CI/CD (GitHub Actions)
 
-The repo contains **`deploy.yml`** — it SSHs into the server on every push to `main`,
-pulls code, installs, builds both apps, pushes DB schema, and restarts the service.
+`.github/workflows/deploy.yml` SSHes into the server on every push to `main`, pulls code, installs, builds both apps, applies migrations with `prisma migrate deploy`, and restarts PM2.
 
 **Required GitHub repo secrets:**
 - `SERVER_HOST` → Contabo IP
 - `SERVER_USER` → SSH user
-- `SERVER_PASSWORD` → SSH password (recommend switching to SSH key)
+- `SERVER_SSH_KEY` → SSH private key
 
-**Two fixes needed in `deploy.yml`:**
-1. The restart step uses `sudo systemctl restart restaurant-pos` — either
-   create a systemd unit with that name, **or** change it to `pm2 restart restaurant-pos`.
-2. It runs `npx prisma migrate deploy` which does nothing (no migrations folder) —
-   `npx prisma db push --skip-generate` (also in the script) is what actually works.
+A separate workflow runs unit + acceptance tests against PostgreSQL on every pull request before deployment is allowed.
 
 ---
 
 ## 6. Post-Deployment Verification
 
-- [ ] `https://pos.yourdomain.com/health` returns `"status":"ok"` and `"dbConnected":true`
+- [ ] `https://pos.yourdomain.com/health` returns `"status":"ok"`, `"dbConnected":true`, `"mode":"postgresql"`
 - [ ] Frontend loads; login works (email/password and PIN)
 - [ ] Create an order → kitchen display updates in realtime (WebSocket)
 - [ ] Settle a cash payment; receipt/changes calculate correctly
-- [ ] Two browsers see live table/order status changes
-- [ ] `pm2 logs restaurant-pos` shows `[HTTP]` request logs, no errors
+- [ ] Public website menu loads; a test order appears in the Online Orders inbox and can be accepted atomically
+- [ ] With the browser offline, a banner appears and save buttons are disabled; no data is queued locally
+- [ ] `pm2 logs restaurant-pos` shows PII-free `[HTTP]` request logs, no errors
 - [ ] `sudo systemctl status nginx` active
 - [ ] SSL auto-renewal dry-run passes
+- [ ] Backup + restore test completed (section 7)
 
 ---
 
-## 7. Backups & Maintenance
+## 7. Backups & Restore (off-server, 30-day retention)
+
+Backups are **not** stored inside the app and there is no in-app backup button/feature.
+The backup scripts live in `apps/backend/scripts/`:
 
 ```bash
-# Manual DB backup
-pg_dump -U pos_user restaurant_pos | gzip > /var/backups/pos_$(date +%F).sql.gz
+cd /var/www/restaurant-pos/apps/backend
 
-# Recommended: daily cron at 2 AM
-0 2 * * * pg_dump -U pos_user restaurant_pos | gzip > /var/backups/pos_$(date +\%F).sql.gz
+# Nightly cron — dumps, gzip-encrypts, uploads to BACKUP_REMOTE, prunes older than 30 days
+0 2 * * * cd /var/www/restaurant-pos/apps/backend && ./scripts/backup-postgres.sh >> /var/log/pos-backup.log 2>&1
+
+# Restore test (run monthly against a scratch database, not production)
+./scripts/restore-postgres.sh /var/backups/restaurant-pos/backup-YYYY-MM-DD.sql.gz
 ```
-- The app also runs its **own startup + daily backup timer** (`backup.service`).
-- Keep 7–30 days of backups and copy them off-server (rclone/S3).
-- OS updates: `sudo apt update && sudo apt upgrade -y` (or unattended-upgrades).
+
+- `BACKUP_RETENTION_DAYS` defaults to **30**.
+- `BACKUP_REMOTE` is an rclone/S3-compatible destination (e.g. `s3:pos-backups/restaurant-pos`); leave it unset to keep local dumps only during initial setup, but production must copy off-server.
+- Platform Super Admins can also download a ZIP of the latest backups from the Platform Dashboard (**Backups → Download ZIP**) without SSH access.
+- Restore test procedure and checklist: `apps/backend/scripts/README-backup.md`.
 
 ---
 
 ## 8. Security Checklist
 
-- [ ] Strong random `JWT_SECRET` / `JWT_REFRESH_SECRET` (32+ chars)
+- [ ] Strong random `JWT_SECRET` / `JWT_REFRESH_SECRET` / `JWT_PLATFORM_SECRET` (32+ chars, all different)
 - [ ] `.env` files are NOT committed to git and readable only by the app user (`chmod 600`)
 - [ ] PostgreSQL and port 3000 NOT exposed publicly (UFW)
 - [ ] HTTPS only; HTTP → HTTPS redirect (Certbot does this)
 - [ ] SSH key auth + disable password login recommended
 - [ ] Fail2ban installed (`sudo apt install fail2ban`)
-- [ ] `NODE_ENV=production` set
+- [ ] `NODE_ENV=production` set and `TURNSTILE_SECRET_KEY` configured
+- [ ] `SENTRY_DSN` set; request logs verified free of emails, phones, tokens and card data
 
 ---
 
@@ -304,10 +315,12 @@ pg_dump -U pos_user restaurant_pos | gzip > /var/backups/pos_$(date +%F).sql.gz
 | Backend env | `apps/backend/.env` |
 | DB | PostgreSQL `restaurant_pos`, user `pos_user`, localhost:5432 |
 | Health check | `GET /health` or `GET /api/health` |
-| Rebuild after deploy | `cd apps/backend && DATABASE_PROVIDER=postgresql npm run build:postgres && npx prisma db push --skip-generate` |
+| Apply schema | `cd apps/backend && npm run db:migrate` |
+| Rebuild after deploy | `npm run install:all && cd apps/backend && npm run build && npm run db:migrate && cd ../frontend && npm run build` |
 | Restart backend | `pm2 restart restaurant-pos` |
+| Backups | `apps/backend/scripts/backup-postgres.sh` (30-day, off-server) |
 | Logs | `pm2 logs restaurant-pos` |
 
 ---
 
-*Generated for handoff — full project docs: `README.md`, `DEPLOYMENT.md`, `API.md`, `MULTI_TENANT_GUIDE.md`, `OFFLINE_SYNC.md`.*
+*Generated for handoff — full project docs: `README.md`, `DEPLOYMENT.md`, `API.md`, `MULTI_TENANT_GUIDE.md`.*

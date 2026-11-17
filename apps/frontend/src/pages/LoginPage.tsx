@@ -3,15 +3,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { loginSuccess, loginFailure, clearError } from '../store/slices/authSlice';
 import { RootState } from '../store/store';
-import { api } from '../lib/api';
-import { storeSession, getAccessToken, getStoredUser } from '../lib/session';
-import { isNetworkError } from '../lib/offline/network';
-import {
-  cachePasswordCredential,
-  cachePinCredential,
-  verifyOfflinePassword,
-  verifyOfflinePin,
-} from '../lib/offline/authCache';
+import { api, isNetworkFailure } from '../lib/api';
+import { storeSession } from '../lib/session';
 
 export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
   const dispatch = useDispatch();
@@ -41,21 +34,6 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
     return '/pos';
   };
 
-  /**
-   * Enter the POS using a locally cached user while offline. The previously
-   * stored token is reused only when it belongs to the same user so a
-   * different cashier cannot inherit someone else's session.
-   */
-  const enterOfflineSession = (cachedUser: any) => {
-    const existingUser = getStoredUser();
-    const reusableToken =
-      existingUser && cachedUser?.id && existingUser.id === cachedUser.id ? getAccessToken() : null;
-    const token = reusableToken || 'offline';
-    storeSession({ accessToken: token, user: cachedUser });
-    dispatch(loginSuccess({ user: cachedUser, token }));
-    navigate(getInitialRoute(cachedUser));
-  };
-
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     dispatch(clearError());
@@ -70,22 +48,11 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
         localStorage.setItem('pos_tenant_slug', data.user.restaurantSlug);
         setTenantSlug(data.user.restaurantSlug);
       }
-      void cachePasswordCredential(data.user, password);
       dispatch(loginSuccess({ user: data.user, token: data.accessToken }));
       navigate(getInitialRoute(data.user));
     } catch (err: any) {
-      if (isNetworkError(err)) {
-        // Offline: allow unlock only if this device verified these creds before.
-        const cachedUser = await verifyOfflinePassword(email, password);
-        if (cachedUser) {
-          enterOfflineSession(cachedUser);
-          return;
-        }
-        dispatch(
-          loginFailure(
-            'No internet connection. Sign in once while online to enable offline access on this device.'
-          )
-        );
+      if (isNetworkFailure(err)) {
+        dispatch(loginFailure('No internet connection. Sign in requires an internet connection.'));
         return;
       }
       dispatch(loginFailure(err?.response?.data?.error || err?.response?.data?.message || 'Invalid email or password.'));
@@ -115,21 +82,11 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
         refreshToken: data.refreshToken,
         user: data.user,
       });
-      void cachePinCredential(data.user, pin);
       dispatch(loginSuccess({ user: data.user, token: data.accessToken }));
       navigate(getInitialRoute(data.user));
     } catch (err: any) {
-      if (isNetworkError(err)) {
-        const cachedUser = await verifyOfflinePin(pin);
-        if (cachedUser) {
-          enterOfflineSession(cachedUser);
-          return;
-        }
-        dispatch(
-          loginFailure(
-            'No internet connection. Sign in once while online to enable offline access on this device.'
-          )
-        );
+      if (isNetworkFailure(err)) {
+        dispatch(loginFailure('No internet connection. Sign in requires an internet connection.'));
         return;
       }
       dispatch(loginFailure(err?.response?.data?.error || err?.response?.data?.message || 'Invalid PIN or Business Code.'));

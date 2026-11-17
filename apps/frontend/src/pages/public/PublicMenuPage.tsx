@@ -67,6 +67,11 @@ const T: Record<string, Record<Lang, string>> = {
   closedDay: { en: 'Closed', ur: 'بند', roman: 'Band' },
   free: { en: 'Free', ur: 'مفت', roman: 'Free' },
   payNote: { en: 'Payment note', ur: 'ادائیگی کی نوٹ', roman: 'Payment note' },
+  privacyNote: {
+    en: 'Your name, phone and address are used only to process this order.',
+    ur: 'آپ کا نام، فون نمبر اور ایڈریس صرف اس آرڈر پر کارروائی کے لیے استعمال ہوں گے۔',
+    roman: 'Aap ka naam, phone aur address sirf is order par karwai ke liye use honge.',
+  },
   chooseUpTo: { en: 'Choose up to', ur: 'تک منتخب کریں', roman: 'Choose up to' },
 };
 
@@ -193,6 +198,9 @@ export const PublicMenuPage: React.FC = () => {
 
   const [submitting, setSubmitting] = useState(false);
   const [confirmation, setConfirmation] = useState<PubPostResponse | null>(null);
+  // Created when checkout opens; sent with the order so a retried submit is a
+  // no-op on the server instead of creating a duplicate order.
+  const [clientRef, setClientRef] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const siteKey = (import.meta.env.VITE_TURNSTILE_SITE_KEY as string) || '';
 
@@ -355,6 +363,9 @@ export const PublicMenuPage: React.FC = () => {
     if (!b || !cart.length) return;
     setSubmitting(true);
     setError(null);
+    // On desktop, open the tab during the click so the popup blocker allows it;
+    // on phones, navigate the current tab to wa.me once the order is saved.
+    const popup = isMobileDevice() ? null : window.open('about:blank', '_blank');
     try {
       const res = await fetch(`${API_BASE}/public/${encodeURIComponent(slug)}/orders`, {
         method: 'POST',
@@ -368,17 +379,25 @@ export const PublicMenuPage: React.FC = () => {
           lat: profile.lat,
           lng: profile.lng,
           notes: profile.notes || undefined,
-          turnstileToken: turnstileToken || undefined,
+          cfToken: turnstileToken || undefined,
+          clientRef: clientRef || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Failed to place the order. Please try again.');
       setConfirmation(data as PubPostResponse);
       setCart([]);
+      setClientRef(null);
       setCheckoutOpen(false);
       setCartOpen(false);
-      window.open(data.whatsappUrl, '_blank', 'noopener');
+      if (popup && !popup.closed) {
+        popup.location.href = data.whatsappUrl;
+        popup.opener = null;
+      } else {
+        window.location.href = data.whatsappUrl;
+      }
     } catch (e: any) {
+      popup?.close();
       setError(e.message || 'Network error. Please try again.');
     } finally {
       setSubmitting(false);
@@ -830,7 +849,7 @@ export const PublicMenuPage: React.FC = () => {
                   </div>
                 )}
                 <button
-                  onClick={() => { setCartOpen(false); setCheckoutOpen(true); }}
+                  onClick={() => { setCartOpen(false); setClientRef(createClientRef()); setCheckoutOpen(true); }}
                   disabled={belowMin}
                   className="pub-qty mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[var(--pub-accent)] text-sm font-bold text-[var(--pub-on-accent)] disabled:opacity-40"
                   style={{ minHeight: 48 }}
@@ -924,6 +943,10 @@ export const PublicMenuPage: React.FC = () => {
                 💳 <span>{b.paymentNote || tr('payNote')}</span>
               </div>
 
+              <p className="mt-3 text-[11px] leading-relaxed text-[var(--pub-muted)]" style={{ opacity: 0.8 }}>
+                🔒 {tr('privacyNote')}
+              </p>
+
               <div className="mt-4 rounded-2xl bg-[var(--pub-surface)] px-4 py-3.5">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-[var(--pub-muted)]">{tr('subtotal')}</span>
@@ -973,7 +996,10 @@ export const PublicMenuPage: React.FC = () => {
               <strong>{money(confirmation.total)}</strong>
             </div>
             <button
-              onClick={() => window.open(confirmation.whatsappUrl, '_blank', 'noopener')}
+              onClick={() => {
+                if (isMobileDevice()) window.location.href = confirmation.whatsappUrl;
+                else window.open(confirmation.whatsappUrl, '_blank', 'noopener');
+              }}
               className="pub-qty mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#25d366] text-sm font-bold text-white"
               style={{ minHeight: 48 }}
             >
@@ -997,4 +1023,16 @@ export const PublicMenuPage: React.FC = () => {
 };
 
 // ---------- helpers ----------
+function isMobileDevice(): boolean {
+  return /Android|webOS|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+}
+
+function createClientRef(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Older browsers / non-secure contexts.
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default PublicMenuPage;

@@ -20,7 +20,6 @@ export const MODULE_PRESETS = {
     'inventory',
     'employees',
     'roles',
-    'backups',
   ] as FeatureKey[],
   full: [
     'pos',
@@ -37,7 +36,6 @@ export const MODULE_PRESETS = {
     'inventory',
     'employees',
     'roles',
-    'backups',
     'analytics',
     'costing',
     'expenses',
@@ -53,6 +51,7 @@ export const MODULE_DEPENDENCIES: Record<string, FeatureKey[]> = {
   costing: ['inventory', 'menu'],
   payroll: ['employees'],
   analytics: ['orders'],
+  website: ['menu'],
 };
 
 export async function getEnabledFeatures(restaurantId: string): Promise<FeatureKey[]> {
@@ -101,7 +100,6 @@ export async function migrateExistingBusinesses(): Promise<void> {
       'roles',
       'analytics',
       'settings',
-      'backups',
     ];
 
     const toCreate: Array<{ restaurantId: string; featureKey: string; enabled: boolean }> = [];

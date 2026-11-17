@@ -1,11 +1,7 @@
 import { api } from '../lib/api';
 import { Deal } from '../types/deal.types';
 import { PaginatedResponse } from '../types/pagination';
-import { offlineDB } from '../lib/offline/db';
-import { isNetworkError } from '../lib/offline/network';
 import { getCurrentRestaurantId } from '../lib/session';
-
-const DEALS_CACHE_KEY = (restaurantId: string) => `deals:${restaurantId}`;
 
 function mapDeal(item: any): Deal {
   return {
@@ -68,21 +64,6 @@ export const dealApi = {
         };
       }
     } catch (e) {
-      if (isNetworkError(e)) {
-        const restId = params?.restaurantId || getCurrentRestaurantId();
-        if (restId) {
-          const cached = await getCachedDeals(restId);
-          if (cached.length > 0) {
-            return {
-              data: cached,
-              page: 1,
-              limit: cached.length,
-              totalCount: cached.length,
-              hasMore: false,
-            };
-          }
-        }
-      }
       console.warn('Backend paginated deals fetch error:', e);
     }
 
@@ -95,7 +76,7 @@ export const dealApi = {
     };
   },
 
-  // Fetch active deals for restaurant (cached locally for offline POS use)
+  // Fetch active deals for restaurant
   getActiveDeals: async (paramRestaurantId?: string): Promise<Deal[]> => {
     const restaurantId = paramRestaurantId || getCurrentRestaurantId();
     if (!restaurantId) return [];
@@ -103,23 +84,10 @@ export const dealApi = {
     try {
       const res: any = await api.get(`/deals/restaurant/${restaurantId}/active`);
       if (Array.isArray(res)) {
-        const deals = res.map(mapDeal);
-        try {
-          await offlineDB.kv.put({ key: DEALS_CACHE_KEY(restaurantId), value: deals, updatedAt: Date.now() });
-        } catch {
-          // Cache write is best-effort.
-        }
-        return deals;
+        return res.map(mapDeal);
       }
     } catch (e) {
-      if (isNetworkError(e)) {
-        const cached = await getCachedDeals(restaurantId);
-        if (cached.length > 0) {
-          console.warn('Offline: serving cached deals.');
-          return cached;
-        }
-      }
-      console.warn('Backend active deals fetch fallback:', e);
+      console.warn('Backend active deals fetch failed:', e);
     }
     return [];
   },
@@ -192,15 +160,3 @@ export const dealApi = {
     }
   },
 };
-
-/** Read the last cached deals for offline use. */
-export async function getCachedDeals(paramRestaurantId?: string): Promise<Deal[]> {
-  const restaurantId = paramRestaurantId || getCurrentRestaurantId();
-  if (!restaurantId) return [];
-  try {
-    const entry = await offlineDB.kv.get(DEALS_CACHE_KEY(restaurantId));
-    return Array.isArray(entry?.value) ? (entry.value as Deal[]) : [];
-  } catch {
-    return [];
-  }
-}

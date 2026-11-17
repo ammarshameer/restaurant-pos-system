@@ -39,7 +39,6 @@ export const PERMISSIONS = [
   'payroll.manage',
   'payroll.pay',
   'settings.manage',
-  'backups.manage',
   'weborders.view',
   'weborders.manage',
   'website.settings',
@@ -64,7 +63,6 @@ export const FEATURES = [
   'expenses',
   'payroll',
   'settings',
-  'backups',
   'website',
 ] as const;
 
@@ -92,7 +90,6 @@ export const MODULE_TO_FEATURE: Record<string, FeatureKey | null> = {
   expenses: 'expenses',
   payroll: 'payroll',
   settings: 'settings',
-  backups: 'backups',
   weborders: 'website',
   website: 'website',
 };
@@ -322,15 +319,6 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     ],
   },
   {
-    id: 'backups',
-    name: 'Data Backups',
-    description: 'Database snapshot and backup management',
-    featureKey: 'backups',
-    permissions: [
-      { key: 'backups.manage', name: 'Manage Backups', description: 'Trigger manual database backups and view logs' },
-    ],
-  },
-  {
     id: 'website',
     name: 'Website & WhatsApp Orders',
     description: 'Public online menu, web orders inbox, and WhatsApp order handoff',
@@ -385,7 +373,6 @@ export const DEFAULT_SYSTEM_ROLES: SystemRoleDefinition[] = [
       (p) =>
         p !== 'roles.manage' &&
         p !== 'settings.manage' &&
-        p !== 'backups.manage' &&
         p !== 'costing.view' &&
         p !== 'costing.manage' &&
         p !== 'profit.view' &&

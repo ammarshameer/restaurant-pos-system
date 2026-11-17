@@ -1,5 +1,4 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { network, isNetworkError } from './offline/network';
 import { getRefreshToken, storeSession, clearSession } from './session';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
@@ -7,39 +6,55 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 /** Auth endpoints that must never trigger the refresh/retry flow. */
 const AUTH_ENDPOINTS = ['/auth/login', '/auth/pin-login', '/auth/refresh', '/auth/onboard'];
 
-type RefreshResult = { token?: string; networkError?: boolean };
+let refreshPromise: Promise<string | null> | null = null;
 
-let refreshPromise: Promise<RefreshResult> | null = null;
+/** True when the request never reached the server (safe to retry). */
+export function isNetworkFailure(error: any): boolean {
+  if (error?.response) return false;
+  return ['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT', 'ERR_CONNECTION_RESET'].includes(error?.code) ||
+    error instanceof TypeError;
+}
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Exchange the stored refresh token for a fresh access token. Single-flight so
- * a burst of parallel 401s only triggers one refresh. A network failure (still
- * offline) is reported separately so callers can keep the session instead of
- * logging the user out.
+ * Retries a request only when it carries a stable idempotency key. The server
+ * dedupes on that key, so a retry can never produce a duplicate order/payment.
  */
-async function refreshAccessToken(): Promise<RefreshResult> {
+async function withIdempotentRetry<T>(send: () => Promise<T>, payload: any): Promise<T> {
+  const hasIdempotencyKey = Boolean(payload?.clientId || payload?.clientRef);
+  if (!hasIdempotencyKey) return send();
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await send();
+    } catch (error) {
+      if (!isNetworkFailure(error) || attempt === 2) throw error;
+      await delay(500 * (attempt + 1));
+    }
+  }
+  throw new Error('Request failed');
+}
+
+/** Exchange the stored refresh token for a fresh access token. Single-flight. */
+async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = getRefreshToken();
-  if (!refreshToken) return {};
+  if (!refreshToken) return null;
 
   try {
     const res = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
     const data: any = res.data || {};
     if (data.accessToken) {
-      network.set(true);
       storeSession({
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
         user: data.user,
       });
-      return { token: data.accessToken };
+      return data.accessToken;
     }
-    return {};
-  } catch (e: any) {
-    if (isNetworkError(e)) {
-      network.set(false);
-      return { networkError: true };
-    }
-    return {};
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -49,15 +64,12 @@ class ApiClient {
   constructor() {
     this.client = axios.create({
       baseURL: API_URL,
-      // Keep requests short so the POS can fall back to offline mode quickly
-      // when the server is unreachable.
       timeout: 15000,
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
-    // Request interceptor to add auth token
     this.client.interceptors.request.use(
       (config) => {
         const token = localStorage.getItem('auth_token');
@@ -69,19 +81,9 @@ class ApiClient {
       (error) => Promise.reject(error)
     );
 
-    // Response interceptor for error handling + connectivity detection
     this.client.interceptors.response.use(
-      (response) => {
-        // Any successful round-trip means we have a working connection.
-        network.set(true);
-        return response;
-      },
+      (response) => response,
       async (error: AxiosError) => {
-        // A request that never reached the server means we are offline.
-        if (isNetworkError(error)) {
-          network.set(false);
-        }
-
         const original: any = error.config;
         const status = error.response?.status;
         const url = original?.url || '';
@@ -97,17 +99,12 @@ class ApiClient {
               refreshPromise = null;
             });
           }
-          const result = await refreshPromise;
+          const token = await refreshPromise;
 
-          if (result.token) {
+          if (token) {
             original.headers = original.headers || {};
-            original.headers.Authorization = `Bearer ${result.token}`;
+            original.headers.Authorization = `Bearer ${token}`;
             return this.client(original);
-          }
-
-          // Still offline: keep the session (and queued offline ops) intact.
-          if (result.networkError) {
-            return Promise.reject(error);
           }
         }
 
@@ -129,17 +126,17 @@ class ApiClient {
   }
 
   async post<T>(url: string, data?: any): Promise<T> {
-    const response = await this.client.post<T>(url, data);
+    const response = await withIdempotentRetry(() => this.client.post<T>(url, data), data);
     return response.data;
   }
 
   async put<T>(url: string, data?: any): Promise<T> {
-    const response = await this.client.put<T>(url, data);
+    const response = await withIdempotentRetry(() => this.client.put<T>(url, data), data);
     return response.data;
   }
 
   async patch<T>(url: string, data?: any): Promise<T> {
-    const response = await this.client.patch<T>(url, data);
+    const response = await withIdempotentRetry(() => this.client.patch<T>(url, data), data);
     return response.data;
   }
 

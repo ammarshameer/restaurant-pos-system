@@ -34,7 +34,6 @@ const PRESET_MODULES: Record<'starter' | 'standard' | 'full', string[]> = {
     'inventory',
     'employees',
     'roles',
-    'backups',
   ],
   full: [
     'pos',
@@ -51,7 +50,6 @@ const PRESET_MODULES: Record<'starter' | 'standard' | 'full', string[]> = {
     'inventory',
     'employees',
     'roles',
-    'backups',
     'analytics',
     'costing',
     'expenses',
@@ -98,7 +96,6 @@ const MODULE_GROUPS = [
       { key: 'analytics', name: 'Analytics & Reports', hint: 'Auto-enables orders' },
       { key: 'expenses', name: 'Business Expenses' },
       { key: 'settings', name: 'Store Settings', required: true },
-      { key: 'backups', name: 'Database Backups' },
     ],
   },
 ];
@@ -137,7 +134,7 @@ export const PlatformDashboardPage: React.FC = () => {
   const platformUser = getPlatformUser();
   const isSuperAdmin = platformUser?.role === 'SUPER_ADMIN';
 
-  const [activeTab, setActiveTab] = useState<'tenants' | 'support' | 'audit'>('tenants');
+  const [activeTab, setActiveTab] = useState<'tenants' | 'support' | 'audit' | 'backups'>('tenants');
   const [tenants, setTenants] = useState<PlatformTenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -191,6 +188,10 @@ export const PlatformDashboardPage: React.FC = () => {
     password: '',
     isActive: true,
   });
+
+  // Database backups
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
 
   // Audit Logs
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -606,6 +607,25 @@ export const PlatformDashboardPage: React.FC = () => {
             }}
           >
             📋 Platform Audit Logs
+          </button>
+        )}
+
+        {isSuperAdmin && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('backups')}
+            style={{
+              background: 'none',
+              border: 'none',
+              borderBottom: activeTab === 'backups' ? '2px solid #3b82f6' : '2px solid transparent',
+              color: activeTab === 'backups' ? '#f8fafc' : '#94a3b8',
+              padding: '10px 18px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontSize: '14px',
+            }}
+          >
+            💾 Database Backups
           </button>
         )}
       </div>
@@ -1064,6 +1084,49 @@ export const PlatformDashboardPage: React.FC = () => {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* TAB 4: DATABASE BACKUPS (SUPER_ADMIN ONLY) */}
+      {activeTab === 'backups' && isSuperAdmin && (
+        <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '28px' }}>
+          <h2 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '8px' }}>💾 Database Backups</h2>
+          <p style={{ color: '#94a3b8', fontSize: '13px', maxWidth: '720px', lineHeight: 1.6 }}>
+            Nightly PostgreSQL dumps are stored off-server and retained for 30 days. Download a ZIP of the
+            available dumps for archive or audit purposes. The archive contains database dumps only — no
+            credentials or environment files.
+          </p>
+          {backupError && (
+            <p style={{ color: '#f87171', fontSize: '13px', fontWeight: 600 }}>{backupError}</p>
+          )}
+          <button
+            type="button"
+            disabled={backupLoading}
+            onClick={async () => {
+              setBackupLoading(true);
+              setBackupError(null);
+              try {
+                await platformApi.downloadBackupZip();
+              } catch (err: any) {
+                setBackupError(err?.response?.data?.error || 'Could not download backups. Please try again.');
+              } finally {
+                setBackupLoading(false);
+              }
+            }}
+            style={{
+              marginTop: '16px',
+              background: '#3b82f6',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '10px 18px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              opacity: backupLoading ? 0.6 : 1,
+            }}
+          >
+            {backupLoading ? 'Preparing ZIP…' : '⬇️ Download backups ZIP'}
+          </button>
         </div>
       )}
 

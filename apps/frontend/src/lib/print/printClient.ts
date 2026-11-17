@@ -10,14 +10,14 @@ interface PrintHelperStatus {
   printerName?: string;
   configured?: boolean;
   platform?: string;
-  via: 'helper' | 'electron';
+  via: 'helper';
 }
 
 export type PrintRenderMode = 'raster' | 'text';
 
 export interface DirectPrintOptions extends EscPosOptions {
   openDrawer?: boolean;
-  /** OS printer name — used by the agent/helper/electron channels. */
+  /** OS printer name — used by the agent/helper print channels. */
   printerName?: string;
   /** 'raster' = pixel-exact preview image; 'text' = fast native ESC/POS text. */
   renderMode?: PrintRenderMode;
@@ -25,7 +25,7 @@ export interface DirectPrintOptions extends EscPosOptions {
 
 export interface DirectPrintResult {
   ok: boolean;
-  via: 'helper' | 'electron' | 'agent';
+  via: 'helper' | 'agent';
   message?: string;
 }
 
@@ -118,22 +118,7 @@ async function detectHttpPrintChannel(): Promise<HttpPrintChannel | null> {
 }
 
 export async function checkLocalPrintService(): Promise<boolean> {
-  const electronPrint = getElectronPrintApi();
-  if (electronPrint?.status) {
-    try {
-      const status = await electronPrint.status();
-      if (status?.ok) return true;
-    } catch {
-      // Fall through to the HTTP services.
-    }
-  }
   return (await detectHttpPrintChannel()) !== null;
-}
-
-function getElectronPrintApi() {
-  return typeof window !== 'undefined' && window.electronAPI?.platform === 'win32'
-    ? window.electronAPI.print
-    : undefined;
 }
 
 async function fetchWithTimeout(
@@ -150,21 +135,8 @@ async function fetchWithTimeout(
   }
 }
 
-/**
- * Checks for the desktop print service. In the offline Electron build this is
- * the preload IPC bridge; on the hosted site it is the loopback HTTP helper.
- */
+/** Checks for the loopback HTTP print helper. */
 async function checkPrintHelper(): Promise<PrintHelperStatus | null> {
-  const electronPrint = getElectronPrintApi();
-  if (electronPrint?.status) {
-    try {
-      const status = await electronPrint.status();
-      if (status?.ok) return { ...status, via: 'electron' };
-    } catch {
-      // Fall through to the HTTP helper check.
-    }
-  }
-
   const { url, token } = getPrintHelperConfig();
   try {
     const response = await fetchWithTimeout(
@@ -193,7 +165,7 @@ const SERVICE_UNAVAILABLE_MESSAGE =
 
 /**
  * Sends receipt JSON to the best available print channel:
- * Electron IPC -> print helper -> generic print agent.
+ * loopback print helper -> generic print agent.
  * Throws when no channel can print; never opens a browser dialog.
  */
 export async function printReceiptDirect(
@@ -229,15 +201,6 @@ export async function printReceiptDirect(
     printerName: options.printerName,
     dataBase64,
   };
-
-  const electronPrint = getElectronPrintApi();
-  if (electronPrint?.printReceipt) {
-    const result = await electronPrint.printReceipt(payload);
-    if (result?.ok) {
-      return { ok: true, via: 'electron', message: result.message };
-    }
-    throw new Error(result?.error || 'The desktop print service could not print the receipt.');
-  }
 
   const channel = await detectHttpPrintChannel();
 
@@ -297,18 +260,6 @@ export async function printReceiptDirect(
 }
 
 export async function listPrintHelperPrinters(): Promise<AvailablePrinter[]> {
-  const electronPrint = getElectronPrintApi();
-  if (electronPrint?.listPrinters) {
-    const printers = await electronPrint.listPrinters();
-    if (Array.isArray(printers) && printers.length > 0) {
-      const status = await checkPrintHelper();
-      return printers.map((name) => ({
-        name,
-        isDefault: name === status?.printerName,
-      }));
-    }
-  }
-
   const channel = await detectHttpPrintChannel();
 
   if (channel === 'helper') {

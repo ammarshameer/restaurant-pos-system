@@ -1,10 +1,9 @@
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "windows"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -295,8 +294,8 @@ model DealItem {
 
 model Order {
   id                String    @id @default(cuid())
-  // Client-generated idempotency key for offline-first sync. Replaying a
-  // queued offline order never creates duplicates (deduped in the service).
+  // Client-generated idempotency key. Retrying a request never creates
+  // duplicates (deduped in the service).
   clientId          String?
   orderNumber       Int
   orderType         String    @default("DINE_IN") // DINE_IN, TAKE_AWAY, DELIVERY
@@ -437,6 +436,7 @@ model WebOrder {
   id              String    @id @default(cuid())
   restaurantId    String
   reference       String // e.g. W-4821, unique per business
+  clientRef       String? // client-generated UUID; unique per business for idempotent submits
   status          String    @default("NEW") // NEW | ACCEPTED | REJECTED | EXPIRED | DELIVERED
   customerName    String
   customerPhone   String // digits only, international format
@@ -460,6 +460,7 @@ model WebOrder {
   items      WebOrderItem[]
 
   @@unique([restaurantId, reference])
+  @@unique([restaurantId, clientRef])
   @@index([restaurantId, status])
   @@index([restaurantId, customerPhone, createdAt])
 }
@@ -486,7 +487,7 @@ model WebOrderItem {
 
 model Payment {
   id            String    @id @default(cuid())
-  // Client-generated idempotency key for offline-first sync.
+  // Client-generated idempotency key for safe retries.
   clientId      String?   @unique
   orderId       String
   amount        Float

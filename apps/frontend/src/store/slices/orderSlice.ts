@@ -44,10 +44,6 @@ export interface Order {
   notes?: string;
   createdAt: string;
   updatedAt?: string;
-  /** Offline sync metadata: whether this order is stored locally only. */
-  syncStatus?: 'PENDING' | 'SYNCED' | 'FAILED' | 'LOCAL';
-  /** True while the order still has operations waiting to sync. */
-  pending?: boolean;
 }
 
 const STORAGE_KEY = 'restaurant_pos_orders';

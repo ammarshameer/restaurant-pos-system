@@ -24,7 +24,7 @@ export default defineConfig({
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           'redux-vendor': ['@reduxjs/toolkit', 'react-redux'],
-          'data-vendor': ['@tanstack/react-query', 'axios', 'dexie', 'socket.io-client'],
+          'data-vendor': ['@tanstack/react-query', 'axios', 'socket.io-client'],
         },
       },
     },

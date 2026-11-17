@@ -1,8 +1,6 @@
 import { api } from '../lib/api';
 import { MenuItem } from '../store/slices/menuSlice';
 import { PaginatedResponse } from '../types/pagination';
-import { offlineDB } from '../lib/offline/db';
-import { isNetworkError } from '../lib/offline/network';
 import { getCurrentRestaurantId } from '../lib/session';
 
 /** Resolve tenant id strictly from session, failing safely if unavailable */
@@ -13,8 +11,6 @@ const getTenantRestaurantId = (overrideId?: string): string => {
   }
   return id;
 };
-
-const MENU_CACHE_KEY = (restaurantId: string) => `menu:${restaurantId}`;
 
 function mapMenuItem(item: any): MenuItem {
   return {
@@ -77,21 +73,6 @@ export const menuApi = {
         };
       }
     } catch (e) {
-      if (isNetworkError(e)) {
-        const restId = params?.restaurantId || getCurrentRestaurantId();
-        if (restId) {
-          const cached = await getCachedMenu(restId);
-          if (cached.length > 0) {
-            return {
-              data: cached,
-              page: 1,
-              limit: cached.length,
-              totalCount: cached.length,
-              hasMore: false,
-            };
-          }
-        }
-      }
       console.warn('Backend paginated menu fetch error:', e);
     }
 
@@ -104,7 +85,7 @@ export const menuApi = {
     };
   },
 
-  // Fetch full restaurant menu from DB (cached locally for offline POS use)
+  // Fetch full restaurant menu from DB
   getMenu: async (paramRestaurantId?: string): Promise<MenuItem[]> => {
     const restaurantId = paramRestaurantId || getCurrentRestaurantId();
     if (!restaurantId) return [];
@@ -120,22 +101,10 @@ export const menuApi = {
             }
           }
         }
-        try {
-          await offlineDB.kv.put({ key: MENU_CACHE_KEY(restaurantId), value: flatItems, updatedAt: Date.now() });
-        } catch {
-          // Best effort
-        }
         return flatItems;
       }
     } catch (e) {
-      if (isNetworkError(e)) {
-        const cached = await getCachedMenu(restaurantId);
-        if (cached.length > 0) {
-          console.warn('Offline: serving cached menu.');
-          return cached;
-        }
-      }
-      console.warn('Backend menu fetch fallback to local store:', e);
+      console.warn('Backend menu fetch failed:', e);
     }
     return [];
   },
@@ -210,15 +179,3 @@ export const menuApi = {
     }
   },
 };
-
-/** Read the last cached menu for offline use. */
-export async function getCachedMenu(paramRestaurantId?: string): Promise<MenuItem[]> {
-  const restaurantId = paramRestaurantId || getCurrentRestaurantId();
-  if (!restaurantId) return [];
-  try {
-    const entry = await offlineDB.kv.get(MENU_CACHE_KEY(restaurantId));
-    return Array.isArray(entry?.value) ? (entry.value as MenuItem[]) : [];
-  } catch {
-    return [];
-  }
-}

@@ -146,9 +146,9 @@ export class OrderService {
       throw new Error(`Restaurant '${restaurantId}' not found.`);
     }
 
-    // Idempotency guard for offline-first sync: if this order was already
-    // created (matched by client idempotency key or client-supplied id),
-    // return the existing record instead of inserting a duplicate.
+    // Idempotency guard: if this order was already created (matched by client
+    // idempotency key or client-supplied id), return the existing record
+    // instead of inserting a duplicate on retry.
     if (data.clientId || data.id) {
       const existing = await prisma.order.findFirst({
         where: {
@@ -166,7 +166,7 @@ export class OrderService {
     }
 
     // Resolve the order number scoped strictly to this restaurant. If the
-    // client supplied one that already exists (offline collision), reassign
+    // client supplied one that already exists (duplicate key), reassign
     // to the next available number so the server stays authoritative.
     let orderNum: number;
     if (data.orderNumber && Number.isFinite(Number(data.orderNumber))) {
