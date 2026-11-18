@@ -42,7 +42,13 @@ platformHttp.interceptors.response.use(
   async (error) => {
     const original: any = error.config;
     if (error.response?.status === 401 && original && !original._retried) {
-      if (original.url?.includes('/auth/login') || original.url?.includes('/auth/refresh')) {
+      // A 401 from a password-protected export means the re-entered password
+      // was wrong, not that the access token expired. Never retry it.
+      if (
+        original.url?.includes('/auth/login') ||
+        original.url?.includes('/auth/refresh') ||
+        original.url?.includes('/export')
+      ) {
         return Promise.reject(error);
       }
       original._retried = true;
@@ -113,6 +119,36 @@ export interface CreateBusinessPayload {
   featureExpiresAt?: string | null;
 }
 
+function downloadBlob(data: Blob, contentDisposition: string | undefined, fallbackName: string): void {
+  const match = contentDisposition?.match(/filename="?([^";]+)"?/i);
+  const fileName = (match?.[1] || fallbackName).replace(/[/\\]/g, '_');
+  const blobUrl = URL.createObjectURL(new Blob([data], { type: 'application/zip' }));
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(blobUrl);
+}
+
+/** Extracts an error message from JSON or blob error responses. */
+export async function platformApiErrorMessage(
+  error: any,
+  fallback = 'Could not complete the request. Please try again.'
+): Promise<string> {
+  const data = error?.response?.data;
+  if (data instanceof Blob) {
+    try {
+      const parsed = JSON.parse(await data.text());
+      return parsed?.error || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  return data?.error || fallback;
+}
+
 export const platformApi = {
   getTenantFeatures: async (restaurantId: string) => {
     const res = await platformHttp.get(`/restaurants/${restaurantId}/features`);
@@ -179,15 +215,23 @@ export const platformApi = {
     return res.data;
   },
 
-  downloadBackupZip: async (): Promise<void> => {
-    const res = await platformHttp.get('/backups/export', { responseType: 'blob' });
-    const blobUrl = URL.createObjectURL(new Blob([res.data], { type: 'application/zip' }));
-    const link = document.createElement('a');
-    link.href = blobUrl;
-    link.download = `restaurant-pos-backups-${new Date().toISOString().slice(0, 10)}.zip`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(blobUrl);
+  /** Export a single business as a ZIP of CSVs. Requires password re-entry. */
+  downloadTenantDataZip: async (restaurantId: string, password: string): Promise<void> => {
+    const res = await platformHttp.post(
+      `/restaurants/${encodeURIComponent(restaurantId)}/export`,
+      { password },
+      { responseType: 'blob' }
+    );
+    downloadBlob(res.data, res.headers['content-disposition'], `business-data-${restaurantId}.zip`);
+  },
+
+  /** Download the whole-database backup ZIP. Requires password re-entry. */
+  downloadBackupZip: async (password: string): Promise<void> => {
+    const res = await platformHttp.post('/backups/export', { password }, { responseType: 'blob' });
+    downloadBlob(
+      res.data,
+      res.headers['content-disposition'],
+      `restaurant-pos-backups-${new Date().toISOString().slice(0, 10)}.zip`
+    );
   },
 };

@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import fs from 'fs';
 import path from 'path';
 import archiver from 'archiver';
-import { PlatformService } from '../services/platform.service';
+import { collectTenantExportData, PlatformService } from '../services/platform.service';
 import {
   authenticatePlatform,
   authorizePlatform,
@@ -26,6 +26,53 @@ const platformLoginRateLimiter = rateLimit({
     code: 'RATE_LIMIT_EXCEEDED',
   },
 });
+
+// Re-authenticating for an export is a privileged action; cap brute-force attempts.
+const sensitiveExportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Too many export attempts, please try again after 15 minutes.',
+    code: 'RATE_LIMIT_EXCEEDED',
+  },
+});
+
+function requestContext(req: AuthRequest) {
+  return {
+    ipAddress: req.ip,
+    userAgent: Array.isArray(req.headers['user-agent'])
+      ? req.headers['user-agent'][0]
+      : req.headers['user-agent'],
+  };
+}
+
+function safeFileNamePart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
+}
+
+async function sendZip(
+  res: Response,
+  entries: Array<{ name: string; content: string } | { path: string; name: string }>,
+  fileName: string
+): Promise<void> {
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  res.setHeader('Cache-Control', 'no-store');
+
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', (error) => res.destroy(error));
+  archive.pipe(res);
+  for (const entry of entries) {
+    if ('content' in entry) {
+      archive.append(Buffer.from(entry.content, 'utf8'), { name: entry.name });
+    } else {
+      archive.file(entry.path, { name: entry.name });
+    }
+  }
+  await archive.finalize();
+}
 
 // Platform Login
 router.post('/auth/login', platformLoginRateLimiter, async (req: Request, res: Response, next: NextFunction) => {
@@ -352,13 +399,93 @@ router.get(
   }
 );
 
-// Platform Super Admin export: download current database backups as a ZIP.
-// Only dump files from BACKUP_DIR are included — never env files or secrets.
-router.get(
-  '/backups/export',
+// Platform SUPER_ADMIN tenant export: a ZIP of CSVs containing one business's
+// data. Requires password re-entry and writes an audit record before any bytes
+// are streamed. Platform tables and credential fields are never included.
+router.post(
+  '/restaurants/:id/export',
+  sensitiveExportLimiter,
   authorizePlatform(['SUPER_ADMIN']),
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      const restaurantId = req.params.id;
+      const password = req.body?.password;
+      if (typeof password !== 'string' || !password) {
+        return res.status(400).json({ error: 'Password re-entry is required to export business data.' });
+      }
+
+      const restaurant = await prisma.restaurant.findUnique({
+        where: { id: restaurantId },
+        select: { id: true, name: true },
+      });
+      if (!restaurant) {
+        return res.status(404).json({ error: 'Business not found.' });
+      }
+
+      const platformUserId = req.platformUser!.id;
+      const context = requestContext(req);
+      const passwordValid = await platformService.verifyPlatformPassword(platformUserId, password);
+      if (!passwordValid) {
+        await platformService.recordSensitiveAudit({
+          platformUserId,
+          restaurantId,
+          action: 'TENANT_DATA_EXPORT_DENIED',
+          details: 'Password re-entry failed',
+          ...context,
+        });
+        return res.status(401).json({ error: 'Incorrect password. Export was denied and logged.' });
+      }
+
+      const { files, counts, totalRows } = await collectTenantExportData(restaurantId);
+      await platformService.recordSensitiveAudit({
+        platformUserId,
+        restaurantId,
+        action: 'TENANT_DATA_EXPORTED',
+        details: JSON.stringify({
+          tableCounts: counts,
+          totalRows,
+          excludedTables: ['PlatformUser', 'PlatformRefreshToken', 'PlatformAuditLog', 'RefreshToken'],
+          excludedFields: ['pin', 'passwordHash', 'token'],
+        }),
+        ...context,
+      });
+
+      const date = new Date().toISOString().slice(0, 10);
+      const label = safeFileNamePart(restaurant.name || restaurantId);
+      await sendZip(res, files, `${label}-data-${date}.zip`);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Whole-database backup download is privileged: it requires password re-entry
+// and an audit record. Only dated PostgreSQL dumps from BACKUP_DIR are zipped —
+// never env files or secrets.
+router.post(
+  '/backups/export',
+  sensitiveExportLimiter,
+  authorizePlatform(['SUPER_ADMIN']),
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const password = req.body?.password;
+      if (typeof password !== 'string' || !password) {
+        return res.status(400).json({ error: 'Password re-entry is required to download database backups.' });
+      }
+
+      const platformUserId = req.platformUser!.id;
+      const context = requestContext(req);
+      const passwordValid = await platformService.verifyPlatformPassword(platformUserId, password);
+      if (!passwordValid) {
+        await platformService.recordSensitiveAudit({
+          platformUserId,
+          action: 'BACKUP_ZIP_EXPORT_DENIED',
+          details: 'Password re-entry failed',
+          ...context,
+        });
+        return res.status(401).json({ error: 'Incorrect password. Download was denied and logged.' });
+      }
+
       const backupDir = path.resolve(process.env.BACKUP_DIR || '/var/backups/restaurant-pos');
       const prefix = process.env.BACKUP_PREFIX || 'restaurant-pos';
       if (!fs.existsSync(backupDir)) {
@@ -376,17 +503,23 @@ router.get(
         return res.status(404).json({ error: 'No backups are available yet.' });
       }
 
-      const date = new Date().toISOString().slice(0, 10);
-      res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename="${prefix}-backups-${date}.zip"`);
+      await platformService.recordSensitiveAudit({
+        platformUserId,
+        action: 'BACKUP_ZIP_EXPORTED',
+        details: JSON.stringify({
+          backupFileCount: fileNames.length,
+          newestBackup: fileNames[0],
+          oldestBackup: fileNames[fileNames.length - 1],
+        }),
+        ...context,
+      });
 
-      const archive = archiver('zip', { zlib: { level: 9 } });
-      archive.on('error', (error) => next(error));
-      archive.pipe(res);
-      for (const name of fileNames) {
-        archive.file(path.join(backupDir, name), { name });
-      }
-      await archive.finalize();
+      const date = new Date().toISOString().slice(0, 10);
+      await sendZip(
+        res,
+        fileNames.map((name) => ({ name, path: path.join(backupDir, name) })),
+        `${prefix}-backups-${date}.zip`
+      );
     } catch (error) {
       next(error);
     }

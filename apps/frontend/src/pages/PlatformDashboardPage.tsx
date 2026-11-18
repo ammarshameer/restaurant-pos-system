@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import {
   platformApi,
+  platformApiErrorMessage,
   PlatformTenant,
   CreateBusinessPayload,
 } from '../api/platform.api';
@@ -189,9 +190,52 @@ export const PlatformDashboardPage: React.FC = () => {
     isActive: true,
   });
 
-  // Database backups
-  const [backupLoading, setBackupLoading] = useState(false);
-  const [backupError, setBackupError] = useState<string | null>(null);
+  // Privileged ZIP downloads (tenant export / whole-database backups)
+  type SecureDownload =
+    | { type: 'tenant'; tenant: PlatformTenant }
+    | { type: 'backup' };
+  const [secureDownload, setSecureDownload] = useState<SecureDownload | null>(null);
+  const [secureDownloadPassword, setSecureDownloadPassword] = useState('');
+  const [secureDownloadBusy, setSecureDownloadBusy] = useState(false);
+  const [secureDownloadError, setSecureDownloadError] = useState<string | null>(null);
+
+  const openSecureDownload = (action: SecureDownload) => {
+    setSecureDownload(action);
+    setSecureDownloadPassword('');
+    setSecureDownloadError(null);
+  };
+
+  const closeSecureDownload = () => {
+    setSecureDownload(null);
+    setSecureDownloadPassword('');
+    setSecureDownloadError(null);
+  };
+
+  const confirmSecureDownload = async () => {
+    if (!secureDownload) return;
+    if (!secureDownloadPassword) {
+      setSecureDownloadError('Enter your platform password to continue.');
+      return;
+    }
+    setSecureDownloadBusy(true);
+    setSecureDownloadError(null);
+    try {
+      if (secureDownload.type === 'tenant') {
+        await platformApi.downloadTenantDataZip(secureDownload.tenant.id, secureDownloadPassword);
+        showSuccess(`Business data export started for ${secureDownload.tenant.name}.`);
+      } else {
+        await platformApi.downloadBackupZip(secureDownloadPassword);
+        showSuccess('Backup ZIP download started.');
+      }
+      closeSecureDownload();
+    } catch (err: any) {
+      setSecureDownloadError(
+        await platformApiErrorMessage(err, 'Could not prepare the download. Please try again.')
+      );
+    } finally {
+      setSecureDownloadBusy(false);
+    }
+  };
 
   // Audit Logs
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -833,6 +877,27 @@ export const PlatformDashboardPage: React.FC = () => {
 
                       <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                          {isSuperAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => openSecureDownload({ type: 'tenant', tenant: t })}
+                              title={`Export business data for ${t.name}`}
+                              aria-label={`Export business data for ${t.name}`}
+                              className="platform-action-button"
+                              style={{
+                                background: '#0f766e',
+                                color: '#ffffff',
+                                border: 'none',
+                                padding: '5px 7px',
+                                borderRadius: '6px',
+                                fontWeight: 700,
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              📦
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleEnterTenant(t)}
@@ -1092,27 +1157,13 @@ export const PlatformDashboardPage: React.FC = () => {
         <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '28px' }}>
           <h2 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '8px' }}>💾 Database Backups</h2>
           <p style={{ color: '#94a3b8', fontSize: '13px', maxWidth: '720px', lineHeight: 1.6 }}>
-            Nightly PostgreSQL dumps are stored off-server and retained for 30 days. Download a ZIP of the
-            available dumps for archive or audit purposes. The archive contains database dumps only — no
-            credentials or environment files.
+            Nightly PostgreSQL dumps are stored off-server and retained for 30 days. Downloading requires
+            re-entering your platform password; the attempt is written to the audit log. The archive contains
+            database dumps only — no credentials or environment files.
           </p>
-          {backupError && (
-            <p style={{ color: '#f87171', fontSize: '13px', fontWeight: 600 }}>{backupError}</p>
-          )}
           <button
             type="button"
-            disabled={backupLoading}
-            onClick={async () => {
-              setBackupLoading(true);
-              setBackupError(null);
-              try {
-                await platformApi.downloadBackupZip();
-              } catch (err: any) {
-                setBackupError(err?.response?.data?.error || 'Could not download backups. Please try again.');
-              } finally {
-                setBackupLoading(false);
-              }
-            }}
+            onClick={() => openSecureDownload({ type: 'backup' })}
             style={{
               marginTop: '16px',
               background: '#3b82f6',
@@ -1122,11 +1173,117 @@ export const PlatformDashboardPage: React.FC = () => {
               padding: '10px 18px',
               fontWeight: 700,
               cursor: 'pointer',
-              opacity: backupLoading ? 0.6 : 1,
+              opacity: secureDownloadBusy ? 0.6 : 1,
             }}
           >
-            {backupLoading ? 'Preparing ZIP…' : '⬇️ Download backups ZIP'}
+            ⬇️ Download backups ZIP
           </button>
+        </div>
+      )}
+
+      {/* PASSWORD RE-ENTRY FOR PRIVILEGED ZIP DOWNLOADS */}
+      {secureDownload && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.78)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !secureDownloadBusy) closeSecureDownload();
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '440px',
+              background: '#0f172a',
+              border: '1px solid #334155',
+              borderRadius: '12px',
+              padding: '24px',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            <h2 style={{ margin: '0 0 8px', fontSize: '18px', color: '#f8fafc' }}>
+              Confirm with your password
+            </h2>
+            <p style={{ margin: '0 0 18px', fontSize: '13px', color: '#94a3b8', lineHeight: 1.6 }}>
+              {secureDownload.type === 'tenant'
+                ? `Export all business data for ${secureDownload.tenant.name} as a ZIP of CSVs.`
+                : 'Download the whole-database backup ZIP.'}
+              {' '}This sensitive action requires your platform password and is written to the audit log.
+            </p>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void confirmSecureDownload();
+              }}
+            >
+              <label style={{ display: 'block', fontSize: '12px', color: '#cbd5e1', marginBottom: '6px' }}>
+                Platform password
+              </label>
+              <input
+                type="password"
+                autoFocus
+                autoComplete="current-password"
+                value={secureDownloadPassword}
+                onChange={(event) => setSecureDownloadPassword(event.target.value)}
+                placeholder="Enter your password"
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  background: '#1e293b',
+                  border: '1px solid #334155',
+                  borderRadius: '8px',
+                  color: '#f8fafc',
+                  marginBottom: '12px',
+                }}
+              />
+              {secureDownloadError && (
+                <p style={{ color: '#f87171', fontSize: '12px', margin: '0 0 12px' }}>
+                  {secureDownloadError}
+                </p>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  disabled={secureDownloadBusy}
+                  onClick={closeSecureDownload}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #334155',
+                    color: '#cbd5e1',
+                    borderRadius: '8px',
+                    padding: '9px 16px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={secureDownloadBusy || !secureDownloadPassword}
+                  style={{
+                    background: '#2563eb',
+                    border: 'none',
+                    color: '#fff',
+                    borderRadius: '8px',
+                    padding: '9px 16px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    opacity: secureDownloadBusy ? 0.6 : 1,
+                  }}
+                >
+                  {secureDownloadBusy ? 'Preparing…' : 'Download ZIP'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

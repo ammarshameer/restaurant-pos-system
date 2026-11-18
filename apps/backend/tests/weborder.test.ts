@@ -70,10 +70,40 @@ function matchesWhere(order: any, where: any): boolean {
 function fakeDb(overrides: Record<string, any> = {}) {
   const restaurants = new Map<string, any>();
   const webOrders: any[] = [];
+  const posOrders: any[] = [];
+  const snapshot = () => ({
+    webOrders: webOrders.map((o) => ({ target: o, data: { ...o, items: o.items?.map((i: any) => ({ ...i })) } })),
+    posOrders: posOrders.map((o) => ({ target: o, data: { ...o } })),
+  });
+  const restore = (snap: ReturnType<typeof snapshot>) => {
+    webOrders.length = 0;
+    for (const { target, data } of snap.webOrders) {
+      Object.keys(target).forEach((key) => delete target[key]);
+      Object.assign(target, data);
+      webOrders.push(target);
+    }
+    posOrders.length = 0;
+    for (const { target, data } of snap.posOrders) {
+      Object.keys(target).forEach((key) => delete target[key]);
+      Object.assign(target, data);
+      posOrders.push(target);
+    }
+  };
   const store: any = {
     restaurants,
     webOrders,
-    $transaction: async (fn: any) => fn(store),
+    posOrders,
+    // Simulate real rollback so tests can prove no orphan POS order survives
+    // a failure after order creation.
+    $transaction: async (fn: any) => {
+      const snap = snapshot();
+      try {
+        return await fn(store);
+      } catch (err) {
+        restore(snap);
+        throw err;
+      }
+    },
     restaurant: {
       findUnique: async ({ where }: any) => {
         if (where.websiteSlug) {
@@ -105,6 +135,9 @@ function fakeDb(overrides: Record<string, any> = {}) {
       findFirst: async ({ where }: any) => webOrders.find((o) => matchesWhere(o, where)) || null,
       count: async ({ where }: any) => webOrders.filter((o) => matchesWhere(o, where)).length,
       update: async ({ where, data }: any) => {
+        if (data.posOrderId && (overrides.failFinalUpdate === true || overrides.failFinalUpdate?.(data))) {
+          throw new Error('Simulated final web order update failure');
+        }
         const o = webOrders.find((x) => x.id === where.id);
         Object.assign(o, data);
         return o;
@@ -139,6 +172,14 @@ function fakeDb(overrides: Record<string, any> = {}) {
       findMany: async ({ where }: any) => (overrides.menuItems || []).filter((i: any) => where.id?.in?.includes(i.id)),
     },
     deal: { findMany: async ({ where }: any) => (overrides.deals || []).filter((d: any) => where.id?.in?.includes(d.id)) },
+    order: {
+      create: async ({ data }: any) => {
+        const created = { id: `pos-${posOrders.length + 1}`, ...data };
+        posOrders.push(created);
+        return created;
+      },
+      findMany: async () => posOrders,
+    },
     ...overrides.extra,
   };
   return store;
@@ -787,6 +828,7 @@ function newWebOrder(overrides: Record<string, unknown> = {}) {
     deliveryFee: 0,
     total: 500,
     notes: null,
+    posOrderId: null,
     items: [{ name: 'Burger', qty: 1, unitPrice: 500, menuItemId: 'i1', dealId: null, modifiers: '[]', notes: null }],
     ...overrides,
   };
@@ -831,6 +873,37 @@ test('failed POS order creation rolls the claim back to NEW', async () => {
   assert.match(result.error || '', /Could not create the POS order/);
   assert.equal(order.status, 'NEW');
   assert.equal(order.posOrderId, null);
+});
+
+test('final update failure rolls back POS order; retry creates no duplicate', async () => {
+  const fail = { value: true };
+  const db = fakeDb({ failFinalUpdate: () => fail.value });
+  const order = newWebOrder();
+  db.webOrders.push(order);
+  setPrismaForTests(db);
+  setPosOrderCreatorForTests(async (_args, tx, notify) => {
+    assert.equal(notify, false, 'notifications must be deferred until commit');
+    assert.ok(tx?.order, 'POS order creation must receive the transaction client');
+    return tx.order.create({ data: { restaurantId: 'rest1' } });
+  });
+
+  await assert.rejects(
+    () => acceptWebOrder('rest1', order.id),
+    /Simulated final web order update failure/
+  );
+  assert.equal(db.posOrders.length, 0, 'orphan POS order must be rolled back');
+  assert.equal(order.status, 'NEW');
+  assert.equal(order.posOrderId, null);
+
+  fail.value = false;
+  const accepted = await acceptWebOrder('rest1', order.id);
+  assert.ok(!accepted.error, accepted.error);
+  assert.equal(accepted.webOrder.posOrderId, 'pos-1');
+  assert.equal(db.posOrders.length, 1);
+
+  const duplicate = await acceptWebOrder('rest1', order.id);
+  assert.equal(duplicate.status, 400);
+  assert.equal(db.posOrders.length, 1, 'retry after failure must not duplicate the POS order');
 });
 
 test('reject stores the reason and blocks a second decision', async () => {

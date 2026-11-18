@@ -244,14 +244,22 @@ sudo ufw status
 
 ## 5. CI/CD (GitHub Actions)
 
-`.github/workflows/deploy.yml` SSHes into the server on every push to `main`, pulls code, installs, builds both apps, applies migrations with `prisma migrate deploy`, and restarts PM2.
+`.github/workflows/deploy.yml` runs only after **Test (PostgreSQL)** completes successfully on the same commit (`workflow_run`, `main`). It checks out that exact tested SHA, SSHes into the server, installs, builds both apps, takes a database backup, verifies the migration baseline, applies migrations with `prisma migrate deploy`, and restarts PM2.
 
 **Required GitHub repo secrets:**
 - `SERVER_HOST` → Contabo IP
 - `SERVER_USER` → SSH user
 - `SERVER_SSH_KEY` → SSH private key
 
-A separate workflow runs unit + acceptance tests against PostgreSQL on every pull request before deployment is allowed.
+**Required GitHub repo variables** (or the same keys in a server env file referenced by `DEPLOY_ENV_FILE`):
+- `NODE_BIN_DIR` → Node 20 bin directory, e.g. `/home/deploy/.nvm/versions/node/v20.20.2/bin`
+- `PM2_BIN` → full path to `pm2`
+- `HEALTH_PORT` → backend port (default `3000`; must match the server `.env`)
+- `APP_DIR` → app checkout (default `/var/www/restaurant-pos`)
+
+> **Branch protection:** require the **Test (PostgreSQL)** status check for `main`. The deploy workflow already waits for it, but the required check prevents a bypass via direct push or admin override.
+
+The one-time production baseline for the old `db push` database must be completed with `apps/backend/scripts/README-production-baseline.md` before the first deploy; the deploy script aborts if `npm run db:migrate:check` reports an incomplete baseline.
 
 ---
 

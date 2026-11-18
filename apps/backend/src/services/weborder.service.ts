@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import { getIO } from '../websocket';
 import { normalizePhone, digitsOnly, PHONE_FORMAT_ERROR } from '../utils/phone';
 import { validateLogo } from '../utils/validateLogo';
 
@@ -882,16 +883,20 @@ export async function getWebOrderForTenant(restaurantId: string, id: string) {
  * accepted web orders become normal POS orders (kitchen + receipts as usual).
  * Tests can override it with setPosOrderCreatorForTests.
  */
-let posOrderCreator: (args: any) => Promise<any> = async (args) => {
+let posOrderCreator: (args: any, tx?: any, notify?: boolean) => Promise<any> = async (
+  args,
+  tx,
+  notify = true
+) => {
   const { orderService } = await import('./order.service');
-  return orderService.createOrder(args);
+  return orderService.createOrder(args, tx, notify);
 };
-export function setPosOrderCreatorForTests(fn: (args: any) => Promise<any>): void {
+export function setPosOrderCreatorForTests(fn: (args: any, tx?: any, notify?: boolean) => Promise<any>): void {
   posOrderCreator = fn;
 }
 
-async function createPosOrderForWebOrder(args: any): Promise<any> {
-  return posOrderCreator(args);
+async function createPosOrderForWebOrder(args: any, tx: any, notify = true): Promise<any> {
+  return posOrderCreator(args, tx, notify);
 }
 
 export async function acceptWebOrder(
@@ -926,7 +931,7 @@ export async function acceptWebOrder(
   const now = new Date();
 
   try {
-    const updated = await db.$transaction(async (tx: any) => {
+    const { accepted: updated, posOrder } = await db.$transaction(async (tx: any) => {
       // Atomic claim: exactly one concurrent accept can flip NEW -> ACCEPTED.
       const claim = await tx.webOrder.updateMany({
         where: { id: webOrder.id, restaurantId, status: 'NEW' },
@@ -938,42 +943,48 @@ export async function acceptWebOrder(
         throw err;
       }
 
-      // Create a normal POS order (kitchen, receipts, stock deduction as usual).
+      // Create a normal POS order inside the same transaction as the claim.
+      // Notifications are deferred until after commit so a rolled-back accept
+      // never announces an order that does not exist.
       let posOrder: any;
       try {
-        posOrder = await createPosOrderForWebOrder({
-          restaurantId,
-          serverId: acceptedByEmployeeId,
-          orderType: webOrder.orderType === 'DELIVERY' ? 'DELIVERY' : 'TAKE_AWAY',
-          orderTypeLabel: webOrder.orderType === 'DELIVERY' ? 'Delivery (Website)' : 'Take Away (Website)',
-          customerName: webOrder.customerName,
-          customerPhone: webOrder.customerPhone,
-          deliveryAddress: webOrder.address || undefined,
-          subtotal: webOrder.subtotal,
-          deliveryCharge: webOrder.orderType === 'DELIVERY' ? deliveryFee : 0,
-          total: orderTotal,
-          notes: webOrder.notes || undefined,
-          source: 'WEBSITE',
-          status: 'confirmed',
-          paymentStatus: 'UNPAID',
-          items: webOrder.items.map((item: any) => {
-            let modifiers: any[] = [];
-            try {
-              modifiers = JSON.parse(item.modifiers || '[]');
-            } catch {
-              modifiers = [];
-            }
-            const modifierText = modifiers.map((m) => m.name).filter(Boolean).join(', ');
-            return {
-              menuItemId: item.menuItemId || undefined,
-              dealId: item.dealId || undefined,
-              name: item.name,
-              quantity: item.qty,
-              unitPrice: item.unitPrice,
-              notes: [item.notes, modifierText ? `+ ${modifierText}` : null].filter(Boolean).join(' | ') || undefined,
-            };
-          }),
-        });
+        posOrder = await createPosOrderForWebOrder(
+          {
+            restaurantId,
+            serverId: acceptedByEmployeeId,
+            orderType: webOrder.orderType === 'DELIVERY' ? 'DELIVERY' : 'TAKE_AWAY',
+            orderTypeLabel: webOrder.orderType === 'DELIVERY' ? 'Delivery (Website)' : 'Take Away (Website)',
+            customerName: webOrder.customerName,
+            customerPhone: webOrder.customerPhone,
+            deliveryAddress: webOrder.address || undefined,
+            subtotal: webOrder.subtotal,
+            deliveryCharge: webOrder.orderType === 'DELIVERY' ? deliveryFee : 0,
+            total: orderTotal,
+            notes: webOrder.notes || undefined,
+            source: 'WEBSITE',
+            status: 'confirmed',
+            paymentStatus: 'UNPAID',
+            items: webOrder.items.map((item: any) => {
+              let modifiers: any[] = [];
+              try {
+                modifiers = JSON.parse(item.modifiers || '[]');
+              } catch {
+                modifiers = [];
+              }
+              const modifierText = modifiers.map((m) => m.name).filter(Boolean).join(', ');
+              return {
+                menuItemId: item.menuItemId || undefined,
+                dealId: item.dealId || undefined,
+                name: item.name,
+                quantity: item.qty,
+                unitPrice: item.unitPrice,
+                notes: [item.notes, modifierText ? `+ ${modifierText}` : null].filter(Boolean).join(' | ') || undefined,
+              };
+            }),
+          },
+          tx,
+          false
+        );
       } catch (err: any) {
         console.error('[WebOrder] Failed to create POS order for web order', webOrder.reference, err?.message);
         const failure: any = new Error('POS order creation failed');
@@ -983,7 +994,7 @@ export async function acceptWebOrder(
 
       // Same transaction as the claim: the order never appears ACCEPTED to the
       // POS inbox without its linked POS order.
-      return tx.webOrder.update({
+      const accepted = await tx.webOrder.update({
         where: { id: webOrder.id },
         data: {
           status: 'ACCEPTED',
@@ -994,7 +1005,12 @@ export async function acceptWebOrder(
         },
         include: { items: true },
       });
+      return { accepted, posOrder };
     });
+
+    const io = getIO();
+    io?.to(`restaurant:${restaurantId}`).emit('order:created', posOrder);
+    io?.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:new', posOrder);
     return { webOrder: updated };
   } catch (err: any) {
     if (err?.code === 'ALREADY_CLAIMED') {

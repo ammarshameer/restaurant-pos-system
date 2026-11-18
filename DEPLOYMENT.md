@@ -200,8 +200,33 @@ npx prisma migrate deploy
 
 ### 2. Set up monitoring
 - [ ] Configure error tracking (Sentry recommended)
-- [ ] Set up uptime monitoring
 - [ ] Configure log aggregation
+- [ ] Point an uptime monitor at `GET /health` (or `GET /api/health`)
+
+#### Uptime check for `/health`
+
+```bash
+curl -fsS https://pos.yourdomain.com/health
+```
+
+Expected response while healthy:
+
+```json
+{
+  "status": "ok",
+  "mode": "postgresql",
+  "dbConnected": true,
+  "uptimeSeconds": 12345,
+  "startedAt": "2026-11-18T00:00:00.000Z",
+  "timestamp": "2026-11-18T03:25:45.000Z",
+  "env": "production"
+}
+```
+
+A database failure returns HTTP 503 with `"status": "degraded"` and
+`"dbConnected": false`. Alert on anything other than HTTP 200/`"status": "ok"`.
+The `uptimeSeconds` and `startedAt` fields also make unexpected restarts easy
+to spot.
 
 ### 3. Configure domain (optional)
 - [ ] Purchase domain name
@@ -220,13 +245,34 @@ npx prisma db pull
 ```
 
 ### Migration failures
-```bash
-# Reset database (⚠️ DESTROYS DATA)
-npx prisma migrate reset
 
-# Force deploy migrations
-npx prisma migrate deploy --force
+> ⚠️ **Never run `prisma migrate reset` against production.** It drops the
+> database and destroys all tenant data. There is no `migrate deploy --force`
+> flag; do not attempt to bypass a failed migration.
+
+Check the current state first:
+
+```bash
+cd apps/backend
+npm run db:migrate:status
+npm run db:migrate:check   # exits non-zero unless fully baselined
 ```
+
+If the database was created with the old `prisma db push` schema and has no
+`_prisma_migrations` history, do **not** mark `init` as applied before the
+schema is upgraded. Back up, restore the backup to staging, and follow
+`apps/backend/scripts/README-production-baseline.md`:
+
+```bash
+npm run db:backup
+LIVE_BASELINE_CONFIRMED=yes npm run db:migrate:baseline
+npm run db:migrate:check
+```
+
+`db:migrate:baseline` applies the reviewed one-off delta, aborts on schema
+drift, and only then resolves the checked-in migrations as applied. For a
+normal database with pending migrations, investigate the specific error and
+apply `npm run db:migrate` after the cause is fixed.
 
 ### WebSocket connection issues
 - Ensure backend URL in frontend uses correct protocol (wss:// for https)
@@ -272,17 +318,47 @@ npm run build
 
 ## Backup Strategy
 
-### Database Backups
-```bash
-# Manual backup
-pg_dump $DATABASE_URL > backup_$(date +%Y%m%d).sql
+### Database backups
 
-# Restore from backup
-psql $DATABASE_URL < backup.sql
+Use the checked-in scripts; they strip Prisma's `?schema=public` parameter,
+write gzipped dumps outside the app directory, and can copy them off-server.
+
+```bash
+cd apps/backend
+
+# Manual/scheduled backup (30-day retention, optional BACKUP_REMOTE upload)
+npm run db:backup
+
+# Restore only into a scratch/staging database
+RESTORE_DATABASE_URL='postgresql://pos:pos@localhost:5432/restaurant_pos_restore_test?schema=public' \
+  npm run db:restore -- /var/backups/restaurant-pos/restaurant-pos-<timestamp>.sql.gz
 ```
 
-### Automated Backups
-Most hosting platforms (Railway, Supabase, Neon) provide automatic daily backups.
+`db:restore` refuses to target the live `DATABASE_URL` and verifies gzip
+integrity first. Full configuration is in
+`apps/backend/scripts/README-backup.md`.
+
+### Monthly backup-restore test
+
+A backup is only valid if it has been restored. Once a month:
+
+1. Run `npm run db:backup` and note the dump filename.
+2. Create an empty scratch database.
+3. Run `npm run db:restore -- <dump>` with `RESTORE_DATABASE_URL` pointing at
+   the scratch database.
+4. Verify representative row counts, for example:
+
+   ```bash
+   psql "$RESTORE_DATABASE_URL" -c 'SELECT count(*) FROM "Restaurant";'
+   psql "$RESTORE_DATABASE_URL" -c 'SELECT count(*) FROM "Order";'
+   ```
+
+5. Drop the scratch database and record the date, filename and result in the
+   operations log. Investigate any failure before the next scheduled backup.
+
+The platform Super Admin **Backups** tab can also download a ZIP of current
+dumps; that action requires password re-entry and is written to the platform
+audit log.
 
 ## Monitoring & Logging
 
@@ -314,7 +390,8 @@ cd restaurant-pos
 cd apps/backend
 railway init
 railway up
-railway run npx prisma migrate deploy
+railway run npm run db:backup
+railway run npm run db:migrate
 
 # Frontend
 cd ../frontend

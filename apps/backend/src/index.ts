@@ -89,8 +89,14 @@ if (process.env.NODE_ENV === 'production') {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'restaurant-pos-super-secret-jwt-key-change-in-production') {
     console.warn(`⚠️ [SECURITY WARNING] Insecure default JWT_SECRET detected in production environment! Please set a strong, random JWT_SECRET.`);
   }
+  if (!process.env.SENTRY_DSN) {
+    console.warn('⚠️ [SECURITY WARNING] SENTRY_DSN is missing in production. Error tracking is disabled.');
+  }
   if (!process.env.TURNSTILE_SECRET_KEY) {
     console.warn('⚠️ [SECURITY WARNING] TURNSTILE_SECRET_KEY is missing in production. Public online orders will be refused until human verification is configured.');
+  }
+  if (!process.env.BACKUP_REMOTE) {
+    console.warn('⚠️ [SECURITY WARNING] BACKUP_REMOTE is missing in production. Database dumps will remain on the application server only.');
   }
 }
 

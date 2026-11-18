@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -10,6 +10,137 @@ import { validateLogo } from '../utils/validateLogo';
 
 const prisma = new PrismaClient();
 const authService = new AuthService();
+
+// Fields that must never appear in a tenant data export, even if a future
+// schema change adds them to another table.
+const EXPORT_EXCLUDED_FIELDS = new Set(['pin', 'passwordHash', 'token']);
+
+// Platform tables and tenant refresh tokens are never exported.
+const EXPORT_README_NOTICE = [
+  'Excluded tables: PlatformUser, PlatformRefreshToken, PlatformAuditLog, RefreshToken.',
+  'Excluded fields: Employee.pin, Employee.passwordHash, any field named token.',
+].join('\n');
+
+interface TenantExportTable {
+  file: string;
+  model: string;
+  find: (db: any, restaurantId: string) => Promise<any[]>;
+}
+
+/**
+ * Every entry is scoped to one restaurant. Tables without a restaurantId use
+ * a relation filter so a row can only be exported through its tenant parent.
+ */
+const TENANT_EXPORT_TABLES: TenantExportTable[] = [
+  { file: 'restaurants', model: 'Restaurant', find: (db, id) => db.restaurant.findMany({ where: { id } }) },
+  { file: 'tenant_features', model: 'TenantFeature', find: (db, id) => db.tenantFeature.findMany({ where: { restaurantId: id } }) },
+  { file: 'floor_plans', model: 'FloorPlan', find: (db, id) => db.floorPlan.findMany({ where: { restaurantId: id } }) },
+  { file: 'tables', model: 'Table', find: (db, id) => db.table.findMany({ where: { floorPlan: { restaurantId: id } } }) },
+  { file: 'employees', model: 'Employee', find: (db, id) => db.employee.findMany({ where: { restaurantId: id } }) },
+  { file: 'employee_permissions', model: 'EmployeePermission', find: (db, id) => db.employeePermission.findMany({ where: { employee: { restaurantId: id } } }) },
+  { file: 'time_entries', model: 'TimeEntry', find: (db, id) => db.timeEntry.findMany({ where: { restaurantId: id } }) },
+  { file: 'categories', model: 'Category', find: (db, id) => db.category.findMany({ where: { restaurantId: id } }) },
+  { file: 'menu_items', model: 'MenuItem', find: (db, id) => db.menuItem.findMany({ where: { restaurantId: id } }) },
+  { file: 'modifier_groups', model: 'ModifierGroup', find: (db, id) => db.modifierGroup.findMany({ where: { menuItem: { restaurantId: id } } }) },
+  { file: 'modifiers', model: 'Modifier', find: (db, id) => db.modifier.findMany({ where: { modifierGroup: { menuItem: { restaurantId: id } } } }) },
+  { file: 'deals', model: 'Deal', find: (db, id) => db.deal.findMany({ where: { restaurantId: id } }) },
+  { file: 'deal_items', model: 'DealItem', find: (db, id) => db.dealItem.findMany({ where: { deal: { restaurantId: id } } }) },
+  { file: 'orders', model: 'Order', find: (db, id) => db.order.findMany({ where: { restaurantId: id } }) },
+  { file: 'customers', model: 'Customer', find: (db, id) => db.customer.findMany({ where: { restaurantId: id } }) },
+  { file: 'customer_ledger_entries', model: 'CustomerLedgerEntry', find: (db, id) => db.customerLedgerEntry.findMany({ where: { restaurantId: id } }) },
+  { file: 'order_items', model: 'OrderItem', find: (db, id) => db.orderItem.findMany({ where: { order: { restaurantId: id } } }) },
+  { file: 'order_item_modifiers', model: 'OrderItemModifier', find: (db, id) => db.orderItemModifier.findMany({ where: { orderItem: { order: { restaurantId: id } } } }) },
+  { file: 'web_orders', model: 'WebOrder', find: (db, id) => db.webOrder.findMany({ where: { restaurantId: id } }) },
+  { file: 'web_order_items', model: 'WebOrderItem', find: (db, id) => db.webOrderItem.findMany({ where: { webOrder: { restaurantId: id } } }) },
+  { file: 'payments', model: 'Payment', find: (db, id) => db.payment.findMany({ where: { order: { restaurantId: id } } }) },
+  { file: 'inventory_items', model: 'InventoryItem', find: (db, id) => db.inventoryItem.findMany({ where: { restaurantId: id } }) },
+  { file: 'menu_item_ingredients', model: 'MenuItemIngredient', find: (db, id) => db.menuItemIngredient.findMany({ where: { menuItem: { restaurantId: id } } }) },
+  { file: 'inventory_transactions', model: 'InventoryTransaction', find: (db, id) => db.inventoryTransaction.findMany({ where: { inventoryItem: { restaurantId: id } } }) },
+  { file: 'order_modifications', model: 'OrderModification', find: (db, id) => db.orderModification.findMany({ where: { order: { restaurantId: id } } }) },
+  { file: 'roles', model: 'Role', find: (db, id) => db.role.findMany({ where: { restaurantId: id } }) },
+  { file: 'role_permissions', model: 'RolePermission', find: (db, id) => db.rolePermission.findMany({ where: { role: { restaurantId: id } } }) },
+  { file: 'expense_categories', model: 'ExpenseCategory', find: (db, id) => db.expenseCategory.findMany({ where: { restaurantId: id } }) },
+  { file: 'expenses', model: 'Expense', find: (db, id) => db.expense.findMany({ where: { restaurantId: id } }) },
+  { file: 'recurring_expenses', model: 'RecurringExpense', find: (db, id) => db.recurringExpense.findMany({ where: { restaurantId: id } }) },
+  { file: 'payroll_settings', model: 'PayrollSettings', find: (db, id) => db.payrollSettings.findMany({ where: { restaurantId: id } }) },
+  { file: 'employee_advances', model: 'EmployeeAdvance', find: (db, id) => db.employeeAdvance.findMany({ where: { restaurantId: id } }) },
+  { file: 'payroll_runs', model: 'PayrollRun', find: (db, id) => db.payrollRun.findMany({ where: { restaurantId: id } }) },
+  { file: 'payroll_lines', model: 'PayrollLine', find: (db, id) => db.payrollLine.findMany({ where: { payrollRun: { restaurantId: id } } }) },
+];
+
+function exportFieldsForModel(model: string): string[] {
+  const datamodel: any = (Prisma as any).dmmf?.datamodel;
+  const definition = datamodel?.models?.find((entry: any) => entry.name === model);
+  const fields: string[] = (definition?.fields || [])
+    .filter((field: any) => field.kind === 'scalar' || field.kind === 'enum')
+    .map((field: any) => field.name as string);
+  return fields.filter((field) => !EXPORT_EXCLUDED_FIELDS.has(field));
+}
+
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  let text: string;
+  if (value instanceof Date) {
+    text = value.toISOString();
+  } else if (typeof value === 'object') {
+    text = JSON.stringify(value);
+  } else if (typeof value === 'string') {
+    // Neutralise spreadsheet formula injection for user-supplied text.
+    text = /^[=+@\-\t\r]/.test(value) ? `'${value}` : value;
+  } else {
+    return String(value);
+  }
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+export function buildTenantCsv(model: string, rows: any[]): string {
+  const fields = exportFieldsForModel(model);
+  const lines = [fields.join(',')];
+  for (const row of rows) {
+    lines.push(fields.map((field) => csvCell(row?.[field])).join(','));
+  }
+  return `\uFEFF${lines.join('\r\n')}\r\n`;
+}
+
+export interface TenantExportFile {
+  name: string;
+  content: string;
+}
+
+export async function collectTenantExportData(
+  restaurantId: string,
+  db: any = prisma
+): Promise<{ files: TenantExportFile[]; counts: Record<string, number>; totalRows: number }> {
+  const files: TenantExportFile[] = [];
+  const counts: Record<string, number> = {};
+  let totalRows = 0;
+
+  for (const table of TENANT_EXPORT_TABLES) {
+    const rows = await table.find(db, restaurantId);
+    counts[table.file] = rows.length;
+    totalRows += rows.length;
+    files.push({ name: `${table.file}.csv`, content: buildTenantCsv(table.model, rows) });
+  }
+
+  files.unshift({
+    name: 'README.txt',
+    content: [
+      'Tenant business-data export',
+      `Restaurant ID: ${restaurantId}`,
+      `Generated (UTC): ${new Date().toISOString()}`,
+      `Tables: ${TENANT_EXPORT_TABLES.length}`,
+      `Total rows: ${totalRows}`,
+      '',
+      EXPORT_README_NOTICE,
+      '',
+      'Row counts:',
+      ...Object.entries(counts).map(([name, count]) => `  ${name}.csv: ${count}`),
+      '',
+    ].join('\r\n'),
+  });
+
+  return { files, counts, totalRows };
+}
 
 export class PlatformService {
   async logPlatformAction(data: {
@@ -34,6 +165,36 @@ export class PlatformService {
     } catch (e) {
       console.error('[PlatformAuditLog Error]', e);
     }
+  }
+
+  /** Writes a sensitive-action audit record and fails closed if it cannot be saved. */
+  async recordSensitiveAudit(data: {
+    platformUserId: string;
+    restaurantId?: string;
+    action: string;
+    details?: string;
+    ipAddress?: string;
+    userAgent?: string;
+  }) {
+    await prisma.platformAuditLog.create({
+      data: {
+        platformUserId: data.platformUserId,
+        restaurantId: data.restaurantId || null,
+        action: data.action,
+        details: data.details || null,
+        ipAddress: data.ipAddress || null,
+        userAgent: data.userAgent || null,
+      },
+    });
+  }
+
+  async verifyPlatformPassword(platformUserId: string, password: string): Promise<boolean> {
+    const user = await prisma.platformUser.findUnique({
+      where: { id: platformUserId },
+      select: { isActive: true, passwordHash: true },
+    });
+    if (!user || !user.isActive) return false;
+    return bcrypt.compare(password, user.passwordHash);
   }
 
   async login(email: string, password: string, reqContext?: { ip?: string; userAgent?: string }) {

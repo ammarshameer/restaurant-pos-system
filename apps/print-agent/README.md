@@ -42,33 +42,43 @@ GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o local-print-agent.exe .
 
 ## Configuration
 
-All settings are optional. Environment variables, or a
-`print-agent-config.json` next to the binary:
+Environment variables, or a `print-agent-config.json` next to the binary. The
+installer creates this file with a random token and the POS origin(s).
 
 ```json
-{ "port": 17778, "printerName": "POS-80", "token": "secret",
-  "allowedOrigins": ["https://example.com"] }
+{ "port": 17778, "printerName": "POS-80", "token": "random-hex-token",
+  "allowedOrigins": ["https://pos.example.com"] }
 ```
 
 | Variable                | Default        | Notes |
 | ----------------------- | -------------- | ----- |
 | `PORT`                  | `17778`        | Any free port; clients just need the matching URL |
 | `PRINTER_NAME`          | system default | Fallback when the caller sends no printer |
-| `PRINT_TOKEN`           | none (open)    | If set, `POST /print` requires `X-Print-Token: <token>` |
-| `PRINT_ALLOWED_ORIGINS` | none (open)    | Optional comma-separated browser-origin allowlist |
+| `PRINT_TOKEN`           | none (locked)  | Required for `/print` and `/printers`; empty token means no client can use them |
+| `PRINT_ALLOWED_ORIGINS` | none (deny)    | Exact browser origins; an empty list allows no browser origins |
 
 ## Install as a service
 
 The receipt modal on the POS site offers one-shot installers that download the
 binary from GitHub Releases and register an auto-start service:
 
-- **Windows:** run `install-windows.ps1` in an elevated PowerShell window
-  (registers via `sc.exe`, no other tooling needed). For a local build:
-  `.\install-windows.ps1 -BinaryPath .\local-print-agent.exe`
-- **Linux:** `sudo bash install-linux.sh` (systemd + CUPS). For a local build:
-  `sudo bash install-linux.sh /path/to/local-print-agent`
-- **macOS:** download the binary, `chmod +x`, run it (or wrap it in a launchd
-  plist).
+- **Windows:** run `install-windows.ps1` in an elevated PowerShell window. It
+  verifies the release SHA-256, writes `print-agent-config.json`, registers the
+  service as `NT AUTHORITY\LocalService` (never LocalSystem), and prints the
+  token once. Override the POS origin(s) with
+  `-AllowedOrigins "https://pos.example.com,https://staging.example.com"`.
+  For a local build: `.\install-windows.ps1 -BinaryPath .\local-print-agent.exe`
+- **Linux:** `sudo bash install-linux.sh [local-binary] ["https://pos.example.com"]`
+  (systemd + CUPS). It verifies SHA-256, writes the config and runs as the
+  installing user. Set `PRINT_AGENT_ALLOWED_ORIGINS` instead of the second
+  argument if preferred.
+- **macOS:** download the binary plus its `.sha256` file, verify with
+  `shasum -a 256 -c`, write `print-agent-config.json` with a random token and
+  your POS origin(s), then `chmod +x` and run it (or wrap it in launchd).
+
+After installing, paste the displayed token into **POS Settings → Local Print
+Service** on each till that prints. `/health` stays unauthenticated for
+detection; `/printers` and `/print` require `X-Print-Token`.
 
 To remove: Windows Services → "Local Print Agent", or
 `sudo systemctl disable --now local-print-agent` on Linux.
@@ -79,8 +89,11 @@ To remove: Windows Services → "Local Print Agent", or
 - **Windows:** printers go through the normal driver; data is sent as RAW via
   winspool. **Linux/macOS:** the printer must be a CUPS queue; data is sent
   with `lp -o raw`.
-- The service runs as the installing user — on Linux it is added to the `lp`
-  group for printer access.
-- CORS is open by default so any of your apps/sites can call the bridge. On a
-  machine used for untrusted browsing, set `PRINT_ALLOWED_ORIGINS` or
-  `PRINT_TOKEN`.
+- Windows runs as LocalService; Linux runs as the installing user (in the `lp`
+  group for printer access). Neither runs as LocalSystem/root-capable service.
+- CORS is **default-deny**: without `allowedOrigins`, no browser origin may call
+  the agent. The Host header must also be `localhost` or `127.0.0.1` on the
+  configured port, which blocks DNS rebinding.
+- Remote installers verify the downloaded binary against the `.sha256` asset
+  published with the release. A missing or mismatched checksum aborts the
+  install.

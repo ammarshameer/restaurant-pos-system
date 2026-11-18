@@ -6,7 +6,7 @@ import type { ReceiptPrintMode } from './receipt/ReceiptSlips';
 import { printReceiptInBrowser } from '../lib/print/browserPrint';
 import {
   checkLocalPrintService,
-  listPrintHelperPrinters,
+  listLocalPrintPrinters,
   printReceiptDirect,
 } from '../lib/print/printClient';
 import type { AvailablePrinter, PrintRenderMode } from '../lib/print/printClient';
@@ -74,7 +74,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         return;
       }
 
-      const availablePrinters = await listPrintHelperPrinters();
+      const availablePrinters = await listLocalPrintPrinters();
       setPrinters(availablePrinters);
       if (availablePrinters.length === 0) {
         setSelectedPrinter('');

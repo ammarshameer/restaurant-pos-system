@@ -1,9 +1,12 @@
 name: Deploy Restaurant POS to VPS
 
+# Deploy only after the PostgreSQL test workflow has passed on the same commit.
+# Keep "Test (PostgreSQL)" required in branch protection for main.
 on:
-  push:
+  workflow_run:
+    workflows: ["Test (PostgreSQL)"]
+    types: [completed]
     branches: [main]
-  workflow_dispatch:
 
 concurrency:
   group: restaurant-pos-deploy
@@ -13,7 +16,13 @@ jobs:
   deploy:
     name: Build & deploy on Contabo VPS
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
+      - name: Check out the exact tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -26,21 +35,39 @@ jobs:
           script: |
             set -euo pipefail
 
-            APP_DIR="/var/www/restaurant-pos"
-            NODE20_BIN="/home/mujeeb/.nvm/versions/node/v20.20.2/bin"
-            PM2_BIN="/home/mujeeb/.nvm/versions/node/v24.15.0/bin/pm2"
-            export PATH="${NODE20_BIN}:/home/mujeeb/.nvm/versions/node/v24.15.0/bin:${PATH}"
+            APP_DIR="${{ vars.APP_DIR || '/var/www/restaurant-pos' }}"
+            DEPLOY_ENV_FILE="${{ vars.DEPLOY_ENV_FILE }}"
+            if [[ -n "$DEPLOY_ENV_FILE" && -f "$DEPLOY_ENV_FILE" ]]; then
+              # shellcheck disable=SC1090
+              source "$DEPLOY_ENV_FILE"
+            fi
+
+            NODE_BIN_DIR="${NODE_BIN_DIR:-${{ vars.NODE_BIN_DIR }}}"
+            PM2_BIN="${PM2_BIN:-${{ vars.PM2_BIN }}}"
+            HEALTH_PORT="${HEALTH_PORT:-${{ vars.HEALTH_PORT || '3000' }}}"
+
+            if [[ -z "$NODE_BIN_DIR" || -z "$PM2_BIN" ]]; then
+              echo "Set repository variables NODE_BIN_DIR and PM2_BIN (or a DEPLOY_ENV_FILE)." >&2
+              exit 1
+            fi
+            export PATH="${NODE_BIN_DIR}:$(dirname "$PM2_BIN"):${PATH}"
 
             cd "$APP_DIR"
 
-            echo "==> Fetching origin/main"
+            echo "==> Fetching tested commit ${{ github.event.workflow_run.head_sha }}"
             git fetch --prune origin main
-            git reset --hard origin/main
+            git reset --hard "${{ github.event.workflow_run.head_sha }}"
 
             echo "==> Backend: install, generate client, build"
             cd "$APP_DIR/apps/backend"
             npm ci
             npm run build
+
+            echo "==> Database: backup before migrations (abort on failure)"
+            npm run db:backup
+
+            echo "==> Database: require a complete migration baseline"
+            npm run db:migrate:check
 
             echo "==> Database: apply checked-in PostgreSQL migrations"
             npm run db:migrate
@@ -56,13 +83,13 @@ jobs:
             else
               cd "$APP_DIR/apps/backend"
               "$PM2_BIN" start dist/index.js --name restaurant-pos \
-                --interpreter "${NODE20_BIN}/node"
+                --interpreter "${NODE_BIN_DIR}/node"
             fi
             "$PM2_BIN" save
 
-            echo "==> Health check"
+            echo "==> Health check on port $HEALTH_PORT"
             for i in $(seq 1 30); do
-              if curl -fsS http://127.0.0.1:3146/health; then
+              if curl -fsS "http://127.0.0.1:${HEALTH_PORT}/health"; then
                 echo
                 echo "Deployment complete."
                 exit 0

@@ -88,31 +88,32 @@ for production deployment instructions.
 
 ## Thermal printing
 
-For an 80 mm ESC/POS printer (for example the Black Copper BC-88AC), three
+For an 80 mm ESC/POS printer (for example the Black Copper BC-88AC), two
 direct-print channels are available; the receipt modal picks whatever exists:
 
 - **USB printers** — Chromium browsers (Chrome/Edge) print straight to the
   printer over WebUSB. No install at all.
 - **Local print agent** — a single ~8 MB binary (`apps/print-agent`, Go) that
   bridges any installed OS printer on Windows, Linux and macOS. The receipt
-  modal offers a one-shot installer per platform.
+  modal offers a one-shot installer per platform. The installer generates a
+  random token, writes the allowed POS origin(s), verifies the release
+  SHA-256, and displays the token once; paste it into **Settings → Local Print
+  Service**.
 If none is available, Android browsers fall back to the system print dialog.
 
 ```bash
-cd apps/print-agent && go build -o local-print-agent .   # run the agent manually
-npm run print-helper:start   # Windows loopback print helper
-npm run dist:print-helper    # build the helper installer + portable zip
+npm run build:print-agent   # go build
+npm run test:print-agent    # Go HTTP security tests
 ```
 
 See [apps/print-agent/README.md](./apps/print-agent/README.md) for the agent API
-and configuration, and [electron/print-helper/README.md](./electron/print-helper/README.md)
-for the Windows print helper.
+and configuration.
 
 ## Documentation
 
 - [API Documentation](./API.md) - Complete REST API and WebSocket reference
 - [Deployment Guide](./DEPLOYMENT.md) - Production deployment instructions
-- [Print Helper Guide](./electron/print-helper/README.md) - Windows ESC/POS printing
+- [Local Print Agent Guide](./apps/print-agent/README.md) - ESC/POS printing on Windows, Linux and macOS
 
 ## License
 

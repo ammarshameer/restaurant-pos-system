@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { getIO } from '../websocket';
 import { InventoryService } from './inventory.service';
 import { hasFeature } from './feature.service';
@@ -17,11 +17,12 @@ export class OrderService {
   private async resolveCostAtSale(
     restaurantId: string,
     menuItemId?: string | null,
-    dealId?: string | null
+    dealId?: string | null,
+    client: PrismaClient | Prisma.TransactionClient = prisma
   ): Promise<number | null> {
     try {
       if (dealId) {
-        const deal = await (prisma as any).deal.findFirst({
+        const deal = await (client as any).deal.findFirst({
           where: { id: dealId, restaurantId },
           include: {
             items: {
@@ -44,7 +45,7 @@ export class OrderService {
           return +dealCost.toFixed(2);
         }
       } else if (menuItemId) {
-        const item = await prisma.menuItem.findFirst({
+        const item = await client.menuItem.findFirst({
           where: { id: menuItemId, restaurantId },
           include: {
             ingredients: {
@@ -132,14 +133,15 @@ export class OrderService {
       status?: string;
     }>;
     notes?: string;
-  }) {
+  }, client: PrismaClient | Prisma.TransactionClient = prisma, notify = true) {
+    const db = client;
     const restaurantId = data.restaurantId;
     if (!restaurantId || !restaurantId.trim()) {
       throw new Error('restaurantId is required to create an order');
     }
 
     // Verify restaurant exists
-    const rest = await prisma.restaurant.findUnique({
+    const rest = await db.restaurant.findUnique({
       where: { id: restaurantId },
     });
     if (!rest) {
@@ -150,7 +152,7 @@ export class OrderService {
     // idempotency key or client-supplied id), return the existing record
     // instead of inserting a duplicate on retry.
     if (data.clientId || data.id) {
-      const existing = await prisma.order.findFirst({
+      const existing = await db.order.findFirst({
         where: {
           restaurantId,
           OR: [
@@ -170,14 +172,14 @@ export class OrderService {
     // to the next available number so the server stays authoritative.
     let orderNum: number;
     if (data.orderNumber && Number.isFinite(Number(data.orderNumber))) {
-      const clash = await prisma.order.findFirst({
+      const clash = await db.order.findFirst({
         where: { restaurantId, orderNumber: Number(data.orderNumber) },
         select: { id: true },
       });
       if (!clash) {
         orderNum = Number(data.orderNumber);
       } else {
-        const maxOrder = await prisma.order.findFirst({
+        const maxOrder = await db.order.findFirst({
           where: { restaurantId },
           orderBy: { orderNumber: 'desc' },
           select: { orderNumber: true },
@@ -185,7 +187,7 @@ export class OrderService {
         orderNum = (maxOrder ? maxOrder.orderNumber : 100) + 1;
       }
     } else {
-      const maxOrder = await prisma.order.findFirst({
+      const maxOrder = await db.order.findFirst({
         where: { restaurantId },
         orderBy: { orderNumber: 'desc' },
         select: { orderNumber: true },
@@ -196,7 +198,7 @@ export class OrderService {
     // Resolve server ID strictly within this restaurant
     let serverId = data.serverId;
     if (serverId) {
-      const empExists = await prisma.employee.findFirst({
+      const empExists = await db.employee.findFirst({
         where: { id: serverId, restaurantId, isActive: true },
       });
       if (!empExists) {
@@ -205,14 +207,14 @@ export class OrderService {
     }
 
     if (!serverId) {
-      const defaultEmployee = await prisma.employee.findFirst({
+      const defaultEmployee = await db.employee.findFirst({
         where: { restaurantId, isActive: true },
       });
       serverId = defaultEmployee?.id || 'emp-manager-1';
     }
 
     if (data.tableId) {
-      const table = await prisma.table.findFirst({
+      const table = await db.table.findFirst({
         where: { id: data.tableId, floorPlan: { restaurantId } },
       });
       if (!table) throw new ValidationError('Table not found in this business');
@@ -233,7 +235,7 @@ export class OrderService {
         let validDealId: string | null = null;
 
         if (item.dealId) {
-          const exists = await (prisma as any).deal.findFirst({
+          const exists = await (db as any).deal.findFirst({
             where: { id: item.dealId, restaurantId },
           });
           if (!exists) throw new ValidationError('Deal not found in this business');
@@ -241,7 +243,7 @@ export class OrderService {
           unitPrice = exists.price;
           resolvedName = exists.name;
         } else if (item.menuItemId) {
-          const exists = await prisma.menuItem.findFirst({
+          const exists = await db.menuItem.findFirst({
             where: { id: item.menuItemId, restaurantId },
           });
           if (!exists) throw new ValidationError('Menu item not found in this business');
@@ -250,7 +252,7 @@ export class OrderService {
           resolvedName = exists.name;
         } else if (item.name) {
           // Check if item is a Deal by name within restaurant
-          const dealFound = await (prisma as any).deal.findFirst({
+          const dealFound = await (db as any).deal.findFirst({
             where: { name: item.name, restaurantId },
           });
           if (dealFound) {
@@ -258,7 +260,7 @@ export class OrderService {
             unitPrice = dealFound.price;
             resolvedName = dealFound.name;
           } else {
-            const exists = await prisma.menuItem.findFirst({
+            const exists = await db.menuItem.findFirst({
               where: { name: item.name, restaurantId },
             });
             if (exists) validMenuItemId = exists.id;
@@ -269,7 +271,7 @@ export class OrderService {
         if ((validMenuItemId || validDealId) && unitPrice !== undefined) {
           const total = unitPrice * quantity;
           subtotal += total;
-          const costAtSale = await this.resolveCostAtSale(restaurantId, validMenuItemId, validDealId);
+          const costAtSale = await this.resolveCostAtSale(restaurantId, validMenuItemId, validDealId, db);
           return {
             menuItemId: validMenuItemId,
             dealId: validDealId,
@@ -308,11 +310,11 @@ export class OrderService {
     const initialPaymentStatus = 'UNPAID';
     let customerId: string | null = data.customerId || null;
     if (customerId) {
-      const existing = await prisma.customer.findFirst({
+      const existing = await db.customer.findFirst({
         where: { id: customerId, restaurantId },
       });
       if (existing) {
-        await prisma.customer.update({
+        await db.customer.update({
           where: { id: customerId },
           data: {
             totalOrders: { increment: 1 },
@@ -336,7 +338,7 @@ export class OrderService {
       }
     }
 
-    const order = await prisma.order.create({
+    const order = await db.order.create({
       data: {
         ...(data.id ? { id: data.id } : {}),
         ...(data.clientId ? { clientId: data.clientId } : {}),
@@ -376,22 +378,26 @@ export class OrderService {
     });
 
     if (data.tableId) {
-      await prisma.table.update({
+      await db.table.update({
         where: { id: data.tableId },
         data: { status: 'OCCUPIED', currentOrder: order.id },
       }).catch((err) => console.warn('Could not mark table occupied:', err));
     }
 
-    // Notify connected kitchen & client WebSockets
-    const io = getIO();
-    io?.to(`restaurant:${restaurantId}`).emit('order:created', order);
-    io?.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:new', order);
-    if (data.tableId) {
-      io?.to(`restaurant:${restaurantId}`).emit('table:status', {
-        tableId: data.tableId,
-        status: 'OCCUPIED',
-        currentOrder: order.id,
-      });
+    // Notify connected kitchen & client WebSockets. Callers that create the
+    // order inside a larger transaction (web order acceptance) defer this
+    // until after commit.
+    if (notify) {
+      const io = getIO();
+      io?.to(`restaurant:${restaurantId}`).emit('order:created', order);
+      io?.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:new', order);
+      if (data.tableId) {
+        io?.to(`restaurant:${restaurantId}`).emit('table:status', {
+          tableId: data.tableId,
+          status: 'OCCUPIED',
+          currentOrder: order.id,
+        });
+      }
     }
 
     // Deduct stock for each ordered item or deal

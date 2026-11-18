@@ -13,11 +13,9 @@
     "start:frontend": "cd apps/frontend && npm run preview",
     "db:backfill": "cd apps/backend && npm run db:backfill",
     "test:acceptance": "cd apps/backend && npm run test:acceptance",
-    "install:all": "npm install && cd apps/backend && npm install && cd ../frontend && npm install && cd ../.. && npm install --prefix electron/print-helper",
-    "print-helper:start": "npm --prefix electron/print-helper exec -- electron electron/print-helper",
-    "print-helper:pack": "npm --prefix electron/print-helper exec -- electron-builder --dir --config electron-builder.print-helper.json",
-    "dist:print-helper": "npm --prefix electron/print-helper exec -- electron-builder --win --config electron-builder.print-helper.json",
-    "test:print-helper": "node electron/printing/selftest.js"
+    "install:all": "npm install && cd apps/backend && npm install && cd ../frontend && npm install",
+    "build:print-agent": "cd apps/print-agent && go build -o local-print-agent .",
+    "test:print-agent": "cd apps/print-agent && go test ./..."
   },
   "keywords": [
     "pos",

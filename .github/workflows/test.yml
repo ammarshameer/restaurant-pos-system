@@ -80,3 +80,15 @@ jobs:
       - name: Build
         working-directory: apps/frontend
         run: npm run build
+
+  print-agent:
+    name: Print agent HTTP security tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Test
+        working-directory: apps/print-agent
+        run: go test ./...

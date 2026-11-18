@@ -5,6 +5,7 @@ import { RootState } from '../store/store';
 import { loginSuccess } from '../store/slices/authSlice';
 import { settingsApi } from '../api/settings.api';
 import { cacheReceiptBranding } from '../lib/receiptBranding';
+import { getPrintAgentConfig, savePrintAgentConfig } from '../lib/print/printClient';
 import { PALETTE_OPTIONS } from '../lib/themePalettes';
 
 export const SettingsPage: React.FC = () => {
@@ -36,6 +37,10 @@ export const SettingsPage: React.FC = () => {
   const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('pos_theme') as 'dark' | 'light') || 'dark';
   });
+
+  // Local print agent settings are stored in this browser.
+  const [printAgentUrl, setPrintAgentUrl] = useState(() => getPrintAgentConfig().url);
+  const [printAgentToken, setPrintAgentToken] = useState(() => getPrintAgentConfig().token);
 
   const fetchSettings = async () => {
     try {
@@ -155,8 +160,9 @@ export const SettingsPage: React.FC = () => {
         themeMode,
       });
       cacheReceiptBranding(updated);
+      savePrintAgentConfig(printAgentUrl, printAgentToken);
 
-      setSuccessMessage('Business profile and appearance settings updated successfully!');
+      setSuccessMessage('Business settings and local print service settings updated successfully!');
       setName(updated.name);
       setLogoUrl(updated.logoUrl || null);
       if (updated.themePalette) setThemePalette(updated.themePalette);
@@ -696,6 +702,59 @@ export const SettingsPage: React.FC = () => {
                 <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
                 <option value="UTC">UTC</option>
               </select>
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border-color, rgba(255,255,255,0.1))', paddingTop: '16px', marginTop: '8px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 4px 0' }}>
+              Local Print Service
+            </h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 14px 0' }}>
+              The Windows/Linux installer displays a random token once. Paste it here and save this
+              page so this browser can print. The token is stored only in this browser.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  Agent URL
+                </label>
+                <input
+                  type="url"
+                  value={printAgentUrl}
+                  onChange={(e) => setPrintAgentUrl(e.target.value)}
+                  placeholder="http://127.0.0.1:17778"
+                  className="form-control"
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    background: 'rgba(0,0,0,0.2)',
+                    border: '1px solid var(--border-color, rgba(255,255,255,0.1))',
+                    color: 'var(--text-primary, #fff)',
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  Print Token
+                </label>
+                <input
+                  type="password"
+                  value={printAgentToken}
+                  onChange={(e) => setPrintAgentToken(e.target.value)}
+                  placeholder="Paste the token shown by the installer"
+                  autoComplete="off"
+                  className="form-control"
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    background: 'rgba(0,0,0,0.2)',
+                    border: '1px solid var(--border-color, rgba(255,255,255,0.1))',
+                    color: 'var(--text-primary, #fff)',
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
