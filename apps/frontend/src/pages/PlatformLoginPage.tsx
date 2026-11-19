@@ -6,8 +6,10 @@ import PlatformThemeToggle from '../components/PlatformThemeToggle';
 
 export const PlatformLoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const devEmail = import.meta.env.DEV ? import.meta.env.VITE_DEV_PLATFORM_EMAIL || '' : '';
+  const devPassword = import.meta.env.DEV ? import.meta.env.VITE_DEV_PLATFORM_PASSWORD || '' : '';
+  const [email, setEmail] = useState(devEmail);
+  const [password, setPassword] = useState(devPassword);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,6 +100,8 @@ export const PlatformLoginPage: React.FC = () => {
             <label className="form-label" style={{ color: '#cbd5e1' }}>Admin / Support Email</label>
             <input
               type="email"
+              name="email"
+              autoComplete="username"
               className="form-input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -111,6 +115,8 @@ export const PlatformLoginPage: React.FC = () => {
             <label className="form-label" style={{ color: '#cbd5e1' }}>Password</label>
             <input
               type="password"
+              name="password"
+              autoComplete="current-password"
               className="form-input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

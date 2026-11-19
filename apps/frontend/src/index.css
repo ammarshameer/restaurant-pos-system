@@ -122,6 +122,12 @@
 }
 
 /* ---- Public customer menu page (/m/:slug) helpers ---- */
+/* The app shell locks body/#root scrolling; the public page scrolls here. */
+.public-menu-scroll {
+  background: #171210;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 .pub-food-pattern {

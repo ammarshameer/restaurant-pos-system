@@ -245,9 +245,11 @@ export const App: React.FC = () => {
   // ============================================
   if (location.pathname.startsWith('/m/')) {
     return (
-      <Routes>
-        <Route path="/m/:slug" element={<PublicMenuPage />} />
-      </Routes>
+      <div className="public-menu-scroll" style={{ height: '100vh', overflowY: 'auto', overflowX: 'hidden' }}>
+        <Routes>
+          <Route path="/m/:slug" element={<PublicMenuPage />} />
+        </Routes>
+      </div>
     );
   }
 

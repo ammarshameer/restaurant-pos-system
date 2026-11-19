@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { getCategoryVisual } from '../../utils/image';
 
 // =====================================================================
 // Public customer menu & ordering page (/m/:slug)
@@ -116,7 +117,7 @@ interface PublicBusiness {
   name: string; slug: string; logoUrl?: string | null; coverUrl?: string | null;
   about?: string | null; palette?: string | null; orderingEnabled: boolean; open: boolean;
   openingHours: Record<string, { closed?: boolean; open?: string; close?: string }>;
-  orderTypesEnabled: string[]; deliveryFee: number | null; freeDeliveryAbove: number | null;
+  orderTypes?: string[]; orderTypesEnabled?: string[]; deliveryFee: number | null; freeDeliveryAbove: number | null;
   minOrder: number; paymentNote?: string | null;
 }
 interface PublicMenuResponse { business: PublicBusiness; categories: PublicCategory[]; items: PublicItem[]; deals: PublicDeal[] }
@@ -153,6 +154,39 @@ const BASE_CSS = `
 @keyframes pubFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .pub-sheet-shadow { box-shadow: 0 -8px 40px rgba(0,0,0,0.55); }
 .pub-scroll::-webkit-scrollbar { display: none; }
+
+/* Reset UA defaults (this app ships no Tailwind preflight, so <button>/<input>
+   would otherwise render with a light background and black text on our dark
+   theme). Zero-specificity :where() keeps every Tailwind utility winning. */
+:where(.pub-root) button,
+:where(.pub-root) input,
+:where(.pub-root) textarea,
+:where(.pub-root) select {
+  font: inherit;
+  color: inherit;
+  margin: 0;
+  background-color: transparent;
+  border: 0;
+  appearance: none;
+  text-align: inherit;
+}
+:where(.pub-root) input,
+:where(.pub-root) textarea {
+  -webkit-text-fill-color: inherit;
+}
+:where(.pub-root) input::placeholder,
+:where(.pub-root) textarea::placeholder {
+  color: var(--pub-muted);
+  opacity: 1;
+}
+
+/* Opacity modifiers such as bg-[var(--pub-accent)]/15 are invalid CSS (the var
+   is a hex, not rgb channels), so provide real tinted equivalents. */
+.pub-accent-15 { background-color: rgba(224, 161, 114, 0.15); background-color: color-mix(in srgb, var(--pub-accent) 15%, transparent); }
+.pub-accent-10 { background-color: rgba(224, 161, 114, 0.10); background-color: color-mix(in srgb, var(--pub-accent) 10%, transparent); }
+.pub-accent-40-border { border-color: rgba(224, 161, 114, 0.40); border-color: color-mix(in srgb, var(--pub-accent) 40%, transparent); }
+.pub-on-accent-20 { background-color: rgba(255, 255, 255, 0.20); background-color: color-mix(in srgb, var(--pub-on-accent) 20%, transparent); }
+.pub-bg-80 { background-color: rgba(23, 18, 16, 0.80); background-color: color-mix(in srgb, var(--pub-bg) 80%, transparent); }
 `;
 
 // =====================================================================
@@ -224,8 +258,9 @@ export const PublicMenuPage: React.FC = () => {
       .then((data: PublicMenuResponse | null) => {
         if (!cancelled && data) {
           setMenu(data);
-          if (data.business.orderTypesEnabled?.length > 0) {
-            setProfile((p) => ({ ...p, orderType: data.business.orderTypesEnabled[0] }));
+          const enabledTypes = data.business.orderTypes ?? data.business.orderTypesEnabled ?? [];
+          if (enabledTypes.length > 0) {
+            setProfile((p) => ({ ...p, orderType: enabledTypes[0] }));
           }
         }
       })
@@ -305,6 +340,14 @@ export const PublicMenuPage: React.FC = () => {
       return true;
     });
   }, [menu, search, cat]);
+
+  // Same category icon/gradient fallbacks the owner's menu uses.
+  const categoryNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    menu?.categories.forEach((c) => { map[c.id] = c.name; });
+    return map;
+  }, [menu]);
+  const itemVisual = (item: PublicItem) => getCategoryVisual(categoryNames[item.categoryId] || '');
 
   // ---------- cart actions ----------
   const flash = (msg: string) => {
@@ -421,7 +464,7 @@ export const PublicMenuPage: React.FC = () => {
     return (
       <div className="pub-root min-h-screen bg-[#171210] text-[#f5efe7]" style={cssVars} dir={isRTL ? 'rtl' : 'ltr'}>
         <style>{BASE_CSS}</style>
-        <div className="mx-auto max-w-3xl px-4 py-4">
+        <div className="mx-auto w-full max-w-3xl sm:max-w-4xl lg:max-w-5xl px-4 py-4">
           <div className="mb-4 h-40 animate-pulse rounded-3xl bg-white/5" />
           <div className="flex items-center gap-3">
             <div className="h-20 w-20 animate-pulse rounded-2xl bg-white/5" />
@@ -469,21 +512,21 @@ export const PublicMenuPage: React.FC = () => {
       <style>{BASE_CSS}</style>
 
       {/* ============ HERO ============ */}
-      <div className="mx-auto max-w-3xl">
-        <div className="relative h-44 overflow-hidden sm:h-56" style={{ background: 'var(--pub-bg)' }}>
+      <div className="mx-auto w-full max-w-3xl sm:max-w-4xl lg:max-w-5xl">
+        <div className="relative mx-4 mt-4 h-52 overflow-hidden rounded-3xl border border-[var(--pub-border)] sm:mx-6 sm:h-64 lg:h-72" style={{ background: 'var(--pub-bg)' }}>
           {b.coverUrl && !coverFailed ? (
             <img src={b.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover" onError={() => setCoverFailed(true)} />
           ) : (
-            <div className="pub-food-pattern absolute inset-0" style={{ background: `linear-gradient(135deg, ${theme.accent}22, ${theme.bg})` }} />
+            <div className="pub-food-pattern absolute inset-0" style={{ background: `linear-gradient(135deg, ${theme.accent}33, ${theme.bg})` }} />
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-[var(--pub-bg)] via-transparent to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[var(--pub-bg)] via-transparent to-black/25" />
           {/* language switch */}
           <div className="absolute top-3 end-3 z-20 flex gap-0.5 rounded-full border border-white/10 bg-black/45 p-0.5 backdrop-blur-md">
             {(['en', 'roman', 'ur'] as Lang[]).map((l) => (
               <button
                 key={l}
                 onClick={() => setLang(l)}
-                className={`rounded-full px-3 py-1.5 text-[11px] font-bold transition-all duration-200 ${lang === l ? 'bg-[var(--pub-accent)] text-[var(--pub-on-accent)]' : 'text-white/70 hover:text-white'}`}
+                className={`rounded-full px-3 py-1.5 text-[11px] font-bold transition-all duration-200 ${lang === l ? 'bg-[var(--pub-accent)] text-[var(--pub-on-accent)]' : 'bg-white/90 text-[#1e293b] hover:bg-white'}`}
               >
                 {LANG_LABEL[l]}
               </button>
@@ -492,16 +535,20 @@ export const PublicMenuPage: React.FC = () => {
         </div>
 
         <div className="relative -mt-9 px-4 sm:-mt-11 sm:px-6">
-          {/* logo */}
-          <div className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-2xl border-2 border-white/10 bg-[var(--pub-surface)] shadow-[0_8px_24px_rgba(0,0,0,0.5)] sm:h-[88px] sm:w-[88px]">
-            {b.logoUrl && !logoFailed ? (
-              <img src={b.logoUrl} alt={b.name} className="h-full w-full object-cover" onError={() => setLogoFailed(true)} />
-            ) : (
-              <div className="pub-food-pattern flex h-full w-full items-center justify-center text-3xl">🍽️</div>
-            )}
+          <div className="flex items-end gap-3">
+            {/* logo */}
+            <div className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-2xl border-2 border-white/10 bg-[var(--pub-surface)] shadow-[0_8px_24px_rgba(0,0,0,0.5)] sm:h-[88px] sm:w-[88px]">
+              {b.logoUrl && !logoFailed ? (
+                <img src={b.logoUrl} alt={b.name} className="h-full w-full object-cover" onError={() => setLogoFailed(true)} />
+              ) : (
+                <div className="pub-food-pattern flex h-full w-full items-center justify-center text-3xl">🍽️</div>
+              )}
+            </div>
+            <div className="min-w-0 pb-1">
+              <h1 className="truncate text-[22px] font-extrabold leading-tight tracking-tight sm:text-3xl">{b.name}</h1>
+            </div>
           </div>
-          <h1 className="mt-2.5 text-[22px] font-extrabold leading-tight tracking-tight sm:text-3xl">{b.name}</h1>
-          {b.about && <p className="pub-desc mt-1 text-sm text-[var(--pub-muted)]">{b.about}</p>}
+          {b.about && <p className="pub-desc mt-2 text-sm text-[var(--pub-muted)]">{b.about}</p>}
         </div>
 
         {/* badges */}
@@ -524,9 +571,13 @@ export const PublicMenuPage: React.FC = () => {
               🧾 {tr('minOrderNote')} {money(b.minOrder)}
             </span>
           )}
-          {b.orderTypesEnabled.includes('DELIVERY') && (
+          {(b.orderTypes ?? b.orderTypesEnabled ?? []).includes('DELIVERY') && (
             <span className="inline-flex items-center gap-1 rounded-full border border-[var(--pub-border)] bg-[var(--pub-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--pub-muted)]">
-              🛵 {b.deliveryFee != null ? money(b.deliveryFee) : tr('deliveryFee')} {b.freeDeliveryAbove ? `· ${tr('freeAbove')} ${money(b.freeDeliveryAbove)}` : ''}
+              🛵 {b.freeDeliveryAbove
+                ? `${tr('freeAbove')} ${money(b.freeDeliveryAbove)}`
+                : Number(b.deliveryFee) > 0
+                  ? money(b.deliveryFee)
+                  : tr('free')}
             </span>
           )}
         </div>
@@ -540,8 +591,8 @@ export const PublicMenuPage: React.FC = () => {
       </div>
 
       {/* ============ STICKY SEARCH + TABS ============ */}
-      <div className="sticky top-0 z-30 mt-5 border-y border-[var(--pub-border)] bg-[var(--pub-bg)]/80 backdrop-blur-md">
-        <div className="mx-auto max-w-3xl px-4 sm:px-6">
+      <div className="sticky top-0 z-30 mt-5 border-y border-[var(--pub-border)] pub-bg-80 backdrop-blur-md">
+        <div className="mx-auto w-full max-w-3xl sm:max-w-4xl lg:max-w-5xl px-4 sm:px-6">
           <div className="relative pt-3">
             <input
               value={search}
@@ -573,7 +624,7 @@ export const PublicMenuPage: React.FC = () => {
       </div>
 
       {/* ============ MENU ============ */}
-      <main className="mx-auto max-w-3xl px-4 sm:px-6">
+      <main className="mx-auto w-full max-w-3xl sm:max-w-4xl lg:max-w-5xl px-4 sm:px-6">
         {/* deals */}
         {hasDeals && (cat === 'ALL' || cat === 'DEALS') && (
           <div className="mt-4">
@@ -613,50 +664,55 @@ export const PublicMenuPage: React.FC = () => {
         )}
 
         {/* items grid */}
-        <div className={`mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 ${hasDeals && cat === 'ALL' ? '' : 'mt-4'}`}>
+        <div className={`mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 ${hasDeals && cat === 'ALL' ? '' : 'mt-4'}`}>
           {filteredItems.map((item) => {
             const inCart = qtyForItem(item.id);
             const hasMods = item.modifiers.length > 0;
+            const visual = itemVisual(item);
             return (
               <div
                 key={item.id}
                 onClick={() => canOrder && item.isAvailable && setDetailItem(item)}
                 className={`pub-card-glow group relative overflow-hidden rounded-2xl border bg-[var(--pub-surface)] ${item.isAvailable ? 'border-[var(--pub-border)]' : 'border-[var(--pub-border)] opacity-55 grayscale'}`}
               >
-                <div className="relative aspect-square w-full overflow-hidden bg-[var(--pub-surface2)]">
-                  {item.imageUrl ? (
-                    <img src={item.imageUrl} alt="" loading="lazy" className={`h-full w-full object-cover transition-transform duration-300 ${item.isAvailable ? 'group-hover:scale-105' : 'grayscale'}`} />
-                  ) : (
-                    <div className="pub-food-pattern flex h-full w-full items-center justify-center text-4xl">🍽️</div>
-                  )}
-                  {!item.isAvailable && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/55">
-                      <span className="rounded-full bg-black/70 px-3 py-1.5 text-[11px] font-bold text-white/90">🔒 {tr('soldOut')}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="p-3.5">
-                  <div className="pub-name text-sm font-bold leading-snug">{item.name}</div>
-                  {item.description && <div className="pub-desc mt-1 text-xs leading-relaxed text-[var(--pub-muted)]">{item.description}</div>}
-                  <div className="mt-3 flex items-center justify-between">
-                    <span className="text-base font-extrabold text-[var(--pub-accent)]">{money(item.price)}</span>
-                    {canOrder && item.isAvailable && (
-                      inCart > 0 && !hasMods ? (
-                        <div className="pub-qty flex items-center gap-1 rounded-full border border-[var(--pub-accent)]/40 bg-[var(--pub-accent)]/10">
-                          <button onClick={(e) => { e.stopPropagation(); decrementItem(item.id); }} className="h-9 w-9 rounded-full text-sm font-bold text-[var(--pub-accent)]">−</button>
-                          <span className="min-w-5 text-center text-sm font-bold">{inCart}</span>
-                          <button onClick={(e) => { e.stopPropagation(); addToCart(item, [], ''); }} className="h-9 w-9 rounded-full text-sm font-bold text-[var(--pub-accent)]">+</button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); if (hasMods) { setDetailItem(item); setSelectedMods([]); setDetailNotes(''); } else { addToCart(item, [], ''); } }}
-                          className="pub-qty rounded-full bg-[var(--pub-accent)] px-4 py-2 text-xs font-bold text-[var(--pub-on-accent)] transition-transform hover:scale-105 active:scale-95"
-                          style={{ minHeight: 36 }}
-                        >
-                          {hasMods ? `⚙ ${tr('customize')}` : `+ ${tr('addToCart')}`}
-                        </button>
-                      )
+                <div className="p-2.5">
+                  <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl" style={{ background: visual.gradient }}>
+                    {item.imageUrl ? (
+                      <img src={item.imageUrl} alt="" loading="lazy" className={`h-full w-full object-cover transition-transform duration-300 ${item.isAvailable ? 'group-hover:scale-105' : 'grayscale'}`} />
+                    ) : (
+                      <div className="pub-food-pattern flex h-full w-full items-center justify-center text-5xl" style={{ background: visual.gradient }}>
+                        <span className="drop-shadow-[0_4px_12px_rgba(0,0,0,0.45)]">{visual.icon}</span>
+                      </div>
                     )}
+                    {!item.isAvailable && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/55">
+                        <span className="rounded-full bg-black/70 px-3 py-1.5 text-[11px] font-bold text-white/90">🔒 {tr('soldOut')}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="px-1 pb-0.5 pt-2.5">
+                    <div className="pub-name text-sm font-bold leading-snug">{item.name}</div>
+                    {item.description && <div className="pub-desc mt-1 line-clamp-2 text-xs leading-relaxed text-[var(--pub-muted)]">{item.description}</div>}
+                    <div className="mt-2.5 flex items-center justify-between gap-2">
+                      <span className="text-base font-extrabold text-[var(--pub-accent)]">{money(item.price)}</span>
+                      {canOrder && item.isAvailable && (
+                        inCart > 0 && !hasMods ? (
+                          <div className="pub-qty flex items-center gap-1 rounded-full border pub-accent-40-border pub-accent-10">
+                            <button onClick={(e) => { e.stopPropagation(); decrementItem(item.id); }} className="h-9 w-9 rounded-full text-sm font-bold text-[var(--pub-accent)]">−</button>
+                            <span className="min-w-5 text-center text-sm font-bold">{inCart}</span>
+                            <button onClick={(e) => { e.stopPropagation(); addToCart(item, [], ''); }} className="h-9 w-9 rounded-full text-sm font-bold text-[var(--pub-accent)]">+</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); if (hasMods) { setDetailItem(item); setSelectedMods([]); setDetailNotes(''); } else { addToCart(item, [], ''); } }}
+                            className="pub-qty rounded-full bg-[var(--pub-accent)] px-4 py-2 text-xs font-bold text-[var(--pub-on-accent)] transition-transform hover:scale-105 active:scale-95"
+                            style={{ minHeight: 36 }}
+                          >
+                            {hasMods ? `⚙ ${tr('customize')}` : `+ ${tr('addToCart')}`}
+                          </button>
+                        )
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -681,7 +737,7 @@ export const PublicMenuPage: React.FC = () => {
             className="pub-qty mx-auto flex h-14 max-w-md items-center justify-between gap-3 rounded-2xl bg-[var(--pub-accent)] px-5 font-bold text-[var(--pub-on-accent)] shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
           >
             <span className="flex items-center gap-2.5">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--pub-on-accent)]/20 text-xs font-black">{cartCount}</span>
+              <span className="flex h-6 w-6 items-center justify-center rounded-full pub-on-accent-20 text-xs font-black">{cartCount}</span>
               <span className="text-sm">{tr('viewCart')}</span>
             </span>
             <span className="text-base">{money(total)}</span>
@@ -722,7 +778,9 @@ export const PublicMenuPage: React.FC = () => {
               {detailItem.imageUrl ? (
                 <img src={detailItem.imageUrl} alt="" className="h-full w-full object-cover" />
               ) : (
-                <div className="pub-food-pattern flex h-full w-full items-center justify-center text-4xl">🍽️</div>
+                <div className="flex h-full w-full items-center justify-center text-4xl" style={{ background: itemVisual(detailItem).gradient }}>
+                  <span>{itemVisual(detailItem).icon}</span>
+                </div>
               )}
               <button onClick={() => setDetailItem(null)} className="absolute top-3 end-3 pub-qty flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-sm text-white backdrop-blur-md">✕</button>
             </div>
@@ -751,7 +809,7 @@ export const PublicMenuPage: React.FC = () => {
                             if (g.maxSelections && sameGroup.length >= g.maxSelections) return prev;
                             return [...prev, o];
                           })}
-                          className={`rounded-full border px-3.5 py-2 text-xs font-semibold transition-all duration-150 ${on ? 'border-[var(--pub-accent)] bg-[var(--pub-accent)]/15 text-[var(--pub-accent)]' : 'border-[var(--pub-border)] text-[var(--pub-muted)] hover:border-[var(--pub-accent)]'}`}
+                          className={`rounded-full border px-3.5 py-2 text-xs font-semibold transition-all duration-150 ${on ? 'border-[var(--pub-accent)] pub-accent-15 text-[var(--pub-accent)]' : 'border-[var(--pub-border)] text-[var(--pub-muted)] hover:border-[var(--pub-accent)]'}`}
                           style={{ minHeight: 36 }}
                         >
                           {on ? '✓ ' : ''}{o.name}{o.price ? ` +${money(o.price)}` : ''}
@@ -877,7 +935,7 @@ export const PublicMenuPage: React.FC = () => {
                   <button
                     key={t}
                     onClick={() => setProfile((p) => ({ ...p, orderType: t }))}
-                    className={`flex h-12 items-center justify-center rounded-2xl border text-sm font-bold transition-all ${profile.orderType === t ? 'border-[var(--pub-accent)] bg-[var(--pub-accent)]/15 text-[var(--pub-accent)]' : 'border-[var(--pub-border)] text-[var(--pub-muted)]'}`}
+                    className={`flex h-12 items-center justify-center rounded-2xl border text-sm font-bold transition-all ${profile.orderType === t ? 'border-[var(--pub-accent)] pub-accent-15 text-[var(--pub-accent)]' : 'border-[var(--pub-border)] text-[var(--pub-muted)]'}`}
                   >
                     {t === 'DELIVERY' ? tr('deliveryType') : tr('pickupType')}
                   </button>
@@ -1014,7 +1072,7 @@ export const PublicMenuPage: React.FC = () => {
 
       {/* ============ TOAST ============ */}
       {toast && (
-        <div className="pub-fade-in fixed left-1/2 top-4 z-[100] -translate-x-1/2 rounded-full border border-[var(--pub-accent)]/40 bg-[var(--pub-surface)] px-4 py-2.5 text-xs font-bold shadow-xl">
+        <div className="pub-fade-in fixed left-1/2 top-4 z-[100] -translate-x-1/2 rounded-full border pub-accent-40-border bg-[var(--pub-surface)] px-4 py-2.5 text-xs font-bold shadow-xl">
           {toast}
         </div>
       )}
