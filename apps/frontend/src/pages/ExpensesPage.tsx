@@ -8,6 +8,7 @@ import {
 } from '../api/expenses.api';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store/store';
+import { api } from '../lib/api';
 
 export const ExpensesPage: React.FC = () => {
   const user = useSelector((state: RootState) => state.auth.user);
@@ -301,13 +302,15 @@ export const ExpensesPage: React.FC = () => {
     }
   };
 
-  const handleExportCsv = () => {
-    const params = new URLSearchParams();
-    if (selectedMonth) params.set('month', selectedMonth);
-    if (selectedCategory) params.set('categoryId', selectedCategory);
-    const token = localStorage.getItem('auth_token') || '';
-    const apiBase = import.meta.env.VITE_API_URL || '/api';
-    window.open(`${apiBase}/expenses/export/csv?${params.toString()}&token=${token}`, '_blank');
+  const handleExportCsv = async () => {
+    const params: Record<string, string> = {};
+    if (selectedMonth) params.month = selectedMonth;
+    if (selectedCategory) params.categoryId = selectedCategory;
+    try {
+      await api.download('/expenses/export/csv', params, 'expenses.csv');
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.error || err.message || 'Failed to export expenses');
+    }
   };
 
   return (

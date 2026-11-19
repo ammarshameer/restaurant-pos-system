@@ -144,6 +144,26 @@ class ApiClient {
     const response = await this.client.delete<T>(url);
     return response.data;
   }
+
+  /**
+   * Downloads a file from an authenticated endpoint. Using axios keeps the
+   * Bearer token in the Authorization header (query-string tokens are rejected
+   * by the backend and would also leak into browser history / server logs).
+   */
+  async download(url: string, params?: any, fallbackFilename = 'download'): Promise<void> {
+    const response = await this.client.get<Blob>(url, { params, responseType: 'blob' });
+    const disposition = String(response.headers['content-disposition'] || '');
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = match ? match[1] : fallbackFilename;
+    const objectUrl = URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 export const api = new ApiClient();
