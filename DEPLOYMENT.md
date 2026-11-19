@@ -51,11 +51,19 @@ railway init
 railway add --database postgresql
 ```
 
-4. **Set environment variables**
+4. **Set environment variables** (each JWT secret must be 32+ chars and all three distinct)
 ```bash
-railway variables set JWT_SECRET="your-secret-key"
-railway variables set JWT_REFRESH_SECRET="your-refresh-secret"
+railway variables set DATABASE_URL="postgresql://user:password@host:5432/restaurant_pos?sslmode=require"
+railway variables set NODE_ENV="production"
+railway variables set JWT_SECRET="your-tenant-secret-32-chars-minimum"
+railway variables set JWT_REFRESH_SECRET="your-refresh-secret-32-chars-minimum"
+railway variables set JWT_PLATFORM_SECRET="your-platform-secret-32-chars-minimum"
 railway variables set FRONTEND_URL="https://your-frontend-domain.com"
+railway variables set SUPER_ADMIN_EMAIL="superadmin@yourdomain.com"
+railway variables set SUPER_ADMIN_PASSWORD="a-strong-unique-password"
+railway variables set SUPPORT_EMAIL="support@yourdomain.com"
+railway variables set SUPPORT_PASSWORD="a-strong-unique-password"
+railway variables set TURNSTILE_SECRET_KEY="your-cloudflare-turnstile-secret"
 ```
 
 5. **Deploy**
@@ -93,12 +101,19 @@ fly auth login
 fly launch
 ```
 
-3. **Set secrets**
+3. **Set secrets** (each JWT secret must be 32+ chars and all three distinct)
 ```bash
 fly secrets set DATABASE_URL="postgresql://..."
+fly secrets set NODE_ENV="production"
 fly secrets set JWT_SECRET="..."
 fly secrets set JWT_REFRESH_SECRET="..."
+fly secrets set JWT_PLATFORM_SECRET="..."
 fly secrets set FRONTEND_URL="https://your-frontend.com"
+fly secrets set SUPER_ADMIN_EMAIL="superadmin@yourdomain.com"
+fly secrets set SUPER_ADMIN_PASSWORD="a-strong-unique-password"
+fly secrets set SUPPORT_EMAIL="support@yourdomain.com"
+fly secrets set SUPPORT_PASSWORD="a-strong-unique-password"
+fly secrets set TURNSTILE_SECRET_KEY="your-cloudflare-turnstile-secret"
 ```
 
 4. **Deploy**
@@ -122,7 +137,8 @@ vercel
 ```
 
 3. **Set environment variables** in Vercel dashboard:
-   - `VITE_API_URL`: Your backend URL (e.g. `https://your-api.railway.app/api`)
+   - `VITE_API_URL`: Your backend URL, **including the `/api` suffix** (e.g. `https://your-api.railway.app/api`). This is required for the public customer menu, CSV exports and WebSocket connections to reach the backend when the frontend is hosted on a different domain.
+   - `VITE_TURNSTILE_SITE_KEY`: Your Cloudflare Turnstile site key (must pair with the backend `TURNSTILE_SECRET_KEY` for public orders).
 
 4. **Redeploy** to apply env vars:
 ```bash
@@ -160,6 +176,17 @@ netlify deploy --prod --dir=dist
 
 ## Database Migrations
 
+> ⚠️ **Existing installations on the old `prisma db push` schema:** do **not**
+> run `prisma migrate deploy` directly. The old schema has no
+> `_prisma_migrations` history, so plain `migrate deploy` will fail. Back up the
+> live database, restore that backup to **staging**, then follow
+> `apps/backend/scripts/README-production-baseline.md` to apply the reviewed
+> one-off delta and the mandatory per-tenant backfills. The baseline script
+> fails closed on schema drift and on any tenant that cannot be backfilled, so
+> no business is left half-upgraded. Only after the staging run succeeds should
+> you schedule the same runbook against production. Fresh databases can skip
+> this and apply migrations normally.
+
 After deploying the backend, run migrations:
 
 ```bash
@@ -177,16 +204,30 @@ npx prisma migrate deploy
 
 ## Environment Variables Checklist
 
-### Backend
-- [ ] `DATABASE_URL` - PostgreSQL connection string
-- [ ] `JWT_SECRET` - Secret for access tokens
-- [ ] `JWT_REFRESH_SECRET` - Secret for refresh tokens
-- [ ] `FRONTEND_URL` - Frontend domain (for CORS)
-- [ ] `NODE_ENV` - Set to "production"
-- [ ] `PORT` - Usually auto-assigned by platform
+### Backend (all required unless marked optional)
+
+- [ ] `DATABASE_URL` - PostgreSQL connection string (with `?sslmode=require` for managed DBs)
+- [ ] `NODE_ENV` - Set to `production`; the app **fails to start** if the secrets below are missing, short (< 32 chars) or identical
+- [ ] `JWT_SECRET` - 32+ char secret for tenant access tokens
+- [ ] `JWT_REFRESH_SECRET` - 32+ char secret for refresh tokens
+- [ ] `JWT_PLATFORM_SECRET` - 32+ char secret for platform/admin tokens, **distinct** from both above
+- [ ] `FRONTEND_URL` - Comma-separated frontend origins for CORS (exact origins, no wildcards in production)
+- [ ] `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` - Bootstrap platform admin credentials
+- [ ] `SUPPORT_EMAIL` / `SUPPORT_PASSWORD` - Bootstrap support account credentials
+- [ ] `TURNSTILE_SECRET_KEY` - Cloudflare Turnstile secret; public web orders are **refused** without it
+- [ ] `ALLOW_SELF_ONBOARDING` - Must be `false` for multi-tenant SaaS
+- [ ] `SENTRY_DSN` *(optional)* - Server error tracking
+- [ ] `BACKUP_DIR` / `BACKUP_REMOTE` / `BACKUP_RETENTION_DAYS` *(optional)* - Off-server daily backups
+- [ ] `PORT` - Usually auto-assigned by the platform
 
 ### Frontend
-- [ ] `VITE_API_URL` - Backend API URL
+
+- [ ] `VITE_API_URL` - Backend API URL **including `/api`**, e.g. `https://pos.yourdomain.com/api`. Required for the public menu, CSV export and WebSocket when frontend/backend are on different domains.
+- [ ] `VITE_TURNSTILE_SITE_KEY` - Cloudflare Turnstile site key (pairs with backend `TURNSTILE_SECRET_KEY`)
+- [ ] `VITE_SENTRY_DSN` *(optional)* - Browser error tracking
+- [ ] `VITE_PRINT_AGENT_URL` / `VITE_PRINT_AGENT_TOKEN` *(optional)* - Build-time defaults for the local print agent; normally written by the installer instead
+
+> ⚠️ **Do not commit real `.env` files.** The checked-in `.env.example` files in the repo root, `apps/backend/` and `apps/frontend/` are templates only.
 
 ## Post-Deployment Steps
 
@@ -232,6 +273,21 @@ to spot.
 - [ ] Purchase domain name
 - [ ] Point DNS to your hosting platform
 - [ ] Configure SSL certificate (usually automatic)
+
+### 4. Local print agent (optional, for receipt printing)
+
+The one-click Windows/Linux installers generated by POS Settings download the
+agent from the `agent-latest` GitHub release and **verify a published `.sha256`
+checksum before installation**. If a release is published without its matching
+`.sha256` asset, the installers fail closed and refuse to run the binary.
+
+- [ ] Confirm the `agent-latest` release contains both the binaries and their
+      `.sha256` files (see `apps/print-agent/README.md`).
+- [ ] Each installer is generated for the POS site's own domain
+      (`window.location.origin`) and uses a strict default-deny origin list;
+      the agent only accepts requests from that exact origin.
+- [ ] The loopback URL is always `http://127.0.0.1:17778`; do not expose it to
+      the internet.
 
 ## Troubleshooting
 

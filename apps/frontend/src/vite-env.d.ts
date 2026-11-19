@@ -6,6 +6,7 @@ interface ImportMetaEnv {
   readonly VITE_PRINT_AGENT_URL?: string;
   readonly VITE_PRINT_AGENT_TOKEN?: string;
   readonly VITE_SENTRY_DSN?: string;
+  readonly VITE_TURNSTILE_SITE_KEY?: string;
   readonly VITE_DEV_PLATFORM_EMAIL?: string;
   readonly VITE_DEV_PLATFORM_PASSWORD?: string;
 }

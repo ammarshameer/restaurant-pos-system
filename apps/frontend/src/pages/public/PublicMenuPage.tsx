@@ -9,7 +9,9 @@ import { getCategoryVisual } from '../../utils/image';
 // cart, checkout, WhatsApp flow and Turnstile preserved.
 // =====================================================================
 
-const API_BASE = '/api';
+// Honour an explicitly configured backend (e.g. frontend on Vercel, backend
+// on Railway). Falls back to the same-origin /api proxy used in local dev.
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 type Lang = 'en' | 'ur' | 'roman';
 

@@ -306,7 +306,8 @@ export const ExpensesPage: React.FC = () => {
     if (selectedMonth) params.set('month', selectedMonth);
     if (selectedCategory) params.set('categoryId', selectedCategory);
     const token = localStorage.getItem('auth_token') || '';
-    window.open(`/api/expenses/export/csv?${params.toString()}&token=${token}`, '_blank');
+    const apiBase = import.meta.env.VITE_API_URL || '/api';
+    window.open(`${apiBase}/expenses/export/csv?${params.toString()}&token=${token}`, '_blank');
   };
 
   return (
