@@ -2,8 +2,10 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { getIO } from '../websocket';
 import { normalizePhone, digitsOnly, PHONE_FORMAT_ERROR } from '../utils/phone';
 import { validateLogo } from '../utils/validateLogo';
+import { InventoryService } from './inventory.service';
 
 const prisma = new PrismaClient();
+const inventoryService = new InventoryService();
 
 /**
  * Database seam used by unit tests: swap in an in-memory fake so the
@@ -883,20 +885,30 @@ export async function getWebOrderForTenant(restaurantId: string, id: string) {
  * accepted web orders become normal POS orders (kitchen + receipts as usual).
  * Tests can override it with setPosOrderCreatorForTests.
  */
-let posOrderCreator: (args: any, tx?: any, notify?: boolean) => Promise<any> = async (
-  args,
-  tx,
-  notify = true
-) => {
+type OrderCommittedCallback = (result: { order: any; lowStockAlerts: any[] }) => void;
+
+let posOrderCreator: (
+  args: any,
+  tx?: any,
+  notify?: boolean,
+  onCommitted?: OrderCommittedCallback
+) => Promise<any> = async (args, tx, notify = true, onCommitted) => {
   const { orderService } = await import('./order.service');
-  return orderService.createOrder(args, tx, notify);
+  return orderService.createOrder(args, tx, notify, onCommitted);
 };
-export function setPosOrderCreatorForTests(fn: (args: any, tx?: any, notify?: boolean) => Promise<any>): void {
+export function setPosOrderCreatorForTests(
+  fn: (args: any, tx?: any, notify?: boolean, onCommitted?: OrderCommittedCallback) => Promise<any>
+): void {
   posOrderCreator = fn;
 }
 
-async function createPosOrderForWebOrder(args: any, tx: any, notify = true): Promise<any> {
-  return posOrderCreator(args, tx, notify);
+async function createPosOrderForWebOrder(
+  args: any,
+  tx: any,
+  notify = true,
+  onCommitted?: OrderCommittedCallback
+): Promise<any> {
+  return posOrderCreator(args, tx, notify, onCommitted);
 }
 
 export async function acceptWebOrder(
@@ -929,6 +941,8 @@ export async function acceptWebOrder(
     Math.round((Number(webOrder.subtotal || 0) + (webOrder.orderType === 'DELIVERY' ? deliveryFee : 0)) * 100) / 100;
 
   const now = new Date();
+
+  const deferredLowStockAlerts: any[] = [];
 
   try {
     const { accepted: updated, posOrder } = await db.$transaction(async (tx: any) => {
@@ -983,7 +997,8 @@ export async function acceptWebOrder(
             }),
           },
           tx,
-          false
+          false,
+          ({ lowStockAlerts }) => deferredLowStockAlerts.push(...lowStockAlerts)
         );
       } catch (err: any) {
         console.error('[WebOrder] Failed to create POS order for web order', webOrder.reference, err?.message);
@@ -1008,9 +1023,15 @@ export async function acceptWebOrder(
       return { accepted, posOrder };
     });
 
+    // All websocket events are emitted only after the shared transaction has
+    // committed, so a rollback can never announce stock or an order that does
+    // not exist.
     const io = getIO();
     io?.to(`restaurant:${restaurantId}`).emit('order:created', posOrder);
     io?.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:new', posOrder);
+    for (const item of deferredLowStockAlerts) {
+      inventoryService.emitLowStockAlert(item);
+    }
     return { webOrder: updated };
   } catch (err: any) {
     if (err?.code === 'ALREADY_CLAIMED') {

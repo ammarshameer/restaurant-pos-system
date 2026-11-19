@@ -38,6 +38,7 @@ model Restaurant {
   inventory         InventoryItem[]
   deals             Deal[]
   tenantFeatures    TenantFeature[]
+  auditLogs         AuditLog[]
   customers         Customer[]
   expenseCategories ExpenseCategory[]
   expenses          Expense[]
@@ -77,6 +78,21 @@ model TenantFeature {
 
   @@unique([restaurantId, featureKey])
   @@index([restaurantId])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  restaurantId String
+  orderNumber  Int?
+  action       String
+  severity     String   @default("ERROR")
+  details      String?
+  createdAt    DateTime @default(now())
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, createdAt])
+  @@index([orderNumber])
 }
 
 model FloorPlan {

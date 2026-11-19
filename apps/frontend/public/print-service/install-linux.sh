@@ -11,7 +11,7 @@ AGENT_PORT=17778
 # A local binary path may be passed as $1 (for development builds).
 LOCAL_BINARY="${1:-}"
 # Exact browser origins, comma-separated. May also be passed as $2.
-ALLOWED_ORIGINS="${2:-${PRINT_AGENT_ALLOWED_ORIGINS:-https://pos.gsmpilot.com}}"
+ALLOWED_ORIGINS="${2:-${PRINT_AGENT_ALLOWED_ORIGINS:-}}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run this installer as root, for example: sudo bash install-linux.sh" >&2

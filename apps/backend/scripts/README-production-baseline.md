@@ -72,7 +72,12 @@ npm run db:migrate:baseline
 3. Apply the reviewed delta with `ON_ERROR_STOP=1`.
 4. Run `prisma migrate diff --exit-code`; any drift aborts before baselining.
 5. Mark both checked-in migrations as applied with `prisma migrate resolve`.
-6. Run `npm run db:migrate:check`.
+6. Run `npm run db:backfill:all` (mandatory and idempotent). It restores legacy
+   module rows, runs the multi-tenant backfill, repairs `amountDue`, verifies
+   every business has an active Owner, and prints a per-business report. The
+   command exits non-zero when a business has no enabled modules, a staff
+   member without a role, or no active Owner.
+7. Run `npm run db:migrate:check`.
 
 Set the confirmation explicitly when ready:
 
@@ -90,6 +95,26 @@ npm run db:migrate:status
 npm run db:migrate:check    # exits 0 only when fully baselined
 ```
 
+### Mandatory backfill details
+
+`npm run db:backfill:all` must succeed before any business is allowed back onto
+the upgraded database. It performs these steps, all safe to repeat:
+
+1. Creates `TenantFeature` rows for the modules that existed before the
+   upgrade. Expenses, payroll and website are not enabled. An existing costing
+   row is never changed; a missing costing row is created **disabled**.
+2. Runs the existing multi-tenant backfill: slugs, system roles, staff role
+   assignment and PIN normalisation.
+3. Sets `amountDue` for legacy unpaid and partly paid orders that were created
+   with a zero balance. Credit-settled orders are left untouched.
+4. Prints, for every business, enabled modules, staff without a role, unpaid
+   orders still showing `amountDue = 0`, and whether an active Owner exists.
+   It fails when any business has zero modules, a staff member without a role,
+   or no active Owner.
+
+Re-running the command is supported; it never reverses valid later changes to
+modules or balances.
+
 ## 4. Run acceptance tests against staging
 
 ```bash
@@ -101,16 +126,30 @@ npm run test:acceptance
 The seed creates the platform Super Admin/Support accounts required by the
 acceptance suite. Only proceed when both suites pass.
 
+Additionally, run the old-shape upgrade acceptance test against a separate
+disposable scratch database (never `DATABASE_URL`):
+
+```bash
+export LEGACY_UPGRADE_DATABASE_URL='postgresql://pos:pos@localhost:5432/restaurant_pos_legacy_test?schema=public'
+LEGACY_UPGRADE_CONFIRMED=yes npm run test:legacy-upgrade
+```
+
+It rebuilds the pre-upgrade 20-model schema, applies the delta and full
+backfill, then verifies owner login, Orders, Payments and Owner permissions.
+The script refuses to run unless the scratch URL differs from `DATABASE_URL`.
+
 ## 5. Repeat on production in a maintenance window
 
 1. Re-run `npm run db:backup` immediately before the change.
 2. Point `DATABASE_URL` at production.
 3. Run `npm run db:migrate:check`; it must fail with “not baselined” on the
    legacy database. If it passes, the database was already upgraded — stop.
-4. Run `LIVE_BASELINE_CONFIRMED=yes npm run db:migrate:baseline`.
+4. Run `LIVE_BASELINE_CONFIRMED=yes npm run db:migrate:baseline`. This also runs
+   `db:backfill:all`; do not continue if it reports any failure.
 5. Run `npm run db:migrate:check` again; it must pass.
-6. Start the backend and verify `/health` reports `dbConnected: true`.
-7. Smoke-test login, an order, a payment, and one public website order.
+6. Re-run `npm run db:backfill:all` and confirm the report passes.
+7. Start the backend and verify `/health` reports `dbConnected: true`.
+8. Smoke-test login, an order, a payment, and one public website order.
 
 If any step fails, stop and restore from the pre-change backup. Never use
 `prisma migrate reset` or a destructive schema push on production.

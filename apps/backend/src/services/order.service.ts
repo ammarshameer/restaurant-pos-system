@@ -92,49 +92,92 @@ export class OrderService {
     payments: true,
   };
 
-  async createOrder(data: {
-    id?: string;
-    clientId?: string;
-    orderNumber?: number;
-    orderType?: string;
-    orderTypeLabel?: string;
-    customerName?: string;
-    customerPhone?: string;
-    customerId?: string;
-    deliveryAddress?: string;
-    dineInTag?: string;
-    tableId?: string;
-    restaurantId: string;
-    serverId?: string;
-    customerCount?: number;
-    subtotal?: number;
-    serviceCharge?: number;
-    serviceChargeRate?: number;
-    deliveryCharge?: number;
-    tax?: number;
-    taxRate?: number;
-    total?: number;
-    totalPaid?: number;
-    change?: number;
-    status?: string;
-    paymentStatus?: string;
-    paymentMethod?: string;
-    paymentClientId?: string;
-    source?: string;
-    createdAt?: string | Date;
-    items: Array<{
-      menuItemId?: string;
-      dealId?: string;
-      name?: string;
-      quantity: number;
-      price?: number;
-      unitPrice?: number;
-      notes?: string;
-      status?: string;
-    }>;
-    notes?: string;
-  }, client: PrismaClient | Prisma.TransactionClient = prisma, notify = true) {
-    const db = client;
+  private isOrderNumberConflict(error: any): boolean {
+    if (error?.code !== 'P2002') return false;
+    const target = error?.meta?.target;
+    if (Array.isArray(target)) {
+      return target.includes('restaurantId') && target.includes('orderNumber');
+    }
+    return typeof target === 'string' && target.includes('restaurantId') && target.includes('orderNumber');
+  }
+
+  /**
+   * Serialise number allocation for one restaurant. The row lock is held until
+   * the surrounding transaction commits, so no two orders can read the same
+   * maximum order number and collide on the unique index.
+   */
+  private async allocateOrderNumber(
+    db: PrismaClient | Prisma.TransactionClient,
+    restaurantId: string,
+    requested?: number
+  ): Promise<number> {
+    if (typeof (db as any).$queryRaw === 'function') {
+      await (db as any).$queryRaw`SELECT "id" FROM "Restaurant" WHERE "id" = ${restaurantId} FOR UPDATE`;
+    }
+
+    if (requested && Number.isFinite(Number(requested))) {
+      const requestedNumber = Number(requested);
+      const clash = await db.order.findFirst({
+        where: { restaurantId, orderNumber: requestedNumber },
+        select: { id: true },
+      });
+      if (!clash) {
+        return requestedNumber;
+      }
+    }
+
+    const maxOrder = await db.order.findFirst({
+      where: { restaurantId },
+      orderBy: { orderNumber: 'desc' },
+      select: { orderNumber: true },
+    });
+    return (maxOrder ? maxOrder.orderNumber : 100) + 1;
+  }
+
+  private emitOrderEvents(order: any, tableId?: string): void {
+    const io = getIO();
+    io?.to(`restaurant:${order.restaurantId}`).emit('order:created', order);
+    io?.to(`restaurant:${order.restaurantId}:kitchen`).emit('kitchen:order:new', order);
+    if (tableId) {
+      io?.to(`restaurant:${order.restaurantId}`).emit('table:status', {
+        tableId,
+        status: 'OCCUPIED',
+        currentOrder: order.id,
+      });
+    }
+  }
+
+  private emitLowStockAlerts(items: any[]): void {
+    for (const item of items) {
+      inventoryService.emitLowStockAlert(item);
+    }
+  }
+
+  /**
+   * Stock failures must survive the rollback that follows them, so this audit
+   * row is written with the base client after the failed transaction unwinds.
+   */
+  private async recordStockFailureAudit(error: any): Promise<void> {
+    if (error?.code !== 'STOCK_DEDUCTION_FAILED') return;
+    try {
+      await prisma.auditLog.create({
+        data: {
+          restaurantId: error.restaurantId,
+          orderNumber: error.orderNumber,
+          action: 'STOCK_DEDUCTION_FAILED',
+          severity: 'ERROR',
+          details: error.details || error.message || 'Stock deduction failed',
+        },
+      });
+    } catch (auditError) {
+      console.error('Failed to write stock-deduction audit log:', auditError);
+    }
+  }
+
+  private async createOrderInTransaction(
+    data: Parameters<OrderService['createOrder']>[0],
+    db: PrismaClient | Prisma.TransactionClient
+  ): Promise<{ order: any; lowStockAlerts: any[] }> {
     const restaurantId = data.restaurantId;
     if (!restaurantId || !restaurantId.trim()) {
       throw new Error('restaurantId is required to create an order');
@@ -163,39 +206,15 @@ export class OrderService {
         include: this.orderInclude,
       });
       if (existing) {
-        return existing;
+        return { order: existing, lowStockAlerts: [] };
       }
     }
 
-    // Resolve the order number scoped strictly to this restaurant. If the
-    // client supplied one that already exists (duplicate key), reassign
-    // to the next available number so the server stays authoritative.
-    let orderNum: number;
-    if (data.orderNumber && Number.isFinite(Number(data.orderNumber))) {
-      const clash = await db.order.findFirst({
-        where: { restaurantId, orderNumber: Number(data.orderNumber) },
-        select: { id: true },
-      });
-      if (!clash) {
-        orderNum = Number(data.orderNumber);
-      } else {
-        const maxOrder = await db.order.findFirst({
-          where: { restaurantId },
-          orderBy: { orderNumber: 'desc' },
-          select: { orderNumber: true },
-        });
-        orderNum = (maxOrder ? maxOrder.orderNumber : 100) + 1;
-      }
-    } else {
-      const maxOrder = await db.order.findFirst({
-        where: { restaurantId },
-        orderBy: { orderNumber: 'desc' },
-        select: { orderNumber: true },
-      });
-      orderNum = maxOrder ? maxOrder.orderNumber + 1 : 101;
-    }
+    const orderNum = await this.allocateOrderNumber(db, restaurantId, data.orderNumber);
 
-    // Resolve server ID strictly within this restaurant
+    // Resolve server ID strictly within this restaurant. There is deliberately
+    // no hard-coded fallback employee: a business without active staff must get
+    // a clear validation error instead of a foreign-key failure.
     let serverId = data.serverId;
     if (serverId) {
       const empExists = await db.employee.findFirst({
@@ -210,7 +229,12 @@ export class OrderService {
       const defaultEmployee = await db.employee.findFirst({
         where: { restaurantId, isActive: true },
       });
-      serverId = defaultEmployee?.id || 'emp-manager-1';
+      if (!defaultEmployee) {
+        throw new ValidationError(
+          'Cannot create an order because this business has no active employee. Add an active staff member first.'
+        );
+      }
+      serverId = defaultEmployee.id;
     }
 
     if (data.tableId) {
@@ -306,8 +330,6 @@ export class OrderService {
     const calculatedTotal =
       +(calculatedSubtotal + calculatedTax + serviceCharge + deliveryCharge).toFixed(2);
 
-    let initialStatus = data.status || 'OPEN';
-    const initialPaymentStatus = 'UNPAID';
     let customerId: string | null = data.customerId || null;
     if (customerId) {
       const existing = await db.customer.findFirst({
@@ -327,15 +349,15 @@ export class OrderService {
       }
     }
     if (!customerId && (data.customerName || data.customerPhone)) {
-      try {
-        customerId = await customerService.recordOrderCustomer(restaurantId, {
+      customerId = await customerService.recordOrderCustomer(
+        restaurantId,
+        {
           customerName: data.customerName,
           customerPhone: data.customerPhone,
           total: calculatedTotal,
-        });
-      } catch (error) {
-        console.error('Failed to resolve order customer:', error);
-      }
+        },
+        db
+      );
     }
 
     const order = await db.order.create({
@@ -366,8 +388,8 @@ export class OrderService {
         amountDue: calculatedTotal,
         settledToCredit: false,
         change: data.change || 0,
-        status: initialStatus,
-        paymentStatus: initialPaymentStatus,
+        status: data.status || 'OPEN',
+        paymentStatus: 'UNPAID',
         source: (data.source as any) || 'POS',
         notes: data.notes || null,
         items: {
@@ -384,23 +406,10 @@ export class OrderService {
       }).catch((err) => console.warn('Could not mark table occupied:', err));
     }
 
-    // Notify connected kitchen & client WebSockets. Callers that create the
-    // order inside a larger transaction (web order acceptance) defer this
-    // until after commit.
-    if (notify) {
-      const io = getIO();
-      io?.to(`restaurant:${restaurantId}`).emit('order:created', order);
-      io?.to(`restaurant:${restaurantId}:kitchen`).emit('kitchen:order:new', order);
-      if (data.tableId) {
-        io?.to(`restaurant:${restaurantId}`).emit('table:status', {
-          tableId: data.tableId,
-          status: 'OCCUPIED',
-          currentOrder: order.id,
-        });
-      }
-    }
-
-    // Deduct stock for each ordered item or deal
+    // Deduct stock with the caller's transaction client. Alerts are collected
+    // and emitted only after the transaction commits.
+    const lowStockAlerts: any[] = [];
+    const stockFailures: Array<{ item: any; error: unknown }> = [];
     for (const item of data.items) {
       const orderReason = `Order #${order.orderNumber}: ${item.quantity}x ${item.name || 'Item'}`;
       try {
@@ -410,7 +419,10 @@ export class OrderService {
             item.name || '',
             item.quantity,
             orderReason,
-            restaurantId
+            restaurantId,
+            db,
+            false,
+            (lowStockItem) => lowStockAlerts.push(lowStockItem)
           );
         } else {
           await inventoryService.deductForMenuItem(
@@ -418,15 +430,126 @@ export class OrderService {
             item.name || '',
             item.quantity,
             orderReason,
-            restaurantId
+            restaurantId,
+            db,
+            false,
+            (lowStockItem) => lowStockAlerts.push(lowStockItem)
           );
         }
       } catch (invErr) {
-        console.error(`Failed to deduct inventory for item ${item.name}:`, invErr);
+        stockFailures.push({ item, error: invErr });
       }
     }
 
-    return order;
+    if (stockFailures.length > 0) {
+      const details = stockFailures
+        .map(({ item, error }) => `${item.name || item.menuItemId || item.dealId || 'Item'}: ${String(error)}`)
+        .join('; ');
+      throw Object.assign(new Error(`Stock deduction failed for order #${order.orderNumber}`), {
+        code: 'STOCK_DEDUCTION_FAILED',
+        orderNumber: order.orderNumber,
+        restaurantId,
+        details,
+      });
+    }
+
+    return { order, lowStockAlerts };
+  }
+
+  async createOrder(
+    data: {
+      id?: string;
+      clientId?: string;
+      orderNumber?: number;
+      orderType?: string;
+      orderTypeLabel?: string;
+      customerName?: string;
+      customerPhone?: string;
+      customerId?: string;
+      deliveryAddress?: string;
+      dineInTag?: string;
+      tableId?: string;
+      restaurantId: string;
+      serverId?: string;
+      customerCount?: number;
+      subtotal?: number;
+      serviceCharge?: number;
+      serviceChargeRate?: number;
+      deliveryCharge?: number;
+      tax?: number;
+      taxRate?: number;
+      total?: number;
+      totalPaid?: number;
+      change?: number;
+      status?: string;
+      paymentStatus?: string;
+      paymentMethod?: string;
+      paymentClientId?: string;
+      source?: string;
+      createdAt?: string | Date;
+      items: Array<{
+        menuItemId?: string;
+        dealId?: string;
+        name?: string;
+        quantity: number;
+        price?: number;
+        unitPrice?: number;
+        notes?: string;
+        status?: string;
+      }>;
+      notes?: string;
+    },
+    client: PrismaClient | Prisma.TransactionClient = prisma,
+    notify = true,
+    onCommitted?: (result: { order: any; lowStockAlerts: any[] }) => void
+  ) {
+    const usesCallerTransaction = client !== prisma;
+
+    try {
+      if (!usesCallerTransaction) {
+        // Own the transaction so row locks cover number allocation, stock and
+        // customer writes, and so notifications can wait until after commit.
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          let order: any;
+          let lowStockAlerts: any[] = [];
+          try {
+            order = await prisma.$transaction(async (tx) => {
+              const result = await this.createOrderInTransaction(data, tx);
+              lowStockAlerts = result.lowStockAlerts;
+              return result.order;
+            });
+            if (notify) {
+              this.emitOrderEvents(order, data.tableId);
+            }
+            this.emitLowStockAlerts(lowStockAlerts);
+            onCommitted?.({ order, lowStockAlerts });
+            return order;
+          } catch (error) {
+            if (this.isOrderNumberConflict(error) && attempt < 5) {
+              console.warn(`Order number collision, retrying (${attempt}/5):`, (error as any)?.meta?.target);
+              continue;
+            }
+            throw error;
+          }
+        }
+      }
+
+      // A caller-supplied transaction (web order acceptance) stays the unit of
+      // work. Number allocation is serialised by the restaurant row lock, so a
+      // P2002 retry inside this transaction is not needed.
+      const result = await this.createOrderInTransaction(data, client);
+      if (notify) {
+        this.emitOrderEvents(result.order, data.tableId);
+      }
+      // Alerts must not be emitted here: this code is still inside the caller's
+      // transaction and a later failure would roll it back. Hand the alerts to
+      // the caller so it can emit them after its own commit.
+      onCommitted?.({ order: result.order, lowStockAlerts: result.lowStockAlerts });
+      return result.order;
+    } catch (error) {
+      await this.recordStockFailureAudit(error);
+      throw error;
+    }
   }
 
   async getOrderById(id: string, restaurantId: string) {

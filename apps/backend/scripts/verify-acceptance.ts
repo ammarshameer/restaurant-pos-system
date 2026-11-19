@@ -4,6 +4,7 @@ import { io } from 'socket.io-client';
 import { getDevPlatformCredentials } from '../src/config/dev-credentials';
 import { normalizeTenantPins } from '../prisma/backfill-multi-tenant';
 import { FEATURES } from '../src/permissions';
+import { orderService } from '../src/services/order.service';
 
 const prisma = new PrismaClient();
 
@@ -3031,14 +3032,113 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
-    // TEST 59: Verification Summary
+    // TEST 59: Concurrent order numbers are unique for one business
+    // ------------------------------------------------------------------------
+    let test59Pass = false;
+    let test59Details = '';
+    const concurrencySuffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    const concurrencyRestaurantId = `concurrency-${concurrencySuffix}`;
+    const concurrencyEmployeeId = `concurrency-emp-${concurrencySuffix}`;
+    const concurrencyCategoryId = `concurrency-cat-${concurrencySuffix}`;
+    const concurrencyMenuItemId = `concurrency-item-${concurrencySuffix}`;
+    try {
+      await prisma.restaurant.create({
+        data: {
+          id: concurrencyRestaurantId,
+          name: 'Concurrency Test Cafe',
+          slug: `concurrency-${concurrencySuffix}`,
+          isActive: true,
+          address: '1 Test Road',
+          phone: '+920000000000',
+          email: `concurrency-${concurrencySuffix}@test.local`,
+        },
+      });
+      await prisma.employee.create({
+        data: {
+          id: concurrencyEmployeeId,
+          firstName: 'Concurrent',
+          lastName: 'Server',
+          email: `server-${concurrencySuffix}@test.local`,
+          username: `server-${concurrencySuffix}`,
+          role: 'SERVER',
+          pin: String(1000 + (Date.now() % 8000)),
+          passwordHash: 'not-used-in-this-test',
+          restaurantId: concurrencyRestaurantId,
+          isActive: true,
+        },
+      });
+      await prisma.category.create({
+        data: {
+          id: concurrencyCategoryId,
+          name: 'Concurrent Drinks',
+          restaurantId: concurrencyRestaurantId,
+        },
+      });
+      await prisma.menuItem.create({
+        data: {
+          id: concurrencyMenuItemId,
+          name: 'Concurrent Coffee',
+          price: 10,
+          categoryId: concurrencyCategoryId,
+          restaurantId: concurrencyRestaurantId,
+        },
+      });
+
+      const orderResults = await Promise.allSettled(
+        Array.from({ length: 20 }, (_, index) =>
+          orderService.createOrder(
+            {
+              clientId: `concurrency-${concurrencySuffix}-${index}`,
+              restaurantId: concurrencyRestaurantId,
+              serverId: concurrencyEmployeeId,
+              items: [{ menuItemId: concurrencyMenuItemId, quantity: 1 }],
+            },
+            undefined,
+            false
+          )
+        )
+      );
+      const failures = orderResults.filter((result) => result.status === 'rejected');
+      const createdOrders = orderResults
+        .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled')
+        .map((result) => result.value);
+      const orderNumbers = createdOrders.map((order) => Number(order.orderNumber));
+      const uniqueNumbers = new Set(orderNumbers);
+      test59Pass =
+        failures.length === 0 &&
+        createdOrders.length === 20 &&
+        uniqueNumbers.size === 20 &&
+        orderNumbers.every((number) => Number.isFinite(number));
+      test59Details = `Created ${createdOrders.length}/20 orders, ${uniqueNumbers.size} distinct numbers, ${failures.length} error(s)`;
+      if (failures.length > 0) {
+        test59Details += ` | first error: ${String((failures[0] as PromiseRejectedResult).reason)}`;
+      }
+    } catch (error) {
+      test59Details = String(error);
+    } finally {
+      await prisma.order.deleteMany({ where: { restaurantId: concurrencyRestaurantId } });
+      await prisma.menuItem.deleteMany({ where: { restaurantId: concurrencyRestaurantId } });
+      await prisma.category.deleteMany({ where: { restaurantId: concurrencyRestaurantId } });
+      await prisma.employee.deleteMany({ where: { restaurantId: concurrencyRestaurantId } });
+      await prisma.restaurant.deleteMany({ where: { id: concurrencyRestaurantId } });
+    }
+
+    logTest(
+      59,
+      '20 concurrent orders receive 20 distinct order numbers with no errors',
+      test59Pass,
+      test59Details
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 60: Verification Summary
     // ------------------------------------------------------------------------
     const passedCount = results.filter((r) => r.passed).length;
     logTest(
-      59,
+      60,
       'All Acceptance Verification Criteria Met',
-      passedCount === 58,
-      `Passed ${passedCount} / 58 criteria (100% test pass rate)`
+      passedCount === 59,
+      `Passed ${passedCount} / 59 criteria (100% test pass rate)`
     );
 
   } catch (err: any) {

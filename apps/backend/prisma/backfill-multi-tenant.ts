@@ -66,7 +66,7 @@ async function generateUniqueSlug(restaurantId: string, name: string): Promise<s
   }
 }
 
-async function backfill() {
+export async function backfillMultiTenant() {
   console.log('🚀 Starting Multi-Tenant Backfill Migration...');
   const summary = {
     restaurantsProcessed: 0,
@@ -283,6 +283,10 @@ async function backfill() {
   console.log('=============================================\n');
 }
 
+export async function disconnectMultiTenantDb(): Promise<void> {
+  await prisma.$disconnect();
+}
+
 export async function normalizeTenantPins(restaurantId: string): Promise<number> {
   const activeEmployees = await prisma.employee.findMany({
     where: { restaurantId, isActive: true },
@@ -330,7 +334,7 @@ export async function normalizeTenantPins(restaurantId: string): Promise<number>
 }
 
 if (require.main === module || (process.argv[1] && process.argv[1].includes('backfill-multi-tenant'))) {
-  backfill()
+  backfillMultiTenant()
     .catch((e) => {
       console.error('❌ Backfill failed:', e);
       process.exit(1);

@@ -65,13 +65,15 @@ binary from GitHub Releases and register an auto-start service:
 - **Windows:** run `install-windows.ps1` in an elevated PowerShell window. It
   verifies the release SHA-256, writes `print-agent-config.json`, registers the
   service as `NT AUTHORITY\LocalService` (never LocalSystem), and prints the
-  token once. Override the POS origin(s) with
-  `-AllowedOrigins "https://pos.example.com,https://staging.example.com"`.
-  For a local build: `.\install-windows.ps1 -BinaryPath .\local-print-agent.exe`
-- **Linux:** `sudo bash install-linux.sh [local-binary] ["https://pos.example.com"]`
-  (systemd + CUPS). It verifies SHA-256, writes the config and runs as the
-  installing user. Set `PRINT_AGENT_ALLOWED_ORIGINS` instead of the second
-  argument if preferred.
+  token once. The POS receipt modal supplies its own origin automatically; when
+  running manually, `-AllowedOrigins` is required, for example
+  `-AllowedOrigins "https://business.example.com"`. Multiple exact origins may
+  be comma-separated. For a local build:
+  `.\install-windows.ps1 -BinaryPath .\local-print-agent.exe -AllowedOrigins "https://business.example.com"`
+- **Linux:** `sudo bash install-linux.sh [local-binary] "https://business.example.com"`
+  (systemd + CUPS). The second argument is required unless
+  `PRINT_AGENT_ALLOWED_ORIGINS` is set. It verifies SHA-256, writes the config
+  and runs as the installing user.
 - **macOS:** download the binary plus its `.sha256` file, verify with
   `shasum -a 256 -c`, write `print-agent-config.json` with a random token and
   your POS origin(s), then `chmod +x` and run it (or wrap it in launchd).

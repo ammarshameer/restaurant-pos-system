@@ -58,5 +58,8 @@ for migration in "$SCRIPT_DIR"/../prisma/migrations/*_*/migration.sql; do
   npx prisma migrate resolve --applied "$name"
 done
 
+echo "[baseline] Running mandatory idempotent data backfills and fail-closed check"
+npm run db:backfill:all
+
 bash "$SCRIPT_DIR/check-migration-baseline.sh"
 echo "[baseline] Completed successfully."

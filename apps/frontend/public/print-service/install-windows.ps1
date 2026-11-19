@@ -4,7 +4,8 @@ param(
   # Override the download URL (a matching .sha256 URL must also be reachable).
   [string]$BinaryUrl,
   # Exact browser origin(s) allowed to call the agent. Comma-separated.
-  [string]$AllowedOrigins = 'https://pos.gsmpilot.com'
+  # Required: the POS passes the origin it is actually served from.
+  [string]$AllowedOrigins = ''
 )
 
 $ErrorActionPreference = 'Stop'

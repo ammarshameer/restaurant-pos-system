@@ -1,9 +1,43 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { getIO } from '../websocket';
 import { hasFeature } from './feature.service';
 import { redactCosting } from './cost-redaction.service';
 
 const prisma = new PrismaClient();
+
+type DbClient = PrismaClient | Prisma.TransactionClient;
+
+/**
+ * A transaction client cannot open a nested $transaction, so stock writes are
+ * executed sequentially when an interactive transaction is supplied. The same
+ * client is used for both writes, making the update and ledger row atomic with
+ * the caller's transaction.
+ */
+async function writeStockMovement(
+  client: DbClient,
+  inventoryItemId: string,
+  quantity: number,
+  nextQuantity: number,
+  type: 'USAGE' | 'RESTOCK',
+  reason: string
+) {
+  const update = client.inventoryItem.update({
+    where: { id: inventoryItemId },
+    data: { quantity: nextQuantity },
+  });
+  const ledgerCreate = client.inventoryTransaction.create({
+    data: { inventoryItemId, quantity, type, reason },
+  });
+
+  if (typeof (client as PrismaClient).$transaction === 'function') {
+    const [updated] = await (client as PrismaClient).$transaction([update, ledgerCreate]);
+    return updated;
+  }
+
+  const updated = await update;
+  await ledgerCreate;
+  return updated;
+}
 
 const UNIT_ALIASES: Record<string, string> = {
   g: 'g', gram: 'g', grams: 'g',
@@ -43,6 +77,18 @@ function convertPurchaseQuantity(
 }
 
 export class InventoryService {
+  private handleLowStock(
+    item: any,
+    emitAlerts: boolean,
+    onLowStock?: (item: any) => void
+  ): void {
+    if (onLowStock) {
+      onLowStock(item);
+    } else if (emitAlerts) {
+      this.emitLowStockAlert(item);
+    }
+  }
+
   async getInventoryItems(
     restaurantId: string,
     options?: {
@@ -282,7 +328,10 @@ export class InventoryService {
     name: string,
     quantitySold: number,
     reason?: string,
-    restaurantId?: string
+    restaurantId?: string,
+    client: DbClient = prisma,
+    emitAlerts = true,
+    onLowStock?: (item: any) => void
   ) {
     if (!restaurantId || !restaurantId.trim()) {
       throw new Error('restaurantId is required to deduct for menu item');
@@ -291,7 +340,7 @@ export class InventoryService {
     let resolvedMenuItemId = menuItemId;
 
     if (!resolvedMenuItemId && name) {
-      const found = await prisma.menuItem.findFirst({
+      const found = await client.menuItem.findFirst({
         where: { name: name.trim(), restaurantId },
       });
       if (found) {
@@ -301,7 +350,7 @@ export class InventoryService {
 
     if (!resolvedMenuItemId) return;
 
-    const menuItem = await prisma.menuItem.findFirst({
+    const menuItem = await client.menuItem.findFirst({
       where: { id: resolvedMenuItemId, restaurantId },
       include: {
         ingredients: {
@@ -326,23 +375,17 @@ export class InventoryService {
         const currentQty = Number(recipeItem.inventoryItem.quantity);
         const newQty = Math.max(0, +(currentQty - qtyToDeduct).toFixed(3));
 
-        const [updated] = await prisma.$transaction([
-          prisma.inventoryItem.update({
-            where: { id: recipeItem.inventoryItemId },
-            data: { quantity: newQty },
-          }),
-          prisma.inventoryTransaction.create({
-            data: {
-              inventoryItemId: recipeItem.inventoryItemId,
-              quantity: -qtyToDeduct,
-              type: 'USAGE',
-              reason: reason || `Order deduction: ${quantitySold}x ${menuItem.name} (${recipeItem.inventoryItem.name})`,
-            },
-          }),
-        ]);
+        const updated = await writeStockMovement(
+          client,
+          recipeItem.inventoryItemId,
+          -qtyToDeduct,
+          newQty,
+          'USAGE',
+          reason || `Order deduction: ${quantitySold}x ${menuItem.name} (${recipeItem.inventoryItem.name})`
+        );
 
         if (Number(updated.quantity) <= Number(updated.reorderPoint)) {
-          this.emitLowStockAlert(updated);
+          this.handleLowStock(updated, emitAlerts, onLowStock);
         }
       }
     } else if (menuItem.inventoryItems && menuItem.inventoryItems.length > 0) {
@@ -352,23 +395,17 @@ export class InventoryService {
         const currentQty = Number(invItem.quantity);
         const newQty = Math.max(0, +(currentQty - qtyToDeduct).toFixed(3));
 
-        const [updated] = await prisma.$transaction([
-          prisma.inventoryItem.update({
-            where: { id: invItem.id },
-            data: { quantity: newQty },
-          }),
-          prisma.inventoryTransaction.create({
-            data: {
-              inventoryItemId: invItem.id,
-              quantity: -qtyToDeduct,
-              type: 'USAGE',
-              reason: reason || `Order deduction: ${quantitySold}x ${menuItem.name}`,
-            },
-          }),
-        ]);
+        const updated = await writeStockMovement(
+          client,
+          invItem.id,
+          -qtyToDeduct,
+          newQty,
+          'USAGE',
+          reason || `Order deduction: ${quantitySold}x ${menuItem.name}`
+        );
 
         if (Number(updated.quantity) <= Number(updated.reorderPoint)) {
-          this.emitLowStockAlert(updated);
+          this.handleLowStock(updated, emitAlerts, onLowStock);
         }
       }
     }
@@ -382,7 +419,10 @@ export class InventoryService {
     name: string,
     quantityRestored: number,
     reason?: string,
-    restaurantId?: string
+    restaurantId?: string,
+    client: DbClient = prisma,
+    emitAlerts = true,
+    onLowStock?: (item: any) => void
   ) {
     if (!restaurantId || !restaurantId.trim()) {
       throw new Error('restaurantId is required to restore menu item stock');
@@ -391,7 +431,7 @@ export class InventoryService {
     let resolvedMenuItemId = menuItemId;
 
     if (!resolvedMenuItemId && name) {
-      const found = await prisma.menuItem.findFirst({
+      const found = await client.menuItem.findFirst({
         where: { name: name.trim(), restaurantId },
       });
       if (found) {
@@ -401,7 +441,7 @@ export class InventoryService {
 
     if (!resolvedMenuItemId) return;
 
-    const menuItem = await prisma.menuItem.findFirst({
+    const menuItem = await client.menuItem.findFirst({
       where: { id: resolvedMenuItemId, restaurantId },
       include: {
         ingredients: {
@@ -426,23 +466,17 @@ export class InventoryService {
         const currentQty = Number(recipeItem.inventoryItem.quantity);
         const newQty = +(currentQty + qtyToRestore).toFixed(3);
 
-        const [updated] = await prisma.$transaction([
-          prisma.inventoryItem.update({
-            where: { id: recipeItem.inventoryItemId },
-            data: { quantity: newQty },
-          }),
-          prisma.inventoryTransaction.create({
-            data: {
-              inventoryItemId: recipeItem.inventoryItemId,
-              quantity: qtyToRestore,
-              type: 'RESTOCK',
-              reason: reason || `Restock/Cancellation: ${quantityRestored}x ${menuItem.name} (${recipeItem.inventoryItem.name})`,
-            },
-          }),
-        ]);
+        const updated = await writeStockMovement(
+          client,
+          recipeItem.inventoryItemId,
+          qtyToRestore,
+          newQty,
+          'RESTOCK',
+          reason || `Restock/Cancellation: ${quantityRestored}x ${menuItem.name} (${recipeItem.inventoryItem.name})`
+        );
 
         if (Number(updated.quantity) <= Number(updated.reorderPoint)) {
-          this.emitLowStockAlert(updated);
+          this.handleLowStock(updated, emitAlerts, onLowStock);
         }
       }
     } else if (menuItem.inventoryItems && menuItem.inventoryItems.length > 0) {
@@ -452,23 +486,17 @@ export class InventoryService {
         const currentQty = Number(invItem.quantity);
         const newQty = +(currentQty + qtyToRestore).toFixed(3);
 
-        const [updated] = await prisma.$transaction([
-          prisma.inventoryItem.update({
-            where: { id: invItem.id },
-            data: { quantity: newQty },
-          }),
-          prisma.inventoryTransaction.create({
-            data: {
-              inventoryItemId: invItem.id,
-              quantity: qtyToRestore,
-              type: 'RESTOCK',
-              reason: reason || `Restock/Cancellation: ${quantityRestored}x ${menuItem.name}`,
-            },
-          }),
-        ]);
+        const updated = await writeStockMovement(
+          client,
+          invItem.id,
+          qtyToRestore,
+          newQty,
+          'RESTOCK',
+          reason || `Restock/Cancellation: ${quantityRestored}x ${menuItem.name}`
+        );
 
         if (Number(updated.quantity) <= Number(updated.reorderPoint)) {
-          this.emitLowStockAlert(updated);
+          this.handleLowStock(updated, emitAlerts, onLowStock);
         }
       }
     }
@@ -482,7 +510,10 @@ export class InventoryService {
     dealName: string,
     quantitySold: number,
     reason?: string,
-    restaurantId?: string
+    restaurantId?: string,
+    client: DbClient = prisma,
+    emitAlerts = true,
+    onLowStock?: (item: any) => void
   ) {
     if (!restaurantId || !restaurantId.trim()) {
       throw new Error('restaurantId is required to deduct for deal');
@@ -491,7 +522,7 @@ export class InventoryService {
     let resolvedDealId = dealId;
 
     if (!resolvedDealId && dealName) {
-      const found = await (prisma as any).deal.findFirst({
+      const found = await (client as any).deal.findFirst({
         where: { name: dealName.trim(), restaurantId },
       });
       if (found) {
@@ -501,7 +532,7 @@ export class InventoryService {
 
     if (!resolvedDealId) return;
 
-    const deal = await (prisma as any).deal.findFirst({
+    const deal = await (client as any).deal.findFirst({
       where: { id: resolvedDealId, restaurantId },
       include: {
         items: {
@@ -519,7 +550,16 @@ export class InventoryService {
       const subReason = reason
         ? `${reason} (Deal: ${deal.name})`
         : `Deal deduction: ${quantitySold}x ${deal.name} -> ${itemQty}x ${dItem.menuItem?.name || 'Item'}`;
-      await this.deductForMenuItem(dItem.menuItemId, dItem.menuItem?.name || '', itemQty, subReason, restaurantId);
+      await this.deductForMenuItem(
+        dItem.menuItemId,
+        dItem.menuItem?.name || '',
+        itemQty,
+        subReason,
+        restaurantId,
+        client,
+        emitAlerts,
+        onLowStock
+      );
     }
   }
 
@@ -531,7 +571,10 @@ export class InventoryService {
     dealName: string,
     quantityRestored: number,
     reason?: string,
-    restaurantId?: string
+    restaurantId?: string,
+    client: DbClient = prisma,
+    emitAlerts = true,
+    onLowStock?: (item: any) => void
   ) {
     if (!restaurantId || !restaurantId.trim()) {
       throw new Error('restaurantId is required to restore deal stock');
@@ -540,7 +583,7 @@ export class InventoryService {
     let resolvedDealId = dealId;
 
     if (!resolvedDealId && dealName) {
-      const found = await (prisma as any).deal.findFirst({
+      const found = await (client as any).deal.findFirst({
         where: { name: dealName.trim(), restaurantId },
       });
       if (found) {
@@ -550,7 +593,7 @@ export class InventoryService {
 
     if (!resolvedDealId) return;
 
-    const deal = await (prisma as any).deal.findFirst({
+    const deal = await (client as any).deal.findFirst({
       where: { id: resolvedDealId, restaurantId },
       include: {
         items: {
@@ -568,7 +611,16 @@ export class InventoryService {
       const subReason = reason
         ? `${reason} (Deal: ${deal.name})`
         : `Deal restock: ${quantityRestored}x ${deal.name} -> ${itemQty}x ${dItem.menuItem?.name || 'Item'}`;
-      await this.restoreForMenuItem(dItem.menuItemId, dItem.menuItem?.name || '', itemQty, subReason, restaurantId);
+      await this.restoreForMenuItem(
+        dItem.menuItemId,
+        dItem.menuItem?.name || '',
+        itemQty,
+        subReason,
+        restaurantId,
+        client,
+        emitAlerts,
+        onLowStock
+      );
     }
   }
 

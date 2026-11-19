@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { ValidationError } from '../lib/errors';
 
 const prisma = new PrismaClient();
@@ -78,22 +78,26 @@ export class CustomerService {
     await prisma.customer.delete({ where: { id } });
   }
 
-  async recordOrderCustomer(restaurantId: string, order: any) {
+  async recordOrderCustomer(
+    restaurantId: string,
+    order: any,
+    client: PrismaClient | Prisma.TransactionClient = prisma
+  ) {
     const name = typeof order.customerName === 'string' ? order.customerName.trim() : '';
     const phone = this.normalizePhone(order.customerPhone);
     if (!name && !phone) return null;
     let customer = null;
     if (phone) {
-      customer = await prisma.customer.findFirst({ where: { restaurantId, phone } });
+      customer = await client.customer.findFirst({ where: { restaurantId, phone } });
     }
     if (!customer && name) {
-      customer = await prisma.customer.findFirst({ where: { restaurantId, name } });
+      customer = await client.customer.findFirst({ where: { restaurantId, name } });
     }
     const now = order.createdAt ? new Date(order.createdAt) : new Date();
     if (!customer) {
-      customer = await prisma.customer.create({ data: { restaurantId, name: name || phone!, phone, totalOrders: 1, totalSpent: Number(order.total || 0), lastOrderAt: now } });
+      customer = await client.customer.create({ data: { restaurantId, name: name || phone!, phone, totalOrders: 1, totalSpent: Number(order.total || 0), lastOrderAt: now } });
     } else {
-      customer = await prisma.customer.update({
+      customer = await client.customer.update({
         where: { id: customer.id },
         data: { ...(name ? { name } : {}), ...(phone ? { phone } : {}), totalOrders: { increment: 1 }, totalSpent: { increment: Number(order.total || 0) }, lastOrderAt: now },
       });

@@ -60,6 +60,23 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         ? '/print-service/install-linux.sh'
         : null;
 
+  // The print agent only allows an exact browser origin. Use the domain this
+  // POS is actually served from so each business gets its own install command.
+  const posOrigin = typeof window === 'undefined' ? '' : window.location.origin;
+  const windowsInstallCommand =
+    `Set-ExecutionPolicy -Scope Process Bypass; & ` +
+    `"$env:USERPROFILE\\Downloads\\local-print-agent-install.ps1" -AllowedOrigins '${posOrigin}'`;
+  const linuxInstallCommand = `sudo bash local-print-agent-install.sh '' '${posOrigin}'`;
+
+  const copyInstallCommand = async (command: string) => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setPrintNotice('Install command copied.');
+    } catch {
+      setPrintNotice('Could not copy automatically; select the command and copy it manually.');
+    }
+  };
+
   const refreshPrinters = useCallback(async () => {
     setLoadingPrinters(true);
     setPrinterError(null);
@@ -298,11 +315,22 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                           Open <strong>PowerShell as Administrator</strong>.
                         </li>
                         <li>
-                          Run:{' '}
-                          <code>
-                            Set-ExecutionPolicy -Scope Process Bypass; &amp;
-                            "$env:USERPROFILE\Downloads\local-print-agent-install.ps1"
-                          </code>
+                          Run: <code>{windowsInstallCommand}</code>
+                          <button
+                            type="button"
+                            onClick={() => void copyInstallCommand(windowsInstallCommand)}
+                            style={{
+                              marginLeft: '6px',
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--text-secondary)',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              textDecoration: 'underline',
+                            }}
+                          >
+                            Copy
+                          </button>
                         </li>
                       </ol>
                     ) : (
@@ -310,13 +338,30 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                         <li>Download the Linux installer above.</li>
                         <li>Open Terminal in your Downloads folder.</li>
                         <li>
-                          Run: <code>sudo bash local-print-agent-install.sh</code>
+                          Run: <code>{linuxInstallCommand}</code>
+                          <button
+                            type="button"
+                            onClick={() => void copyInstallCommand(linuxInstallCommand)}
+                            style={{
+                              marginLeft: '6px',
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--text-secondary)',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              textDecoration: 'underline',
+                            }}
+                          >
+                            Copy
+                          </button>
                         </li>
                       </ol>
                     )}
                     <div style={{ marginTop: '6px' }}>
-                      The installer registers a service that starts automatically with the
-                      computer. Refresh this printer list when it finishes.
+                      The command allows <strong>{posOrigin}</strong>, so it matches this
+                      business's POS domain. The installer registers a service that starts
+                      automatically with the computer. Refresh this printer list when it
+                      finishes.
                     </div>
                   </details>
                 </div>

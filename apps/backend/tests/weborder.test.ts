@@ -71,9 +71,24 @@ function fakeDb(overrides: Record<string, any> = {}) {
   const restaurants = new Map<string, any>();
   const webOrders: any[] = [];
   const posOrders: any[] = [];
+  const inventoryItems: any[] = [
+    {
+      id: 'inv-1',
+      restaurantId: 'rest1',
+      name: 'Coffee Beans',
+      quantity: 10,
+      reorderPoint: 2,
+      unit: 'g',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  ];
+  const inventoryTransactions: any[] = [];
   const snapshot = () => ({
     webOrders: webOrders.map((o) => ({ target: o, data: { ...o, items: o.items?.map((i: any) => ({ ...i })) } })),
     posOrders: posOrders.map((o) => ({ target: o, data: { ...o } })),
+    inventoryItems: inventoryItems.map((item) => ({ target: item, data: { ...item } })),
+    inventoryTransactions: inventoryTransactions.map((row) => ({ target: row, data: { ...row } })),
   });
   const restore = (snap: ReturnType<typeof snapshot>) => {
     webOrders.length = 0;
@@ -88,11 +103,25 @@ function fakeDb(overrides: Record<string, any> = {}) {
       Object.assign(target, data);
       posOrders.push(target);
     }
+    inventoryItems.length = 0;
+    for (const { target, data } of snap.inventoryItems) {
+      Object.keys(target).forEach((key) => delete target[key]);
+      Object.assign(target, data);
+      inventoryItems.push(target);
+    }
+    inventoryTransactions.length = 0;
+    for (const { target, data } of snap.inventoryTransactions) {
+      Object.keys(target).forEach((key) => delete target[key]);
+      Object.assign(target, data);
+      inventoryTransactions.push(target);
+    }
   };
   const store: any = {
     restaurants,
     webOrders,
     posOrders,
+    inventoryItems,
+    inventoryTransactions,
     // Simulate real rollback so tests can prove no orphan POS order survives
     // a failure after order creation.
     $transaction: async (fn: any) => {
@@ -179,6 +208,21 @@ function fakeDb(overrides: Record<string, any> = {}) {
         return created;
       },
       findMany: async () => posOrders,
+    },
+    inventoryItem: {
+      update: async ({ where, data }: any) => {
+        const item = inventoryItems.find((i) => i.id === where.id);
+        Object.assign(item, data);
+        return item;
+      },
+    },
+    inventoryTransaction: {
+      create: async ({ data }: any) => {
+        const row = { id: `invtx-${inventoryTransactions.length + 1}`, ...data };
+        inventoryTransactions.push(row);
+        return row;
+      },
+      findMany: async () => inventoryTransactions,
     },
     ...overrides.extra,
   };
@@ -875,7 +919,7 @@ test('failed POS order creation rolls the claim back to NEW', async () => {
   assert.equal(order.posOrderId, null);
 });
 
-test('final update failure rolls back POS order; retry creates no duplicate', async () => {
+test('final update failure rolls back POS order and stock; retry creates no duplicate', async () => {
   const fail = { value: true };
   const db = fakeDb({ failFinalUpdate: () => fail.value });
   const order = newWebOrder();
@@ -884,6 +928,10 @@ test('final update failure rolls back POS order; retry creates no duplicate', as
   setPosOrderCreatorForTests(async (_args, tx, notify) => {
     assert.equal(notify, false, 'notifications must be deferred until commit');
     assert.ok(tx?.order, 'POS order creation must receive the transaction client');
+    await tx.inventoryItem.update({ where: { id: 'inv-1' }, data: { quantity: 7 } });
+    await tx.inventoryTransaction.create({
+      data: { inventoryItemId: 'inv-1', quantity: -3, type: 'USAGE', reason: 'order rollback test' },
+    });
     return tx.order.create({ data: { restaurantId: 'rest1' } });
   });
 
@@ -892,6 +940,8 @@ test('final update failure rolls back POS order; retry creates no duplicate', as
     /Simulated final web order update failure/
   );
   assert.equal(db.posOrders.length, 0, 'orphan POS order must be rolled back');
+  assert.equal(db.inventoryItems[0].quantity, 10, 'stock deduction must be rolled back');
+  assert.equal(db.inventoryTransactions.length, 0, 'stock ledger rows must be rolled back');
   assert.equal(order.status, 'NEW');
   assert.equal(order.posOrderId, null);
 
