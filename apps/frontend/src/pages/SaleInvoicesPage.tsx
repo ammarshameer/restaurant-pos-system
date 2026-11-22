@@ -10,6 +10,22 @@ import { orderApi } from '../api/order.api';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
 
+function getPaidAmount(order: Order): number {
+  return Math.max(0, Number(order.totalPaid || 0));
+}
+
+function getDueAmount(order: Order): number {
+  const total = Number(order.total || 0);
+  const paid = getPaidAmount(order);
+  const stored = Number(order.amountDue ?? 0);
+
+  // Udhaar/credit orders can show zero cash remaining even when cash paid is
+  // below the total, because the balance was moved to the customer ledger.
+  if (order.settledToCredit) return Math.max(0, stored);
+  if (stored > 0.01) return stored;
+  return Math.max(0, +(total - paid).toFixed(2));
+}
+
 export const SaleInvoicesPage: React.FC = () => {
   const dispatch = useDispatch();
   const queryClient = useQueryClient();
@@ -134,17 +150,14 @@ export const SaleInvoicesPage: React.FC = () => {
   const partialOrders = orders.filter((o) => o.paymentStatus === 'PARTIAL' && !o.settledToCredit);
   const unpaidOrders = orders.filter((o) => o.paymentStatus === 'UNPAID' && !o.settledToCredit);
 
-  const paidRevenue = orders.reduce(
-    (sum, o) => sum + (o.totalPaid !== undefined ? o.totalPaid : (o.paymentStatus === 'PAID' ? o.total : 0)),
-    0
-  );
+  const paidRevenue = orders.reduce((sum, o) => sum + getPaidAmount(o), 0);
   const udhaarAmount = udhaarOrders.reduce(
     (sum, o) => sum + (o.amountDue !== undefined ? o.amountDue : Math.max(0, o.total - (o.totalPaid || 0))),
     0
   );
   const unpaidRevenue = orders
     .filter((o) => !o.settledToCredit)
-    .reduce((sum, o) => sum + (o.amountDue !== undefined ? o.amountDue : (o.paymentStatus === 'PAID' ? 0 : o.total)), 0);
+    .reduce((sum, o) => sum + getDueAmount(o), 0);
 
   const handleOpenReceipt = (order: Order) => {
     const isDineIn = order.orderType === 'DINE_IN';
@@ -185,8 +198,8 @@ export const SaleInvoicesPage: React.FC = () => {
       tax: isDineIn ? order.tax : 0,
       taxRate: isDineIn ? order.taxRate : 0,
       total: order.total,
-      totalPaid: order.totalPaid !== undefined ? order.totalPaid : (order.paymentStatus === 'PAID' ? order.total : 0),
-      amountDue: order.amountDue !== undefined ? order.amountDue : Math.max(0, order.total - (order.totalPaid || 0)),
+      totalPaid: getPaidAmount(order),
+      amountDue: getDueAmount(order),
       settledToCredit: Boolean(order.settledToCredit),
       change: order.change || 0,
       paymentMethod: order.paymentMethod || (order.settledToCredit ? 'UDHAAR / CREDIT' : 'CASH'),
@@ -351,13 +364,9 @@ export const SaleInvoicesPage: React.FC = () => {
 
   const renderPaymentBadge = (order: Order) => {
     const isSettledCredit = Boolean(order.settledToCredit);
-    const totalPaid = Number(order.totalPaid || 0);
+    const totalPaid = getPaidAmount(order);
     const total = Number(order.total || 0);
-    const amountDue = Number(
-      order.amountDue !== undefined
-        ? order.amountDue
-        : Math.max(0, +(total - totalPaid).toFixed(2))
-    );
+    const amountDue = getDueAmount(order);
     const isPaidInFull =
       order.paymentStatus === 'PAID' || (totalPaid >= total - 0.01 && total > 0);
     const isPartial =
@@ -439,6 +448,27 @@ export const SaleInvoicesPage: React.FC = () => {
       >
         ⏳ UNPAID
       </span>
+    );
+  };
+
+  const renderPaymentCell = (order: Order) => {
+    const paid = getPaidAmount(order);
+    const due = getDueAmount(order);
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+        {renderPaymentBadge(order)}
+        {paid > 0 && (
+          <div style={{ fontSize: '11px', color: '#34d399', whiteSpace: 'nowrap' }}>
+            Paid: <strong>{formatPKR(paid)}</strong>
+          </div>
+        )}
+        {due > 0.01 && (
+          <div style={{ fontSize: '11px', color: '#f87171', whiteSpace: 'nowrap' }}>
+            Remaining: <strong>{formatPKR(due)}</strong>
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -688,7 +718,7 @@ export const SaleInvoicesPage: React.FC = () => {
                         {formatPKR(order.total)}
                       </span>
                     </td>
-                    <td>{renderPaymentBadge(order)}</td>
+                    <td>{renderPaymentCell(order)}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
                         <button
