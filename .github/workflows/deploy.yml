@@ -52,23 +52,18 @@ jobs:
             fi
             export PATH="${NODE_BIN_DIR}:$(dirname "$PM2_BIN"):${PATH}"
 
-            # PostgreSQL runs in the restaurant-pos-db Docker container and the
-            # host has no pg_dump/psql installed. Expose thin wrappers on PATH
-            # so backup/restore/baseline scripts use the server's own PG 16 tools.
-            DB_CONTAINER="${DB_CONTAINER:-restaurant-pos-db}"
-            if ! command -v pg_dump >/dev/null 2>&1; then
-              echo "[deploy] Exposing pg_dump from container $DB_CONTAINER"
-              printf '%s\n' '#!/usr/bin/env bash' \
-                "exec docker exec $DB_CONTAINER pg_dump \"\$@\"" \
-                | sudo tee /usr/local/bin/pg_dump >/dev/null
-              sudo chmod 0755 /usr/local/bin/pg_dump
-            fi
-            if ! command -v psql >/dev/null 2>&1; then
-              echo "[deploy] Exposing psql from container $DB_CONTAINER"
-              printf '%s\n' '#!/usr/bin/env bash' \
-                "exec docker exec $DB_CONTAINER psql \"\$@\"" \
-                | sudo tee /usr/local/bin/psql >/dev/null
-              sudo chmod 0755 /usr/local/bin/psql
+            # Backup/restore/baseline scripts need native PG 16 client tools
+            # (piped restore and -f SQL files do not work through docker exec).
+            sudo rm -f /usr/local/bin/pg_dump /usr/local/bin/psql
+            if ! command -v pg_dump >/dev/null 2>&1 || ! command -v psql >/dev/null 2>&1; then
+              echo "[deploy] Installing PostgreSQL 16 client tools"
+              sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+              sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+                -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+              echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+                | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq postgresql-client-16
             fi
 
             # The backup directory is created by root during initial setup.
