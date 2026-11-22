@@ -1,0 +1,39 @@
+# ── Restaurant POS (production hostname) ─────────────────────────────────────
+# Serves the built SPA from apps/frontend/dist and proxies API, health and
+# Socket.IO traffic to the PM2 backend on 127.0.0.1:3146.
+pos.gsmpilot.com {
+	root * /var/www/restaurant-pos/apps/frontend/dist
+	encode zstd gzip
+
+	@api path /api/*
+	handle @api {
+		reverse_proxy 127.0.0.1:3146
+	}
+
+	@realtime path /socket.io/*
+	handle @realtime {
+		reverse_proxy 127.0.0.1:3146
+	}
+
+	handle /health {
+		reverse_proxy 127.0.0.1:3146
+	}
+
+	@vite_build path /assets/*
+	header @vite_build Cache-Control "public, max-age=31536000, immutable"
+
+	@static_files path /favicon.ico /favicon.svg /manifest.webmanifest /robots.txt /sw.js /print-service/*
+	header @static_files Cache-Control "public, max-age=86400"
+
+	try_files {path} /index.html
+	file_server
+
+	header -Server
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	header X-Content-Type-Options "nosniff"
+	header X-Frame-Options "DENY"
+	header Referrer-Policy "strict-origin-when-cross-origin"
+	tls {$GSMPILOT_ADMIN_EMAIL:admin@gsmpilot.com} {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+}

@@ -95,6 +95,9 @@ jobs:
             npm ci
             npm run build
 
+            echo "==> Web server: install POS Caddy site config"
+            bash "$APP_DIR/deploy/configure-caddy.sh"
+
             echo "==> Restarting PM2 process"
             if "$PM2_BIN" describe restaurant-pos >/dev/null 2>&1; then
               "$PM2_BIN" restart restaurant-pos --update-env

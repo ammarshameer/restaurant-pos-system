@@ -17,6 +17,7 @@ on:
           - inspect-baseline
           - recover-baseline
           - clean-git
+          - configure-web
           - inspect-web
           - verify
 
@@ -189,6 +190,10 @@ jobs:
                 echo "==> Verify baseline gate"
                 npm run db:migrate:check
                 echo "==> RECOVERY COMPLETE"
+                ;;
+
+              configure-web)
+                bash "$APP_DIR/deploy/configure-caddy.sh"
                 ;;
 
               inspect-web)

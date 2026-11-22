@@ -223,6 +223,13 @@ sudo ln -s /etc/nginx/sites-available/restaurant-pos /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
+> **Caddy hosts (including `pos.gsmpilot.com`):** use the checked-in
+> `deploy/caddy-pos.gsmpilot.com.caddy` instead of the Nginx block above. The
+> deploy workflow runs `deploy/configure-caddy.sh`, which replaces the managed
+> POS site block, validates the Caddyfile, and reloads Caddy. It serves the SPA
+> from `apps/frontend/dist` and proxies `/api/*`, `/health`, and `/socket.io/*`
+> to the backend. Reapply manually with `bash deploy/configure-caddy.sh`.
+
 ### 4.8 SSL
 
 ```bash
@@ -244,7 +251,7 @@ sudo ufw status
 
 ## 5. CI/CD (GitHub Actions)
 
-`.github/workflows/deploy.yml` runs only after **Test (PostgreSQL)** completes successfully on the same commit (`workflow_run`, `main`). It checks out that exact tested SHA, SSHes into the server, installs, builds both apps, takes a database backup, verifies the migration baseline, applies migrations with `prisma migrate deploy`, and restarts PM2.
+`.github/workflows/deploy.yml` runs only after **Test (PostgreSQL)** completes successfully on the same commit (`workflow_run`, `main`). It checks out that exact tested SHA, SSHes into the server, installs, builds both apps, takes a database backup, verifies the migration baseline, applies migrations with `prisma migrate deploy`, installs the managed Caddy site config, and restarts PM2.
 
 **Required GitHub repo secrets:**
 - `SERVER_HOST` → Contabo IP
