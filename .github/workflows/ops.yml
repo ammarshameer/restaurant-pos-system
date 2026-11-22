@@ -14,6 +14,8 @@ on:
           - baseline-live
           - install-pg-client
           - inspect-db
+          - inspect-baseline
+          - recover-baseline
           - verify
 
 jobs:
@@ -36,6 +38,11 @@ jobs:
             BACKEND="$APP_DIR/apps/backend"
             DB_CONTAINER="restaurant-pos-db"
             SCRATCH_DB="restaurant_pos_rehearsal"
+
+            set -a
+            # shellcheck disable=SC1090
+            source "$BACKEND/.env"
+            set +a
 
             # Native PG 16 client tools are required for piped restore and -f
             # baseline scripts. Remove any earlier docker exec wrappers first.
@@ -151,6 +158,35 @@ jobs:
                 echo "==> Databases"
                 docker exec "$DB_CONTAINER" sh -c \
                   'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "select datname from pg_database order by 1"'
+                ;;
+
+              inspect-baseline)
+                cd "$BACKEND"
+                echo "==> Migration history table"
+                psql "${DATABASE_URL%%\?*}" -Atqc \
+                  "select to_regclass('public._prisma_migrations') is not null"
+                echo "==> Migration status"
+                npm run db:migrate:status
+                echo "==> Schema drift check"
+                set +e
+                npx prisma migrate diff --from-url "$DATABASE_URL" \
+                  --to-schema-datamodel prisma/schema.prisma --exit-code
+                echo "diff exit: $?"
+                set -e
+                ;;
+
+              recover-baseline)
+                cd "$BACKEND"
+                echo "==> Marking checked-in migrations as applied"
+                for migration in prisma/migrations/*_*/migration.sql; do
+                  name="$(basename "$(dirname "$migration")")"
+                  npx prisma migrate resolve --applied "$name"
+                done
+                echo "==> Idempotent backfill + fail-closed verification"
+                npm run db:backfill:all
+                echo "==> Verify baseline gate"
+                npm run db:migrate:check
+                echo "==> RECOVERY COMPLETE"
                 ;;
 
               verify)
