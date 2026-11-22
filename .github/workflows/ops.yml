@@ -16,6 +16,7 @@ on:
           - inspect-db
           - inspect-baseline
           - recover-baseline
+          - clean-git
           - verify
 
 jobs:
@@ -187,6 +188,12 @@ jobs:
                 echo "==> Verify baseline gate"
                 npm run db:migrate:check
                 echo "==> RECOVERY COMPLETE"
+                ;;
+
+              clean-git)
+                cd "$APP_DIR"
+                git checkout -- apps/frontend/yarn.lock
+                git status -sb | head -3
                 ;;
 
               verify)
