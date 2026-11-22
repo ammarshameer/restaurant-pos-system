@@ -183,20 +183,28 @@ export class InventoryService {
       throw new Error('restaurantId is required to create an inventory item');
     }
 
+    const purchaseUnit = data.purchaseUnit || data.unit;
+    const conversionFactor = Number(data.conversionFactor) || 1;
+
     const item = await prisma.inventoryItem.create({
       data: {
         name: data.name,
         restaurantId: data.restaurantId,
         unit: data.unit,
-        purchaseUnit: data.purchaseUnit || data.unit,
-        conversionFactor: Number(data.conversionFactor) || 1,
+        purchaseUnit,
+        conversionFactor,
         quantity: convertPurchaseQuantity(
           data.quantity,
-          data.purchaseUnit || data.unit,
+          purchaseUnit,
           data.unit,
-          Number(data.conversionFactor) || 1
+          conversionFactor
         ),
-        reorderPoint: data.reorderPoint,
+        reorderPoint: convertPurchaseQuantity(
+          data.reorderPoint,
+          purchaseUnit,
+          data.unit,
+          conversionFactor
+        ),
         costPerUnit: data.costPerUnit,
         sku: data.sku,
         category: data.category,
@@ -209,9 +217,9 @@ export class InventoryService {
       await prisma.inventoryTransaction.create({
         data: {
           inventoryItemId: item.id,
-          quantity: data.quantity,
+          quantity: item.quantity,
           type: 'RESTOCK',
-          reason: 'Initial inventory entry',
+          reason: `Initial inventory entry (${data.quantity} ${purchaseUnit})`,
         },
       });
     }
@@ -240,11 +248,43 @@ export class InventoryService {
       throw new Error('Inventory item not found or unauthorized');
     }
 
-    const updateData: any = {};
-    const allowed = ['name', 'unit', 'quantity', 'reorderPoint', 'costPerUnit', 'sku', 'category', 'menuItemId'];
+    const nextUnit = data.unit !== undefined ? data.unit : existing.unit;
+    const nextPurchaseUnit = data.purchaseUnit !== undefined
+      ? data.purchaseUnit
+      : existing.purchaseUnit || nextUnit;
+    const nextConversionFactor = data.conversionFactor !== undefined
+      ? Number(data.conversionFactor) || 1
+      : Number(existing.conversionFactor) || 1;
+
+    const updateData: any = {
+      unit: nextUnit,
+      purchaseUnit: nextPurchaseUnit,
+      conversionFactor: nextConversionFactor,
+    };
+    const allowed = ['name', 'costPerUnit', 'sku', 'category', 'menuItemId'];
     for (const field of allowed) {
       if (data[field] !== undefined) updateData[field] = data[field];
     }
+
+    // The UI works in purchase units; storage stays in sale/usage units for
+    // recipe deductions and low-stock alerts.
+    if (data.quantity !== undefined) {
+      updateData.quantity = convertPurchaseQuantity(
+        Number(data.quantity) || 0,
+        nextPurchaseUnit,
+        nextUnit,
+        nextConversionFactor
+      );
+    }
+    if (data.reorderPoint !== undefined) {
+      updateData.reorderPoint = convertPurchaseQuantity(
+        Number(data.reorderPoint) || 0,
+        nextPurchaseUnit,
+        nextUnit,
+        nextConversionFactor
+      );
+    }
+
     if (updateData.menuItemId) {
       const menuItem = await prisma.menuItem.findFirst({ where: { id: updateData.menuItemId, restaurantId } });
       if (!menuItem) throw Object.assign(new Error('Menu item not found in this business'), { name: 'ValidationError', statusCode: 400 });

@@ -41,6 +41,71 @@ function mapInventoryItem(i: any): InventoryItem {
   };
 }
 
+const UNIT_ALIASES: Record<string, string> = {
+  g: 'g', gram: 'g', grams: 'g',
+  kg: 'kg', kilogram: 'kg', kilograms: 'kg',
+  lbs: 'lb', lb: 'lb', pounds: 'lb',
+  oz: 'oz', ounce: 'oz', ounces: 'oz',
+  ml: 'ml', millilitre: 'ml', milliliter: 'ml', millilitres: 'ml', milliliters: 'ml',
+  l: 'l', litre: 'l', liter: 'l', litres: 'l', liters: 'l',
+  piece: 'each', pieces: 'each', pcs: 'each', pc: 'each', each: 'each', unit: 'each', units: 'each',
+};
+
+const MASS_SCALES: Record<string, number> = { g: 1, kg: 1000, lb: 453.59237, oz: 28.349523 };
+const VOLUME_SCALES: Record<string, number> = { ml: 1, l: 1000 };
+
+function normalizeUnit(unit?: string): string {
+  const key = (unit || '').toLowerCase().trim();
+  return UNIT_ALIASES[key] || key || 'each';
+}
+
+/** Inverse of the backend's purchase-to-sale conversion. */
+function saleToPurchaseQuantity(
+  quantity: number,
+  saleUnit: string,
+  purchaseUnit: string,
+  conversionFactor: number
+): number {
+  const value = Number(quantity) || 0;
+  const factor = Number(conversionFactor) || 1;
+  const sale = normalizeUnit(saleUnit);
+  const purchase = normalizeUnit(purchaseUnit);
+
+  if (sale === purchase) return value / factor;
+  if (MASS_SCALES[sale] && MASS_SCALES[purchase]) {
+    return value * MASS_SCALES[sale] / MASS_SCALES[purchase];
+  }
+  if (VOLUME_SCALES[sale] && VOLUME_SCALES[purchase]) {
+    return value * VOLUME_SCALES[sale] / VOLUME_SCALES[purchase];
+  }
+  return value / factor;
+}
+
+type PurchaseUnitFields = Pick<InventoryItem, 'quantity' | 'unit' | 'purchaseUnit' | 'conversionFactor'>;
+
+export function getQuantityInPurchaseUnit(item: PurchaseUnitFields): number {
+  return saleToPurchaseQuantity(
+    item.quantity,
+    item.unit,
+    item.purchaseUnit || item.unit,
+    item.conversionFactor || 1
+  );
+}
+
+export function getReorderPointInPurchaseUnit(item: InventoryItem): number {
+  return saleToPurchaseQuantity(
+    item.reorderPoint,
+    item.unit,
+    item.purchaseUnit || item.unit,
+    item.conversionFactor || 1
+  );
+}
+
+export function formatInventoryQuantity(value: number): string {
+  const clean = Math.round((Number(value) || 0) * 1e6) / 1e6;
+  return String(clean);
+}
+
 export function getCostPerSaleUnit(item: InventoryItem): number {
   const purchaseUnit = item.purchaseUnit || item.unit;
   if (purchaseUnit.toLowerCase() === item.unit.toLowerCase()) {

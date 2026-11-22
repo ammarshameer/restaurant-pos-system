@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { inventoryApi, InventoryItem as PosInventoryItem, InventoryTransaction as PosTransaction, getCostPerSaleUnit } from '../api/inventory.api';
+import {
+  inventoryApi,
+  InventoryItem as PosInventoryItem,
+  InventoryTransaction as PosTransaction,
+  getCostPerSaleUnit,
+  getQuantityInPurchaseUnit,
+  getReorderPointInPurchaseUnit,
+  formatInventoryQuantity,
+} from '../api/inventory.api';
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import {
   InventoryItemFormModal,
@@ -134,7 +142,9 @@ export const InventoryPage: React.FC = () => {
     };
   }, [queryClient]);
 
-  const lowStockItems = inventory.filter((item) => item.quantity <= item.reorderPoint);
+  const lowStockItems = inventory.filter(
+    (item) => getQuantityInPurchaseUnit(item) <= getReorderPointInPurchaseUnit(item)
+  );
   const hasCostData = inventory.some((item) => item.costPerUnit !== undefined && item.costPerUnit !== null);
   const totalValuation = inventory.reduce((sum, item) => sum + item.quantity * getCostPerSaleUnit(item), 0);
 
@@ -208,7 +218,11 @@ export const InventoryPage: React.FC = () => {
   };
 
   const openEditModal = (item: PosInventoryItem) => {
-    setEditItem({ ...item });
+    setEditItem({
+      ...item,
+      quantity: getQuantityInPurchaseUnit(item),
+      reorderPoint: getReorderPointInPurchaseUnit(item),
+    });
     setEditModalOpen(true);
   };
 
@@ -222,6 +236,7 @@ export const InventoryPage: React.FC = () => {
       unit: values.unit,
       purchaseUnit: values.purchaseUnit || values.unit,
       conversionFactor: values.conversionFactor || 1,
+      quantity: values.quantity,
       reorderPoint: values.reorderPoint,
       costPerUnit: values.costPerUnit,
     });
@@ -342,8 +357,8 @@ export const InventoryPage: React.FC = () => {
                 <tr>
                   <th>Item Name & SKU</th>
                   <th>Category</th>
-                  <th>Current Stock</th>
-                  <th>Reorder Point</th>
+                  <th>Stock (Purchase Unit)</th>
+                  <th>Reorder Point (Purchase Unit)</th>
                   {hasCostData && <th>Cost / Purchase Unit</th>}
                   {hasCostData && <th>Stock Valuation</th>}
                   <th>Status</th>
@@ -352,7 +367,10 @@ export const InventoryPage: React.FC = () => {
               </thead>
               <tbody>
                 {inventory.map((item) => {
-                  const isLow = item.quantity <= item.reorderPoint;
+                  const purchaseUnit = item.purchaseUnit || item.unit;
+                  const quantityDisplay = formatInventoryQuantity(getQuantityInPurchaseUnit(item));
+                  const reorderDisplay = formatInventoryQuantity(getReorderPointInPurchaseUnit(item));
+                  const isLow = getQuantityInPurchaseUnit(item) <= getReorderPointInPurchaseUnit(item);
                   const itemValuation = item.quantity * getCostPerSaleUnit(item);
 
                   return (
@@ -366,11 +384,11 @@ export const InventoryPage: React.FC = () => {
                       </td>
                       <td>
                         <div style={{ fontWeight: 800, fontSize: '15px', color: isLow ? '#f87171' : 'var(--text-primary)' }}>
-                          {item.quantity} {item.unit}
+                          {quantityDisplay} {purchaseUnit}
                         </div>
                       </td>
                       <td style={{ color: 'var(--text-secondary)' }}>
-                        {item.reorderPoint} {item.unit}
+                        {reorderDisplay} {purchaseUnit}
                       </td>
                       {hasCostData && <td style={{ fontWeight: 700 }}>{formatPKR(item.costPerUnit)} / {item.purchaseUnit || item.unit}</td>}
                       {hasCostData && <td style={{ fontWeight: 800, color: '#34d399' }}>{formatPKR(itemValuation)}</td>}
@@ -486,7 +504,13 @@ export const InventoryPage: React.FC = () => {
 
                 <div className="form-group">
                   <label className="input-label">
-                    <span>Quantity Change ({selectedItem.unit})</span>
+                    <span>
+                      Quantity Change (
+                      {adjustType === 'RESTOCK'
+                        ? selectedItem.purchaseUnit || selectedItem.unit
+                        : selectedItem.unit}
+                      )
+                    </span>
                     <span className="label-hint">Amount</span>
                   </label>
                   <input
@@ -570,7 +594,9 @@ export const InventoryPage: React.FC = () => {
               <div className="modal-header-text">
                 <h3 className="modal-title">📜 Stock Movement Audit</h3>
                 <p className="modal-subtitle">
-                  {selectedItem.name} • SKU: {selectedItem.sku} • In Stock: {selectedItem.quantity} {selectedItem.unit}
+                  {selectedItem.name} • SKU: {selectedItem.sku} • In Stock:{' '}
+                  {formatInventoryQuantity(getQuantityInPurchaseUnit(selectedItem))}{' '}
+                  {selectedItem.purchaseUnit || selectedItem.unit}
                 </p>
               </div>
               <button

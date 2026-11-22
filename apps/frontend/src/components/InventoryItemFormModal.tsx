@@ -119,9 +119,9 @@ export const InventoryItemFormModal: React.FC<InventoryItemFormModalProps> = ({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
               <div className="form-group">
                 <label className="input-label">
-                  <span>{isEdit ? 'Current Quantity' : 'Initial Quantity'}</span>
+                  <span>Quantity ({values.purchaseUnit || values.unit})</span>
                   <span className="label-hint">
-                    {isEdit ? 'Use Adjust Stock to change' : 'In stock now'}
+                    {isEdit ? 'Current stock • use Adjust Stock to change' : 'Initial stock'}
                   </span>
                 </label>
                 <input
@@ -184,7 +184,7 @@ export const InventoryItemFormModal: React.FC<InventoryItemFormModalProps> = ({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: 0 }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="input-label">
-                  <span>Reorder Point</span>
+                  <span>Reorder Point ({values.purchaseUnit || values.unit})</span>
                   <span className="label-hint">Low stock alert</span>
                 </label>
                 <input
