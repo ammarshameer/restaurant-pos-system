@@ -11,6 +11,7 @@ on:
           - add-jwt-platform-secret
           - rehearse-baseline
           - baseline-live
+          - inspect-db
           - verify
 
 jobs:
@@ -108,6 +109,15 @@ jobs:
                 echo "==> Re-run idempotent backfill on live"
                 npm run db:backfill:all
                 echo "==> LIVE BASELINE COMPLETE"
+                ;;
+
+              inspect-db)
+                echo "==> Container PG identity (no passwords)"
+                docker exec "$DB_CONTAINER" sh -c \
+                  'echo POSTGRES_USER=$POSTGRES_USER POSTGRES_DB=$POSTGRES_DB; psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "select current_user, rolcreatedb from pg_roles where rolname=current_user"'
+                echo "==> Databases"
+                docker exec "$DB_CONTAINER" sh -c \
+                  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "select datname from pg_database order by 1"'
                 ;;
 
               verify)
