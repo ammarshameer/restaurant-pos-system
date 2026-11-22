@@ -196,7 +196,7 @@ jobs:
                   'select id, name, slug from "Restaurant" order by name'
                 echo "==> Recent inventory items"
                 psql "${DATABASE_URL%%\?*}" -Atqc \
-                  'select r.name, i.name, coalesce(i.sku, \'\'), coalesce(i.category, \'\'), i.quantity, i."createdAt" from "InventoryItem" i join "Restaurant" r on r.id = i."restaurantId" order by i."createdAt" desc limit 20'
+                  "select r.name, i.name, coalesce(i.sku, ''), coalesce(i.category, ''), i.quantity, i.\"createdAt\" from \"InventoryItem\" i join \"Restaurant\" r on r.id = i.\"restaurantId\" order by i.\"createdAt\" desc limit 20"
                 ;;
 
               inspect-baseline)
