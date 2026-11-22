@@ -2,8 +2,24 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { inventoryApi, InventoryItem as PosInventoryItem, InventoryTransaction as PosTransaction, getCostPerSaleUnit } from '../api/inventory.api';
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
+import {
+  InventoryItemFormModal,
+  InventoryItemFormValues,
+} from '../components/InventoryItemFormModal';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
+
+const DEFAULT_NEW_ITEM: InventoryItemFormValues = {
+  name: '',
+  sku: '',
+  category: 'Grocery',
+  quantity: 10,
+  unit: 'g',
+  purchaseUnit: 'kg',
+  conversionFactor: 1,
+  reorderPoint: 5,
+  costPerUnit: 250,
+};
 
 export const InventoryPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -25,17 +41,7 @@ export const InventoryPage: React.FC = () => {
   const [adjustReason, setAdjustReason] = useState<string>('');
 
   // Add Item Form
-  const [newItem, setNewItem] = useState({
-    name: '',
-    sku: '',
-    category: 'Grocery',
-    quantity: 10,
-    unit: 'g',
-    purchaseUnit: 'kg',
-    conversionFactor: 1,
-    reorderPoint: 5,
-    costPerUnit: 250,
-  });
+  const [newItem, setNewItem] = useState<InventoryItemFormValues>(DEFAULT_NEW_ITEM);
 
   // 1. Infinite Query for Inventory Items: 50 records per page, auto-resets on filter/search change
   const {
@@ -173,14 +179,14 @@ export const InventoryPage: React.FC = () => {
     setAdjustModalOpen(false);
   };
 
-  const handleAddNewItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newItem.name) return;
+  const handleAddNewItem = async (values: InventoryItemFormValues) => {
+    if (!values.name.trim()) return;
 
     try {
       await inventoryApi.createInventoryItem({
-        ...newItem,
-        sku: newItem.sku || `SKU-${Date.now().toString().slice(-4)}`,
+        ...values,
+        name: values.name.trim(),
+        sku: values.sku || `SKU-${Date.now().toString().slice(-4)}`,
       });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
     } catch (err) {
@@ -188,17 +194,7 @@ export const InventoryPage: React.FC = () => {
     }
 
     setAddModalOpen(false);
-    setNewItem({
-      name: '',
-      sku: '',
-      category: 'Grocery',
-      quantity: 10,
-      unit: 'g',
-      purchaseUnit: 'kg',
-      conversionFactor: 1,
-      reorderPoint: 5,
-      costPerUnit: 250,
-    });
+    setNewItem(DEFAULT_NEW_ITEM);
   };
 
   const handleDeleteItem = async (id: string, name: string) => {
@@ -216,19 +212,18 @@ export const InventoryPage: React.FC = () => {
     setEditModalOpen(true);
   };
 
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editItem?.name.trim()) return;
+  const handleSaveEdit = async (values: InventoryItemFormValues) => {
+    if (!editItem || !values.name.trim()) return;
 
     await inventoryApi.updateInventoryItem(editItem.id, {
-      name: editItem.name.trim(),
-      sku: editItem.sku,
-      category: editItem.category,
-      unit: editItem.unit,
-      purchaseUnit: editItem.purchaseUnit || editItem.unit,
-      conversionFactor: editItem.conversionFactor || 1,
-      reorderPoint: editItem.reorderPoint,
-      costPerUnit: editItem.costPerUnit,
+      name: values.name.trim(),
+      sku: values.sku,
+      category: values.category,
+      unit: values.unit,
+      purchaseUnit: values.purchaseUnit || values.unit,
+      conversionFactor: values.conversionFactor || 1,
+      reorderPoint: values.reorderPoint,
+      costPerUnit: values.costPerUnit,
     });
     queryClient.invalidateQueries({ queryKey: ['inventory'] });
     setEditModalOpen(false);
@@ -534,252 +529,37 @@ export const InventoryPage: React.FC = () => {
         </div>
       )}
 
-      {/* Add Inventory Item Modal */}
       {addModalOpen && (
-        <div className="modal-backdrop" onClick={() => setAddModalOpen(false)}>
-          <div className="modal-card" style={{ maxWidth: '560px' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-header-text">
-                <h3 className="modal-title">+ Add New Inventory Item</h3>
-                <p className="modal-subtitle">Track ingredients, beverages, and supplies in the database catalog</p>
-              </div>
-              <button
-                type="button"
-                className="modal-close-btn"
-                onClick={() => setAddModalOpen(false)}
-                title="Close dialog"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleAddNewItem}>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label className="input-label">
-                    <span>Item Name</span>
-                    <span className="label-hint">Required</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Premium Angus Beef Patties"
-                    className="input-field"
-                    value={newItem.name}
-                    onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                  />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div className="form-group">
-                    <label className="input-label">
-                      <span>SKU / Barcode</span>
-                      <span className="label-hint">Auto or custom</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. BEEF-001"
-                      className="input-field"
-                      value={newItem.sku}
-                      onChange={(e) => setNewItem({ ...newItem, sku: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="input-label">
-                      <span>Category</span>
-                      <span className="label-hint">Department</span>
-                    </label>
-                    <select
-                      className="input-field"
-                      value={newItem.category}
-                      onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                    >
-                      <option value="Meat">Meat</option>
-                      <option value="Dairy">Dairy</option>
-                      <option value="Bakery">Bakery</option>
-                      <option value="Frozen">Frozen</option>
-                      <option value="Grocery">Grocery</option>
-                      <option value="Beverage">Beverage</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div className="form-group">
-                    <label className="input-label">
-                      <span>Initial Quantity</span>
-                      <span className="label-hint">In stock now</span>
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      required
-                      className="input-field"
-                      value={newItem.quantity}
-                      onChange={(e) => setNewItem({ ...newItem, quantity: Number(e.target.value) })}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="input-label">
-                      <span>Sale / Usage Unit</span>
-                      <span className="label-hint">Stock is tracked in this unit</span>
-                    </label>
-                    <select
-                      className="input-field"
-                      value={newItem.unit}
-                      onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
-                    >
-                      {['g', 'kg', 'ml', 'l', 'each', 'lbs', 'oz', 'cans', 'boxes'].map(unit => (
-                        <option key={unit} value={unit}>{unit}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div className="form-group">
-                    <label className="input-label"><span>Purchase Unit</span><span className="label-hint">Bought in</span></label>
-                    <select
-                      className="input-field"
-                      value={newItem.purchaseUnit}
-                      onChange={(e) => setNewItem({ ...newItem, purchaseUnit: e.target.value })}
-                    >
-                      {['g', 'kg', 'ml', 'l', 'each', 'lbs', 'oz', 'cans', 'boxes'].map(unit => (
-                        <option key={unit} value={unit}>{unit}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="input-label"><span>Sale Units per Purchase Unit</span><span className="label-hint">Used for packs or cases</span></label>
-                    <input
-                      type="number"
-                      min="0.0001"
-                      step="any"
-                      className="input-field"
-                      value={newItem.conversionFactor}
-                      onChange={(e) => setNewItem({ ...newItem, conversionFactor: Number(e.target.value) })}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: 0 }}>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="input-label">
-                      <span>Reorder Point</span>
-                      <span className="label-hint">Low stock alert</span>
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      required
-                      className="input-field"
-                      value={newItem.reorderPoint}
-                      onChange={(e) => setNewItem({ ...newItem, reorderPoint: Number(e.target.value) })}
-                    />
-                  </div>
-
-                  {hasCostData && (
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="input-label">
-                        <span>Cost per Purchase Unit (PKR)</span>
-                        <span className="label-hint">{newItem.purchaseUnit}</span>
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        required
-                        className="input-field"
-                        value={newItem.costPerUnit}
-                        onChange={(e) => setNewItem({ ...newItem, costPerUnit: Number(e.target.value) })}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setAddModalOpen(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  ✓ Save Item to Catalog
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <InventoryItemFormModal
+          key="add"
+          mode="add"
+          initialValues={newItem}
+          onClose={() => setAddModalOpen(false)}
+          onSave={handleAddNewItem}
+        />
       )}
 
       {editModalOpen && editItem && (
-        <div className="modal-backdrop" onClick={() => setEditModalOpen(false)}>
-          <div className="modal-card" style={{ maxWidth: '560px' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-header-text">
-                <h3 className="modal-title">✏️ Edit Inventory Item</h3>
-                <p className="modal-subtitle">{editItem.name}</p>
-              </div>
-              <button type="button" className="modal-close-btn" onClick={() => setEditModalOpen(false)} aria-label="Close edit dialog">✕</button>
-            </div>
-            <form onSubmit={handleSaveEdit}>
-              <div className="modal-body">
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div className="form-group">
-                    <label className="input-label">Item Name</label>
-                    <input className="input-field" required value={editItem.name} onChange={(e) => setEditItem({ ...editItem, name: e.target.value })} />
-                  </div>
-                  <div className="form-group">
-                    <label className="input-label">SKU</label>
-                    <input className="input-field" value={editItem.sku} onChange={(e) => setEditItem({ ...editItem, sku: e.target.value })} />
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div className="form-group">
-                    <label className="input-label">Category</label>
-                    <input className="input-field" value={editItem.category} onChange={(e) => setEditItem({ ...editItem, category: e.target.value })} />
-                  </div>
-                  <div className="form-group">
-                    <label className="input-label">Sale / Usage Unit</label>
-                    <select className="input-field" value={editItem.unit} onChange={(e) => setEditItem({ ...editItem, unit: e.target.value })}>
-                      {['g', 'kg', 'ml', 'l', 'each', 'lbs', 'oz', 'cans', 'boxes'].map(unit => <option key={unit} value={unit}>{unit}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div className="form-group">
-                    <label className="input-label">Purchase Unit</label>
-                    <select className="input-field" value={editItem.purchaseUnit || editItem.unit} onChange={(e) => setEditItem({ ...editItem, purchaseUnit: e.target.value })}>
-                      {['g', 'kg', 'ml', 'l', 'each', 'lbs', 'oz', 'cans', 'boxes'].map(unit => <option key={unit} value={unit}>{unit}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="input-label">Sale Units per Purchase Unit</label>
-                    <input type="number" min="0.0001" step="any" className="input-field" value={editItem.conversionFactor || 1} onChange={(e) => setEditItem({ ...editItem, conversionFactor: Number(e.target.value) })} />
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div className="form-group">
-                    <label className="input-label">Reorder Point ({editItem.unit})</label>
-                    <input type="number" min="0" step="any" className="input-field" value={editItem.reorderPoint} onChange={(e) => setEditItem({ ...editItem, reorderPoint: Number(e.target.value) })} />
-                  </div>
-                  {hasCostData && (
-                    <div className="form-group">
-                      <label className="input-label">Cost per Purchase Unit (PKR)</label>
-                      <input type="number" min="0" step="any" className="input-field" value={editItem.costPerUnit} onChange={(e) => setEditItem({ ...editItem, costPerUnit: Number(e.target.value) })} />
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setEditModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Changes</button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <InventoryItemFormModal
+          key={editItem.id}
+          mode="edit"
+          initialValues={{
+            name: editItem.name,
+            sku: editItem.sku,
+            category: editItem.category,
+            quantity: editItem.quantity,
+            unit: editItem.unit,
+            purchaseUnit: editItem.purchaseUnit || editItem.unit,
+            conversionFactor: editItem.conversionFactor || 1,
+            reorderPoint: editItem.reorderPoint,
+            costPerUnit: editItem.costPerUnit,
+          }}
+          onClose={() => {
+            setEditModalOpen(false);
+            setEditItem(null);
+          }}
+          onSave={handleSaveEdit}
+        />
       )}
 
       {/* Transaction History Modal */}
