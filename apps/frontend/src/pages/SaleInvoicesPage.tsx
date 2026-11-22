@@ -2,11 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { RootState } from '../store/store';
-import { Order, OrderItem, updateOrder, removeOrder, addOrder } from '../store/slices/orderSlice';
+import { Order, OrderItem, updateOrder, removeOrder, addOrder, updatePaymentStatus } from '../store/slices/orderSlice';
 import { MenuItem } from '../store/slices/menuSlice';
 import { ReceiptModal, ReceiptData } from '../components/ReceiptModal';
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { orderApi } from '../api/order.api';
+import { paymentApi } from '../api/payment.api';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
 
@@ -57,6 +58,8 @@ export const SaleInvoicesPage: React.FC = () => {
   const [editDeliveryChargeAmount, setEditDeliveryChargeAmount] = useState<number>(0);
   const [editItems, setEditItems] = useState<OrderItem[]>([]);
   const [selectedMenuItemToAdd, setSelectedMenuItemToAdd] = useState<string>('');
+  const [payingRemaining, setPayingRemaining] = useState(false);
+  const [paymentClientId, setPaymentClientId] = useState('');
 
   // Toast alert
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -224,6 +227,8 @@ export const SaleInvoicesPage: React.FC = () => {
     setEditDeliveryChargeAmount(order.deliveryCharge !== undefined ? order.deliveryCharge : (order.orderType === 'DELIVERY' ? 150 : 0));
     setEditItems(order.items ? JSON.parse(JSON.stringify(order.items)) : []);
     setSelectedMenuItemToAdd(menuItems[0]?.id || '');
+    setPaymentClientId(`invoice-remaining-${order.id}-${Date.now()}`);
+    setPayingRemaining(false);
     setEditModalOpen(true);
   };
 
@@ -303,13 +308,8 @@ export const SaleInvoicesPage: React.FC = () => {
       ? editTotal
       : Math.max(0, +(editTotal - editPaidAmount).toFixed(2));
 
-  const handleSaveInvoice = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingOrder) return;
-    if (editItems.length === 0) {
-      alert('An invoice must have at least 1 item.');
-      return;
-    }
+  const buildUpdatedInvoice = (): Order | null => {
+    if (!editingOrder || editItems.length === 0) return null;
 
     const orderTypeLabels: Record<string, string> = {
       DINE_IN: 'Dine In',
@@ -317,7 +317,7 @@ export const SaleInvoicesPage: React.FC = () => {
       DELIVERY: 'Delivery',
     };
 
-    const updated: Order = {
+    return {
       ...editingOrder,
       orderType: editOrderType,
       orderTypeLabel: orderTypeLabels[editOrderType],
@@ -340,13 +340,88 @@ export const SaleInvoicesPage: React.FC = () => {
       amountDue: editRemainingAmount,
       status: editPaymentStatus === 'PAID' ? 'paid' : editingOrder.status,
     };
+  };
 
+  const persistInvoice = async (updated: Order): Promise<Order> => {
     dispatch(updateOrder(updated));
     await orderApi.updateOrder(updated.id, updated);
     queryClient.invalidateQueries({ queryKey: ['orders'] });
+    return updated;
+  };
+
+  const handleSaveInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const updated = buildUpdatedInvoice();
+    if (!updated) {
+      alert('An invoice must have at least 1 item.');
+      return;
+    }
+
+    await persistInvoice(updated);
     setEditModalOpen(false);
     setEditingOrder(null);
     showToast(`✅ Sale Invoice #${updated.orderNumber} saved & updated in Database!`);
+  };
+
+  const handlePayRemaining = async () => {
+    if (!editingOrder || payingRemaining || editRemainingAmount <= 0.01) return;
+    if (editingOrder.settledToCredit) {
+      alert('This order was settled to customer credit. Collect the balance from Customer Dues & Receivables.');
+      return;
+    }
+
+    const updated = buildUpdatedInvoice();
+    if (!updated) {
+      alert('An invoice must have at least 1 item before recording a payment.');
+      return;
+    }
+
+    setPayingRemaining(true);
+    try {
+      // Save any edits first so the payment matches the total shown in this form.
+      await persistInvoice(updated);
+      setEditingOrder(updated);
+
+      const payRes: any = await paymentApi.createPayment({
+        orderId: updated.id,
+        amount: editRemainingAmount,
+        method: editPaymentMethod || 'CASH',
+        clientId: paymentClientId || undefined,
+      });
+
+      if (!payRes?.duplicate) {
+        const settledOrder = payRes?.order;
+        const finalTotalPaid = settledOrder
+          ? Number(settledOrder.totalPaid ?? 0)
+          : +(getPaidAmount(updated) + editRemainingAmount).toFixed(2);
+
+        dispatch(
+          updatePaymentStatus({
+            id: updated.id,
+            paymentStatus: 'PAID',
+            paymentMethod: editPaymentMethod || 'CASH',
+            totalPaid: finalTotalPaid,
+            amountDue: settledOrder ? Number(settledOrder.amountDue ?? 0) : 0,
+            settledToCredit: Boolean(settledOrder?.settledToCredit ?? updated.settledToCredit),
+            change: 0,
+          })
+        );
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['unpaid-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['dues'] });
+
+      setEditModalOpen(false);
+      setEditingOrder(null);
+      showToast(`✅ Remaining ${formatPKR(editRemainingAmount)} received for invoice #${updated.orderNumber}.`);
+    } catch (err: any) {
+      console.error('Failed to record remaining payment:', err);
+      alert(err?.response?.data?.error || err?.message || 'Failed to record the remaining payment.');
+    } finally {
+      setPayingRemaining(false);
+    }
   };
 
   const getOrderTypeBadge = (type: string) => {
@@ -986,6 +1061,48 @@ export const SaleInvoicesPage: React.FC = () => {
                     </button>
                   </div>
                 </div>
+
+                {editPaymentStatus === 'PARTIAL' && !editingOrder.settledToCredit && editRemainingAmount > 0.01 && (
+                  <div
+                    style={{
+                      background: 'rgba(245, 158, 11, 0.08)',
+                      border: '1px solid rgba(245, 158, 11, 0.35)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: '12px 14px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 800, color: '#fbbf24' }}>
+                        💵 Pay Remaining: {formatPKR(editRemainingAmount)}
+                      </div>
+                      <select
+                        className="input-field"
+                        style={{ width: '120px', height: '32px', padding: '0 8px' }}
+                        value={editPaymentMethod}
+                        onChange={(e) => setEditPaymentMethod(e.target.value)}
+                        aria-label="Remaining payment method"
+                      >
+                        <option value="CASH">CASH</option>
+                        <option value="CARD">CARD</option>
+                        <option value="QR">QR</option>
+                        <option value="ONLINE">ONLINE</option>
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-success btn-sm"
+                      onClick={handlePayRemaining}
+                      disabled={payingRemaining}
+                    >
+                      {payingRemaining
+                        ? 'Recording payment…'
+                        : `✓ Pay Remaining ${formatPKR(editRemainingAmount)}`}
+                    </button>
+                  </div>
+                )}
 
                 {/* DINE IN EDIT CHARGES: Tax (%) + Service Charges (PKR) */}
                 {isEditDineIn && (
