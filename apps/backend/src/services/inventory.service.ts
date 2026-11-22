@@ -1,7 +1,5 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { getIO } from '../websocket';
-import { hasFeature } from './feature.service';
-import { redactCosting } from './cost-redaction.service';
 
 const prisma = new PrismaClient();
 
@@ -142,7 +140,8 @@ export class InventoryService {
       totalCount,
       hasMore,
     };
-    return await hasFeature(restaurantId, 'costing') ? result : redactCosting(result);
+    // Cost visibility is decided per user in the inventory route middleware.
+    return result;
   }
 
   async getInventoryItem(id: string, restaurantId: string) {
@@ -163,7 +162,8 @@ export class InventoryService {
         },
       },
     });
-    return await hasFeature(restaurantId, 'costing') ? item : redactCosting(item);
+    // Cost visibility is decided per user in the inventory route middleware.
+    return item;
   }
 
   async createInventoryItem(data: {

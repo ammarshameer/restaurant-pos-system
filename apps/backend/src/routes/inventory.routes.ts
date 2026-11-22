@@ -1,6 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
 import { InventoryService } from '../services/inventory.service';
-import { hasFeature } from '../services/feature.service';
 import { redactCosting, canUserViewCosting } from '../services/cost-redaction.service';
 import {
   AuthRequest,
@@ -11,18 +10,14 @@ import {
 const router = Router();
 const inventoryService = new InventoryService();
 
-router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
   const originalJson = res.json.bind(res);
   res.json = ((body: any) => {
-    const restaurantId = getAuthenticatedRestaurantId(req);
-    const canView = canUserViewCosting(req.user);
-    if (!canView) {
-      return originalJson(redactCosting(body));
-    }
-    void hasFeature(restaurantId, 'costing').then((enabled) => {
-      originalJson(enabled ? body : redactCosting(body));
-    }).catch(next);
-    return res;
+    // Anyone who can manage inventory may see the cost fields they are editing,
+    // even when the separate Costing module is switched off for the business.
+    const canManageInventory = Boolean(req.user?.permissions?.includes('inventory.manage'));
+    const canView = canUserViewCosting(req.user) || canManageInventory;
+    return originalJson(canView ? body : redactCosting(body));
   }) as any;
   next();
 });
