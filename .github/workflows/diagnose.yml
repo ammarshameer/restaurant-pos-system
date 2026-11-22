@@ -17,25 +17,18 @@ jobs:
           command_timeout: 5m
           script: |
             set -uo pipefail
-            echo "== whoami / shell =="
-            whoami
-            echo "SHELL=$SHELL"
-            echo "PATH=$PATH"
-            echo "== node / pm2 =="
-            command -v node || true
-            node --version 2>&1 || true
-            command -v pm2 || true
-            command -v pg_dump || true
-            command -v psql || true
-            echo "== postgres candidates =="
-            ls -ld /usr/lib/postgresql /usr/lib/postgresql/* /usr/lib/postgresql/*/bin 2>&1 || true
-            ls -l /usr/lib/postgresql/*/bin/pg_dump 2>&1 || true
-            find /usr /opt -maxdepth 6 -type f -name pg_dump 2>/dev/null | head -20 || true
-            echo "== app dir =="
-            ls -ld /var/www/restaurant-pos 2>&1 || true
-            echo "== backend env (keys only) =="
-            sed -E 's/=.*/=<redacted>/' /var/www/restaurant-pos/apps/backend/.env 2>&1 || true
-            echo "== pm2 list =="
-            /home/mujeeb/.nvm/versions/node/v24.15.0/bin/pm2 list 2>&1 || true
-            echo "== listening ports =="
-            (ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null) | head -30 || true
+            echo "== sudo / docker =="
+            sudo -n true 2>&1 && echo "sudo: passwordless OK" || echo "sudo: NOT available"
+            command -v docker || true
+            docker ps --format '{{.Names}}\t{{.Image}}\t{{.Ports}}' 2>&1 | head -30 || true
+            echo "== node paths =="
+            ls -l /home/mujeeb/.nvm/versions/node/v20.20.2/bin/node 2>&1 || true
+            ls -l /home/mujeeb/.nvm/versions/node/v24.15.0/bin/pm2 2>&1 || true
+            echo "== health =="
+            curl -fsS http://127.0.0.1:3146/health 2>&1 | head -5 || true
+            echo
+            echo "== migration status (read-only) =="
+            cd /var/www/restaurant-pos/apps/backend
+            PG_BIN_DIR="" npx prisma migrate status 2>&1 | head -40 || true
+            echo "== git state =="
+            git -C /var/www/restaurant-pos status -sb | head -5 || true
