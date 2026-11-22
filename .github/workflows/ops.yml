@@ -127,7 +127,7 @@ jobs:
                 npm run db:migrate:baseline
                 npm run db:migrate:check
                 echo "==> Backfill report on scratch"
-                npm run db:backfill:all
+                ENV_FILE="$SCRATCH_ENV" DATABASE_URL="$SCRATCH_URL" npm run db:backfill:all
                 echo "==> Rehearsal PASSED (scratch database left for inspection)"
                 ;;
 
