@@ -1,6 +1,4 @@
 import { PrismaClient } from '@prisma/client';
-import { hasFeature } from './feature.service';
-import { redactCosting } from './cost-redaction.service';
 
 const prisma = new PrismaClient();
 
@@ -31,7 +29,8 @@ export class MenuService {
       },
       orderBy: { displayOrder: 'asc' },
     });
-    return await hasFeature(restaurantId, 'costing') ? result : redactCosting(result);
+    // Cost visibility is decided per user in the menu route middleware.
+    return result;
   }
 
   async getMenuItems(
@@ -102,7 +101,8 @@ export class MenuService {
       totalCount,
       hasMore,
     };
-    return await hasFeature(restaurantId, 'costing') ? result : redactCosting(result);
+    // Cost visibility is decided per user in the menu route middleware.
+    return result;
   }
 
   async getMenuItem(id: string, restaurantId: string) {
@@ -130,7 +130,8 @@ export class MenuService {
         inventoryItems: true,
       },
     });
-    return await hasFeature(restaurantId, 'costing') ? item : redactCosting(item);
+    // Cost visibility is decided per user in the menu route middleware.
+    return item;
   }
 
   async createMenuItem(data: {

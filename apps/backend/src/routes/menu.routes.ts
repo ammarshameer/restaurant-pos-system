@@ -1,29 +1,23 @@
 import { Router, Response, NextFunction } from 'express';
 import { MenuService } from '../services/menu.service';
-import { hasFeature } from '../services/feature.service';
 import { redactCosting, canUserViewCosting } from '../services/cost-redaction.service';
 import {
   AuthRequest,
   getAuthenticatedRestaurantId,
   requirePermission,
-  requireCostingWritePermission,
 } from '../middleware/auth';
 
 const router = Router();
 const menuService = new MenuService();
 
-router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
   const originalJson = res.json.bind(res);
   res.json = ((body: any) => {
-    const restaurantId = getAuthenticatedRestaurantId(req);
-    const canView = canUserViewCosting(req.user);
-    if (!canView) {
-      return originalJson(redactCosting(body));
-    }
-    void hasFeature(restaurantId, 'costing').then((enabled) => {
-      originalJson(enabled ? body : redactCosting(body));
-    }).catch(next);
-    return res;
+    // Menu managers need the costs they just entered, even when the separate
+    // Costing module is switched off for the business.
+    const canManageMenu = Boolean(req.user?.permissions?.includes('menu.manage'));
+    const canView = canUserViewCosting(req.user) || canManageMenu;
+    return originalJson(canView ? body : redactCosting(body));
   }) as any;
   next();
 });
@@ -116,7 +110,7 @@ router.get('/items/:id', requirePermission('menu.view'), async (req: AuthRequest
 });
 
 // Create menu item
-router.post('/items', requirePermission('menu.manage'), requireCostingWritePermission(), async (req: AuthRequest, res, next) => {
+router.post('/items', requirePermission('menu.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await menuService.createMenuItem({
@@ -130,7 +124,7 @@ router.post('/items', requirePermission('menu.manage'), requireCostingWritePermi
 });
 
 // Update menu item
-router.patch('/items/:id', requirePermission('menu.manage'), requireCostingWritePermission(), async (req: AuthRequest, res, next) => {
+router.patch('/items/:id', requirePermission('menu.manage'), async (req: AuthRequest, res, next) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const item = await menuService.updateMenuItem(req.params.id, req.body, restaurantId);
