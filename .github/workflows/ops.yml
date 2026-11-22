@@ -195,9 +195,11 @@ jobs:
                 echo "==> Migration status"
                 cd "$BACKEND"
                 npm run db:migrate:status
-                echo "==> Public menu"
-                curl -fsS -o /dev/null -w '%{http_code}\n' \
-                  https://pos.gsmpilot.com/api/public/dimlight-cafe/menu || true
+                echo "==> Tenant website config"
+                psql "${DATABASE_URL%%\?*}" -Atqc \
+                  'select slug, "websiteSlug", "isActive", "onlineOrderingEnabled" from "Restaurant" order by name limit 5'
+                echo "==> Frontend build time"
+                ls -l --time-style=long-iso "$APP_DIR/apps/frontend/dist/index.html" 2>&1 || true
                 echo "==> Git state"
                 git -C "$APP_DIR" status -sb | head -3
                 ;;
