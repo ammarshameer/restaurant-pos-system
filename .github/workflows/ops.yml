@@ -17,6 +17,7 @@ on:
           - inspect-baseline
           - recover-baseline
           - clean-git
+          - inspect-web
           - verify
 
 jobs:
@@ -188,6 +189,19 @@ jobs:
                 echo "==> Verify baseline gate"
                 npm run db:migrate:check
                 echo "==> RECOVERY COMPLETE"
+                ;;
+
+              inspect-web)
+                echo "==> Caddy config files"
+                for f in /etc/caddy/Caddyfile /etc/caddy/conf.d/* /etc/caddy/sites/*; do
+                  if [[ -f "$f" ]]; then echo "--- $f"; sed -n '1,160p' "$f"; fi
+                done
+                echo "==> nginx enabled sites"
+                for f in /etc/nginx/sites-enabled/*; do
+                  if [[ -f "$f" ]]; then echo "--- $f"; sed -n '1,160p' "$f"; fi
+                done
+                echo "==> frontend dist"
+                ls -la "$APP_DIR/apps/frontend/dist" 2>&1 | head -15
                 ;;
 
               clean-git)
