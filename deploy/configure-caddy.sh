@@ -83,12 +83,18 @@ else:
 Path(caddy_path).write_text("".join(new_lines))
 PY
 
-# cloudflare.env holds the DNS API token used by the TLS block. Load it only for
-# validation; never print it.
+# cloudflare.env holds the DNS API token used by the TLS block. The deploy user
+# may not be allowed to read it directly, so copy it into our private temp dir
+# first. Load it only for validation; never print it.
 if [[ -f /etc/caddy/cloudflare.env ]]; then
+  CADDY_ENV="$WORKDIR/cloudflare.env"
+  if ! cp /etc/caddy/cloudflare.env "$CADDY_ENV" 2>/dev/null; then
+    sudo cp /etc/caddy/cloudflare.env "$CADDY_ENV"
+    sudo chown "$(id -un)" "$CADDY_ENV"
+  fi
   set -a
-  # shellcheck disable=SC1091
-  source /etc/caddy/cloudflare.env
+  # shellcheck disable=SC1090
+  source "$CADDY_ENV"
   set +a
 fi
 
