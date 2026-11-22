@@ -17,18 +17,16 @@ jobs:
           command_timeout: 5m
           script: |
             set -uo pipefail
-            echo "== sudo / docker =="
-            sudo -n true 2>&1 && echo "sudo: passwordless OK" || echo "sudo: NOT available"
-            command -v docker || true
-            docker ps --format '{{.Names}}\t{{.Image}}\t{{.Ports}}' 2>&1 | head -30 || true
-            echo "== node paths =="
-            ls -l /home/mujeeb/.nvm/versions/node/v20.20.2/bin/node 2>&1 || true
-            ls -l /home/mujeeb/.nvm/versions/node/v24.15.0/bin/pm2 2>&1 || true
-            echo "== health =="
-            curl -fsS http://127.0.0.1:3146/health 2>&1 | head -5 || true
-            echo
-            echo "== migration status (read-only) =="
+            echo "== docker pg client =="
+            docker exec restaurant-pos-db pg_dump --version 2>&1 || true
+            echo "== connection test via docker exec (read-only) =="
             cd /var/www/restaurant-pos/apps/backend
-            PG_BIN_DIR="" npx prisma migrate status 2>&1 | head -40 || true
-            echo "== git state =="
-            git -C /var/www/restaurant-pos status -sb | head -5 || true
+            set -a
+            source .env
+            set +a
+            DUMP_URL="${DATABASE_URL%%\?*}"
+            docker exec restaurant-pos-db psql "$DUMP_URL" -tAc 'select 1' 2>&1 | head -5 || true
+            echo "== dump smoke test (schema only, first lines) =="
+            docker exec restaurant-pos-db pg_dump "$DUMP_URL" --schema-only --no-password 2>/dev/null | head -6 || true
+            echo "== migration baseline markers =="
+            docker exec restaurant-pos-db psql "$DUMP_URL" -tAc "select to_regclass('public._prisma_migrations')" 2>&1 | head -3 || true
