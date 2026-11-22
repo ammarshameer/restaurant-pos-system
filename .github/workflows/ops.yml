@@ -87,6 +87,7 @@ jobs:
 
               add-platform-admin-env)
                 cd "$BACKEND"
+                sed -i 's|^SUPER_ADMIN_NAME=.*|SUPER_ADMIN_NAME="Super Administrator"|' .env
                 if grep -q '^SUPER_ADMIN_EMAIL=' .env && grep -q '^SUPER_ADMIN_PASSWORD=' .env \
                    && grep -q '^SUPPORT_EMAIL=' .env && grep -q '^SUPPORT_PASSWORD=' .env; then
                   echo "[ops] Platform admin env vars already present; no change."
