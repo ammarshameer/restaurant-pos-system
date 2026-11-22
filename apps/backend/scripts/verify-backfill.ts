@@ -11,9 +11,10 @@ export interface BackfillReport {
 /**
  * Fail-closed report that runs after every live baseline backfill.
  *
- * It prints, per business: enabled modules, staff without a role, and unpaid
- * orders still showing amountDue = 0. Missing modules, staff without a role or
- * an active Owner are upgrade blockers.
+ * It prints, per business: enabled modules, staff without a role, unpaid orders
+ * still showing amountDue = 0, and the active Owner's address. Missing modules,
+ * staff without a role, a missing active Owner or an Owner without an address
+ * are upgrade blockers.
  */
 export async function verifyBackfilledTenants(): Promise<BackfillReport> {
   const restaurants = await prisma.restaurant.findMany({
@@ -81,7 +82,7 @@ export async function verifyBackfilledTenants(): Promise<BackfillReport> {
           { roleRecord: { is: { OR: [{ key: 'OWNER' }, { isOwnerRole: true }] } } },
         ],
       },
-      select: { id: true, firstName: true, lastName: true, email: true },
+      select: { id: true, firstName: true, lastName: true, email: true, address: true },
     });
 
     console.log(`\nBusiness: ${label}`);
@@ -108,7 +109,8 @@ export async function verifyBackfilledTenants(): Promise<BackfillReport> {
     console.log(
       `  Active Owner: ` +
         (activeOwner
-          ? `${activeOwner.firstName} ${activeOwner.lastName}${activeOwner.email ? ` <${activeOwner.email}>` : ''}`
+          ? `${activeOwner.firstName} ${activeOwner.lastName}${activeOwner.email ? ` <${activeOwner.email}>` : ''}` +
+            ` (address: ${activeOwner.address?.trim() || 'MISSING'})`
           : 'MISSING')
     );
 
@@ -120,6 +122,8 @@ export async function verifyBackfilledTenants(): Promise<BackfillReport> {
     }
     if (!activeOwner) {
       failures.push(`${label}: no active employee with the Owner role`);
+    } else if (!activeOwner.address?.trim()) {
+      failures.push(`${label}: active Owner has no address`);
     }
   }
 

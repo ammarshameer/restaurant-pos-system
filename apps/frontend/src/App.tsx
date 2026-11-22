@@ -30,7 +30,9 @@ import AnalyticsPage from './pages/AnalyticsPage';
 import DealsPage from './pages/DealsPage';
 import RolesPage from './pages/RolesPage';
 import SettingsPage from './pages/SettingsPage';
+import OwnerProfilePage from './pages/OwnerProfilePage';
 import ForbiddenPage from './pages/ForbiddenPage';
+import FeatureNotAllowedPage from './pages/FeatureNotAllowedPage';
 import CustomersPage from './pages/CustomersPage';
 import CostingPage from './pages/CostingPage';
 import DuesPage from './pages/DuesPage';
@@ -235,6 +237,10 @@ export const App: React.FC = () => {
   const canSeeEmployees = permsSet.has('employees.view');
   const canSeeRoles = permsSet.has('roles.view') || permsSet.has('roles.manage');
   const canSeeSettings = permsSet.has('settings.manage');
+  const ownerProfileAllowed =
+    user?.isOwnerRole === true &&
+    (user?.features?.includes('settings') ?? false) &&
+    permsSet.has('settings.manage');
   const canSeeAnalytics = permsSet.has('analytics.view');
   const canSeeWebsite =
     (user?.features?.includes('website') ?? true) &&
@@ -322,6 +328,8 @@ export const App: React.FC = () => {
         return '🛡️ Roles & Granular Permissions';
       case '/settings':
         return '⚙️ Business Profile & Store Settings';
+      case '/owner-profile':
+        return '👤 Owner Profile';
       case '/analytics':
         return '📊 Analytics & Sales Reports';
       case '/online-orders':
@@ -526,6 +534,16 @@ export const App: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {ownerProfileAllowed && (
+              <button
+                className="btn btn-secondary btn-sm"
+                style={{ width: '100%', justifyContent: 'center', marginBottom: '8px' }}
+                onClick={() => navigate('/owner-profile')}
+              >
+                👤 My Profile
+              </button>
+            )}
 
             <button
               className="btn btn-secondary btn-sm"
@@ -854,6 +872,18 @@ export const App: React.FC = () => {
                   <RequirePermission permissions={['settings.manage']}>
                     <SettingsPage />
                   </RequirePermission>
+                }
+              />
+              <Route
+                path="/owner-profile"
+                element={
+                  ownerProfileAllowed ? (
+                    <OwnerProfilePage />
+                  ) : user?.isOwnerRole ? (
+                    <FeatureNotAllowedPage />
+                  ) : (
+                    <Navigate to="/forbidden" replace />
+                  )
                 }
               />
               <Route

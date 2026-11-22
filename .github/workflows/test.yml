@@ -52,6 +52,10 @@ jobs:
         working-directory: apps/backend
         run: npm run db:migrate
 
+      - name: Verify schema matches checked-in migrations (scratch DB)
+        working-directory: apps/backend
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+
       - name: Seed platform accounts for acceptance tests
         working-directory: apps/backend
         run: npm run db:seed

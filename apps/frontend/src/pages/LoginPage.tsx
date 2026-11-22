@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { loginSuccess, loginFailure, clearError } from '../store/slices/authSlice';
 import { RootState } from '../store/store';
 import { api, isNetworkFailure } from '../lib/api';
@@ -9,6 +9,8 @@ import { storeSession } from '../lib/session';
 export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
+  const profileUpdated = Boolean((location.state as { profileUpdated?: boolean } | null)?.profileUpdated);
   const { error, loading } = useSelector((state: RootState) => state.auth);
 
   const [mode, setMode] = useState<'password' | 'pin'>('password');
@@ -121,6 +123,23 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
           padding: '32px',
         }}
       >
+        {profileUpdated && (
+          <div
+            style={{
+              background: 'rgba(34, 197, 94, 0.15)',
+              border: '1px solid rgba(34, 197, 94, 0.4)',
+              color: '#22c55e',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              marginBottom: '18px',
+              fontSize: '13px',
+              fontWeight: 600,
+              textAlign: 'center',
+            }}
+          >
+            ✅ Owner profile updated. Please sign in again to continue.
+          </div>
+        )}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <div
             style={{

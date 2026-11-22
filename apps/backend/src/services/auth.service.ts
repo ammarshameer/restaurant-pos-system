@@ -220,6 +220,7 @@ export class AuthService {
           roleId: ownerRoleRecord?.id || null,
           pin: hashedOwnerPin,
           phone: data.ownerPhone || data.phone || null,
+          address: data.address?.trim() || null,
           hourlyRate: 0,
           isActive: true,
         },
@@ -861,6 +862,136 @@ export class AuthService {
     } catch (error) {
       throw new Error('Invalid token');
     }
+  }
+
+  /**
+   * Owner-controlled profile details. Kept in the auth service because any
+   * change invalidates every refresh token for that employee.
+   */
+  async getOwnerProfile(employeeId: string, restaurantId: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, restaurantId, isActive: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        username: true,
+        email: true,
+        phone: true,
+        address: true,
+        restaurant: { select: { name: true, slug: true } },
+      },
+    });
+
+    if (!employee) {
+      throw new ValidationError('Owner profile not found');
+    }
+
+    return employee;
+  }
+
+  async updateOwnerProfile(
+    data: {
+      firstName?: string;
+      lastName?: string;
+      username?: string;
+      email?: string;
+      phone?: string;
+      address?: string;
+      currentPassword?: string;
+    },
+    employeeId: string,
+    restaurantId: string
+  ) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, restaurantId, isActive: true },
+      include: { roleRecord: true },
+    });
+
+    if (!employee) {
+      throw new ValidationError('Owner profile not found');
+    }
+
+    const isOwner =
+      employee.role === 'OWNER' || Boolean(employee.roleRecord?.isOwnerRole);
+    if (!isOwner) {
+      throw new ValidationError('Only the business owner can edit this profile');
+    }
+
+    if (!data.currentPassword || !(await bcrypt.compare(data.currentPassword, employee.passwordHash))) {
+      throw new ValidationError('Current password is incorrect');
+    }
+
+    const firstName = capitalizeName((data.firstName ?? employee.firstName).trim());
+    const lastName = capitalizeName((data.lastName ?? employee.lastName).trim());
+    if (!firstName || !lastName) {
+      throw new ValidationError('First name and last name are required');
+    }
+
+    const email = (data.email ?? employee.email ?? '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new ValidationError('A valid email address is required');
+    }
+
+    if (email.toLowerCase() !== (employee.email || '').toLowerCase()) {
+      const [existingPlatformUser, existingEmployee] = await Promise.all([
+        prisma.platformUser.findUnique({ where: { email } }),
+        prisma.employee.findFirst({ where: { email, id: { not: employee.id } } }),
+      ]);
+      if (existingPlatformUser || existingEmployee) {
+        throw new ValidationError('An account with this email address already exists');
+      }
+    }
+
+    const username = data.username !== undefined ? data.username.trim() || null : employee.username;
+    if (username) {
+      const existingUsername = await prisma.employee.findFirst({
+        where: { restaurantId, username, id: { not: employee.id } },
+      });
+      if (existingUsername) {
+        throw new ValidationError('This username is already in use in your business');
+      }
+    }
+
+    const phone = data.phone !== undefined ? data.phone.trim() || null : employee.phone;
+    const address = data.address !== undefined ? data.address.trim() || null : employee.address;
+    if (!address?.trim()) {
+      throw new ValidationError('Address is required');
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const profile = await tx.employee.update({
+        where: { id: employee.id },
+        data: {
+          firstName,
+          lastName,
+          email,
+          username,
+          phone,
+          address,
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          username: true,
+          email: true,
+          phone: true,
+          address: true,
+          restaurant: { select: { name: true, slug: true } },
+        },
+      });
+
+      // Security: a profile change signs out every session for this owner.
+      await tx.refreshToken.deleteMany({ where: { employeeId: employee.id } });
+      return profile;
+    });
+
+    return {
+      profile: updated,
+      requiresRelogin: true,
+      message: 'Profile updated. Please sign in again to continue.',
+    };
   }
 
   private generateTokens(payload: {

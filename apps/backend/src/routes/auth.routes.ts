@@ -1,6 +1,12 @@
-import { Router } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import { AuthService } from '../services/auth.service';
+import {
+  AuthRequest,
+  authenticate,
+  getAuthenticatedRestaurantId,
+  requirePermission,
+} from '../middleware/auth';
 
 const router = Router();
 const authService = new AuthService();
@@ -27,6 +33,22 @@ const onboardRateLimiter = rateLimit({
     code: 'RATE_LIMIT_EXCEEDED',
   },
 });
+
+function requireOwner(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  if (req.user.supportMode) {
+    return res.status(403).json({ error: 'Owner profile is not available in support mode' });
+  }
+  if (!req.user.isOwnerRole && req.user.role !== 'OWNER') {
+    return res.status(403).json({ error: 'Only the business owner can manage this profile' });
+  }
+  if (!req.user.features?.includes('settings')) {
+    return res.status(403).json({ error: 'This feature is not allowed for your business.' });
+  }
+  return next();
+}
 
 // Multi-tenant Onboarding: Disabled by default. Platform Super Admin creates businesses.
 router.post('/onboard', onboardRateLimiter, async (req, res, next) => {
@@ -155,6 +177,47 @@ router.post('/logout', async (req, res, next) => {
     next(error);
   }
 });
+
+// Owner-controlled profile (name, login details, contact details)
+router.get(
+  '/profile',
+  authenticate,
+  requireOwner,
+  requirePermission('settings.manage'),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const restaurantId = getAuthenticatedRestaurantId(req);
+      const profile = await authService.getOwnerProfile(req.user!.id, restaurantId);
+      res.json(profile);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Any successful profile change revokes all refresh tokens for this owner.
+router.patch(
+  '/profile',
+  authenticate,
+  requireOwner,
+  requirePermission('settings.manage'),
+  authRateLimiter,
+  async (req: AuthRequest, res, next) => {
+    try {
+      const restaurantId = getAuthenticatedRestaurantId(req);
+      const result = await authService.updateOwnerProfile(
+        req.body || {},
+        req.user!.id,
+        restaurantId
+      );
+      res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({
+        error: error.message || 'Failed to update owner profile',
+      });
+    }
+  }
+);
 
 // Verify token
 router.get('/verify', async (req, res, next) => {

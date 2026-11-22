@@ -90,6 +90,9 @@ jobs:
             echo "==> Database: apply checked-in PostgreSQL migrations"
             npm run db:migrate
 
+            echo "==> Database: idempotent owner-profile backfill + fail-closed check"
+            npm run db:backfill:owner-address
+
             echo "==> Frontend: install and build (VITE_API_URL from apps/frontend/.env)"
             cd "$APP_DIR/apps/frontend"
             npm ci

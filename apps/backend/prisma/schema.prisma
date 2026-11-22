@@ -140,6 +140,7 @@ model Employee {
   email            String?  @unique
   username         String?
   phone            String?
+  address          String?
   role             String   @default("SERVER")
   roleId           String?
   pin              String

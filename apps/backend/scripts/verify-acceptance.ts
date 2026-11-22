@@ -3131,14 +3131,77 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
-    // TEST 60: Verification Summary
+    // TEST 60: Owner self-service profile edit forces a fresh login
+    // ------------------------------------------------------------------------
+    const profileOwnerEmail = starterRestRes.data?.owner?.email;
+    const profileLoginRes = await request('/auth/login', {
+      method: 'POST',
+      body: { email: profileOwnerEmail, password: 'StarterPassword123!' },
+    });
+    const profileToken = profileLoginRes.data?.accessToken;
+    const oldRefreshToken = profileLoginRes.data?.refreshToken;
+
+    const profileBeforeRes = await request('/auth/profile', { token: profileToken });
+    const profileUpdateRes = await request('/auth/profile', {
+      method: 'PATCH',
+      token: profileToken,
+      body: {
+        firstName: 'Updated',
+        lastName: 'Owner',
+        email: profileOwnerEmail,
+        phone: '+92 300 9990000',
+        address: '77 New Street',
+        currentPassword: 'StarterPassword123!',
+      },
+    });
+
+    // The old refresh token must no longer be usable after a profile change.
+    const staleRefreshRes = await request('/auth/refresh', {
+      method: 'POST',
+      body: { refreshToken: oldRefreshToken },
+    });
+
+    const freshLoginRes = await request('/auth/login', {
+      method: 'POST',
+      body: { email: profileOwnerEmail, password: 'StarterPassword123!' },
+    });
+    const profileAfterRes = await request('/auth/profile', {
+      token: freshLoginRes.data?.accessToken,
+    });
+
+    const ownerRow = await prisma.employee.findFirst({
+      where: { email: profileOwnerEmail },
+      select: { firstName: true, lastName: true, phone: true, address: true },
+    });
+
+    const test60Pass =
+      profileBeforeRes.status === 200 &&
+      profileUpdateRes.status === 200 &&
+      profileUpdateRes.data?.requiresRelogin === true &&
+      staleRefreshRes.status === 401 &&
+      freshLoginRes.status === 200 &&
+      freshLoginRes.data?.user?.firstName === 'UPDATED' &&
+      profileAfterRes.status === 200 &&
+      profileAfterRes.data?.phone === '+92 300 9990000' &&
+      profileAfterRes.data?.address === '77 New Street' &&
+      ownerRow?.address === '77 New Street';
+
+    logTest(
+      60,
+      'Owner profile edit updates contact details and forces re-authentication',
+      test60Pass,
+      `GET before: ${profileBeforeRes.status}, PATCH: ${profileUpdateRes.status}, stale refresh: ${staleRefreshRes.status}, relogin: ${freshLoginRes.status}, stored address: ${ownerRow?.address || 'missing'}`
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 61: Verification Summary
     // ------------------------------------------------------------------------
     const passedCount = results.filter((r) => r.passed).length;
     logTest(
-      60,
+      61,
       'All Acceptance Verification Criteria Met',
-      passedCount === 59,
-      `Passed ${passedCount} / 59 criteria (100% test pass rate)`
+      passedCount === 60,
+      `Passed ${passedCount} / 60 criteria (100% test pass rate)`
     );
 
   } catch (err: any) {

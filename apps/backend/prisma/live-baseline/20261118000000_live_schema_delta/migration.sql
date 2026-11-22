@@ -9,7 +9,8 @@
 -- scripts/baseline-live-db.sh, then mark the normal migrations as applied.
 --
 -- AlterTable
-ALTER TABLE "Employee" ADD COLUMN     "dailyRate" DOUBLE PRECISION DEFAULT 0,
+ALTER TABLE "Employee" ADD COLUMN     "address" TEXT,
+ADD COLUMN     "dailyRate" DOUBLE PRECISION DEFAULT 0,
 ADD COLUMN     "monthlySalary" DOUBLE PRECISION DEFAULT 0,
 ADD COLUMN     "overtimeEligible" BOOLEAN NOT NULL DEFAULT true,
 ADD COLUMN     "roleId" TEXT,
