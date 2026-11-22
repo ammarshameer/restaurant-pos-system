@@ -256,6 +256,7 @@ sudo ufw status
 - `PM2_BIN` → full path to `pm2`
 - `HEALTH_PORT` → backend port (default `3000`; must match the server `.env`)
 - `APP_DIR` → app checkout (default `/var/www/restaurant-pos`)
+- `PG_BIN_DIR` → optional; directory containing `pg_dump`/`psql` (auto-detected under `/usr/lib/postgresql/*/bin` when omitted)
 
 > **Branch protection:** require the **Test (PostgreSQL)** status check for `main`. The deploy workflow already waits for it, but the required check prevents a bypass via direct push or admin override.
 

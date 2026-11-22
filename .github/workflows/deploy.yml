@@ -52,6 +52,22 @@ jobs:
             fi
             export PATH="${NODE_BIN_DIR}:$(dirname "$PM2_BIN"):${PATH}"
 
+            # PostgreSQL client tools (pg_dump/psql) are often installed outside
+            # the default PATH on Ubuntu, e.g. /usr/lib/postgresql/16/bin.
+            PG_BIN_DIR="${PG_BIN_DIR:-${{ vars.PG_BIN_DIR }}}"
+            if [[ -z "$PG_BIN_DIR" ]]; then
+              for candidate in /usr/lib/postgresql/16/bin /usr/lib/postgresql/15/bin \
+                               /usr/lib/postgresql/14/bin /usr/lib/postgresql/13/bin; do
+                if [[ -x "$candidate/pg_dump" ]]; then
+                  PG_BIN_DIR="$candidate"
+                  break
+                fi
+              done
+            fi
+            if [[ -n "$PG_BIN_DIR" && -x "$PG_BIN_DIR/pg_dump" ]]; then
+              export PATH="${PG_BIN_DIR}:${PATH}"
+            fi
+
             cd "$APP_DIR"
 
             echo "==> Fetching tested commit ${{ github.event.workflow_run.head_sha }}"
