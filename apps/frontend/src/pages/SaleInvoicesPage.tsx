@@ -292,6 +292,16 @@ export const SaleInvoicesPage: React.FC = () => {
   const editServiceCharge = isEditDineIn ? Math.max(0, editServiceChargeAmount) : 0;
   const editDeliveryCharge = isEditDelivery ? Math.max(0, editDeliveryChargeAmount) : 0;
   const editTotal = +(editSubtotal + editTax + editServiceCharge + editDeliveryCharge).toFixed(2);
+  const editPaidAmount =
+    editPaymentStatus === 'PAID'
+      ? editTotal
+      : editPaymentStatus === 'PARTIAL'
+      ? Math.min(Number(editingOrder?.totalPaid || 0), editTotal)
+      : 0;
+  const editRemainingAmount =
+    editPaymentStatus === 'UNPAID'
+      ? editTotal
+      : Math.max(0, +(editTotal - editPaidAmount).toFixed(2));
 
   const handleSaveInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -326,18 +336,8 @@ export const SaleInvoicesPage: React.FC = () => {
       tax: isEditDineIn ? editTax : 0,
       taxRate: isEditDineIn ? editTaxRate : 0,
       total: editTotal,
-      totalPaid:
-        editPaymentStatus === 'PAID'
-          ? editTotal
-          : editPaymentStatus === 'PARTIAL'
-          ? Math.min(editingOrder.totalPaid || 0, editTotal)
-          : 0,
-      amountDue:
-        editPaymentStatus === 'PAID'
-          ? 0
-          : editPaymentStatus === 'PARTIAL'
-          ? Math.max(0, +(editTotal - Math.min(editingOrder.totalPaid || 0, editTotal)).toFixed(2))
-          : editTotal,
+      totalPaid: editPaidAmount,
+      amountDue: editRemainingAmount,
       status: editPaymentStatus === 'PAID' ? 'paid' : editingOrder.status,
     };
 
@@ -448,27 +448,6 @@ export const SaleInvoicesPage: React.FC = () => {
       >
         ⏳ UNPAID
       </span>
-    );
-  };
-
-  const renderPaymentCell = (order: Order) => {
-    const paid = getPaidAmount(order);
-    const due = getDueAmount(order);
-
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
-        {renderPaymentBadge(order)}
-        {paid > 0 && (
-          <div style={{ fontSize: '11px', color: '#34d399', whiteSpace: 'nowrap' }}>
-            Paid: <strong>{formatPKR(paid)}</strong>
-          </div>
-        )}
-        {due > 0.01 && (
-          <div style={{ fontSize: '11px', color: '#f87171', whiteSpace: 'nowrap' }}>
-            Remaining: <strong>{formatPKR(due)}</strong>
-          </div>
-        )}
-      </div>
     );
   };
 
@@ -718,7 +697,7 @@ export const SaleInvoicesPage: React.FC = () => {
                         {formatPKR(order.total)}
                       </span>
                     </td>
-                    <td>{renderPaymentCell(order)}</td>
+                    <td>{renderPaymentBadge(order)}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
                         <button
@@ -1227,6 +1206,34 @@ export const SaleInvoicesPage: React.FC = () => {
                   >
                     <span>Recalculated Total</span>
                     <span>{formatPKR(editTotal)}</span>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      color: '#34d399',
+                      marginTop: '8px',
+                    }}
+                  >
+                    <span>Amount Paid</span>
+                    <span>{formatPKR(editPaidAmount)}</span>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      color: '#f87171',
+                      marginTop: '4px',
+                    }}
+                  >
+                    <span>Remaining Amount</span>
+                    <span>{formatPKR(editRemainingAmount)}</span>
                   </div>
                 </div>
               </div>
