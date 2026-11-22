@@ -25,7 +25,8 @@
     "db:verify:backfill": "tsx scripts/verify-backfill.ts",
     "db:studio": "prisma studio",
     "db:backup": "bash scripts/backup-postgres.sh",
-    "db:restore": "bash scripts/restore-postgres.sh"
+    "db:restore": "bash scripts/restore-postgres.sh",
+    "db:set-platform-password": "tsx scripts/set-platform-password.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.10.2",

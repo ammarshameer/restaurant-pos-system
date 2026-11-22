@@ -10,6 +10,7 @@ on:
         options:
           - add-jwt-platform-secret
           - add-platform-admin-env
+          - set-super-admin-password
           - rehearse-baseline
           - baseline-live
           - install-pg-client
@@ -114,6 +115,31 @@ jobs:
                   chmod 600 .env
                   echo "[ops] Added platform admin env vars; passwords stored in .env (not printed)."
                 fi
+                ;;
+
+              set-super-admin-password)
+                cd "$BACKEND"
+                SA_EMAIL='superadmin@restaurantpos.com'
+                SA_PASS='SuperAdmin123!'
+                upsert_env() {
+                  key="$1"
+                  value="$2"
+                  if grep -q "^${key}=" .env; then
+                    sed -i "s|^${key}=.*|${key}=${value}|" .env
+                  else
+                    printf '%s=%s\n' "$key" "$value" >> .env
+                  fi
+                }
+                upsert_env SUPER_ADMIN_NAME '"Super Administrator"'
+                upsert_env SUPER_ADMIN_EMAIL "$SA_EMAIL"
+                upsert_env SUPER_ADMIN_PASSWORD "'$SA_PASS'"
+                chmod 600 .env
+                PLATFORM_USER_EMAIL="$SA_EMAIL" \
+                PLATFORM_USER_PASSWORD="$SA_PASS" \
+                PLATFORM_USER_ROLE='SUPER_ADMIN' \
+                PLATFORM_USER_NAME='Super Administrator' \
+                  npm run db:set-platform-password
+                echo "[ops] Super-admin password updated (value not printed)."
                 ;;
 
               rehearse-baseline)
