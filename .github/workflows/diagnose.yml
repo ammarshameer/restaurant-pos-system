@@ -17,16 +17,11 @@ jobs:
           command_timeout: 5m
           script: |
             set -uo pipefail
-            echo "== docker pg client =="
-            docker exec restaurant-pos-db pg_dump --version 2>&1 || true
-            echo "== connection test via docker exec (read-only) =="
-            cd /var/www/restaurant-pos/apps/backend
-            set -a
-            source .env
-            set +a
-            DUMP_URL="${DATABASE_URL%%\?*}"
-            docker exec restaurant-pos-db psql "$DUMP_URL" -tAc 'select 1' 2>&1 | head -5 || true
-            echo "== dump smoke test (schema only, first lines) =="
-            docker exec restaurant-pos-db pg_dump "$DUMP_URL" --schema-only --no-password 2>/dev/null | head -6 || true
-            echo "== migration baseline markers =="
-            docker exec restaurant-pos-db psql "$DUMP_URL" -tAc "select to_regclass('public._prisma_migrations')" 2>&1 | head -3 || true
+            echo "== backend env key/value lengths (no values) =="
+            awk -F= '/^[A-Za-z_]/ { print $1, length($0)-length($1)-1 }' /var/www/restaurant-pos/apps/backend/.env 2>&1 || true
+            echo "== frontend env =="
+            cat /var/www/restaurant-pos/apps/frontend/.env 2>&1 || true
+            echo "== backup config =="
+            ls -ld /var/backups/restaurant-pos 2>&1 || true
+            echo "== disk =="
+            df -h /var/backups /var/www 2>&1 | head -10 || true

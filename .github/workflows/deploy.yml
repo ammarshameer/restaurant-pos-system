@@ -52,29 +52,23 @@ jobs:
             fi
             export PATH="${NODE_BIN_DIR}:$(dirname "$PM2_BIN"):${PATH}"
 
-            # PostgreSQL client tools (pg_dump/psql) are often installed outside
-            # the default PATH on Ubuntu, e.g. /usr/lib/postgresql/16/bin.
-            PG_BIN_DIR="${PG_BIN_DIR:-${{ vars.PG_BIN_DIR }}}"
-            if [[ -z "$PG_BIN_DIR" ]]; then
-              if command -v pg_dump >/dev/null 2>&1; then
-                PG_BIN_DIR="$(dirname "$(command -v pg_dump)")"
-              else
-                for candidate in /usr/lib/postgresql/*/bin /usr/pgsql-*/bin \
-                                 /opt/postgresql/*/bin /usr/local/pgsql/bin; do
-                  if [[ -x "$candidate/pg_dump" ]]; then
-                    PG_BIN_DIR="$candidate"
-                    break
-                  fi
-                done
-              fi
+            # PostgreSQL runs in the restaurant-pos-db Docker container and the
+            # host has no pg_dump/psql installed. Expose thin wrappers on PATH
+            # so backup/restore/baseline scripts use the server's own PG 16 tools.
+            DB_CONTAINER="${DB_CONTAINER:-restaurant-pos-db}"
+            if ! command -v pg_dump >/dev/null 2>&1; then
+              echo "[deploy] Exposing pg_dump from container $DB_CONTAINER"
+              printf '%s\n' '#!/usr/bin/env bash' \
+                "exec docker exec $DB_CONTAINER pg_dump \"\$@\"" \
+                | sudo tee /usr/local/bin/pg_dump >/dev/null
+              sudo chmod 0755 /usr/local/bin/pg_dump
             fi
-            if [[ -n "$PG_BIN_DIR" && -x "$PG_BIN_DIR/pg_dump" ]]; then
-              export PATH="${PG_BIN_DIR}:${PATH}"
-            else
-              echo "[deploy] ERROR: pg_dump not found. Searched PATH and:" >&2
-              ls -d /usr/lib/postgresql/*/bin 2>/dev/null >&2 || true
-              echo "[deploy] Install client tools with: sudo apt-get install -y postgresql-client" >&2
-              exit 1
+            if ! command -v psql >/dev/null 2>&1; then
+              echo "[deploy] Exposing psql from container $DB_CONTAINER"
+              printf '%s\n' '#!/usr/bin/env bash' \
+                "exec docker exec $DB_CONTAINER psql \"\$@\"" \
+                | sudo tee /usr/local/bin/psql >/dev/null
+              sudo chmod 0755 /usr/local/bin/psql
             fi
 
             cd "$APP_DIR"
