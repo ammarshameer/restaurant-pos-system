@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           - add-jwt-platform-secret
+          - add-platform-admin-env
           - rehearse-baseline
           - baseline-live
           - install-pg-client
@@ -84,6 +85,26 @@ jobs:
                 fi
                 ;;
 
+              add-platform-admin-env)
+                cd "$BACKEND"
+                if grep -q '^SUPER_ADMIN_EMAIL=' .env && grep -q '^SUPER_ADMIN_PASSWORD=' .env \
+                   && grep -q '^SUPPORT_EMAIL=' .env && grep -q '^SUPPORT_PASSWORD=' .env; then
+                  echo "[ops] Platform admin env vars already present; no change."
+                else
+                  SA_PASS="$(openssl rand -hex 24)"
+                  SU_PASS="$(openssl rand -hex 24)"
+                  {
+                    printf '\nSUPER_ADMIN_NAME=Super Administrator\n'
+                    printf 'SUPER_ADMIN_EMAIL=superadmin@restaurantpos.com\n'
+                    printf 'SUPER_ADMIN_PASSWORD=%s\n' "$SA_PASS"
+                    printf 'SUPPORT_EMAIL=support@restaurantpos.com\n'
+                    printf 'SUPPORT_PASSWORD=%s\n' "$SU_PASS"
+                  } >> .env
+                  chmod 600 .env
+                  echo "[ops] Added platform admin env vars; passwords stored in .env (not printed)."
+                fi
+                ;;
+
               rehearse-baseline)
                 cd "$BACKEND"
                 echo "==> Fresh backup of live (read-only on live DB)"
@@ -96,8 +117,10 @@ jobs:
                 ENV_FILE="$BACKEND/.env" RESTORE_DATABASE_URL="$SCRATCH_URL" \
                   npm run db:restore -- "$BACKUP"
 
-                export ENV_FILE=/dev/null
-                export DATABASE_URL="$SCRATCH_URL"
+                SCRATCH_ENV="/tmp/restaurant-pos-rehearsal.env"
+                cp "$BACKEND/.env" "$SCRATCH_ENV"
+                sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$SCRATCH_URL|" "$SCRATCH_ENV"
+                export ENV_FILE="$SCRATCH_ENV"
                 export LIVE_BASELINE_CONFIRMED=yes
                 echo "==> Baseline + backfill on scratch"
                 npm run db:migrate:baseline
