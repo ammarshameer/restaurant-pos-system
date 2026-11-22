@@ -15,6 +15,7 @@ on:
           - baseline-live
           - install-pg-client
           - inspect-db
+          - inspect-inventory
           - inspect-baseline
           - recover-baseline
           - clean-git
@@ -187,6 +188,15 @@ jobs:
                 echo "==> Databases"
                 docker exec "$DB_CONTAINER" sh -c \
                   'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "select datname from pg_database order by 1"'
+                ;;
+
+              inspect-inventory)
+                echo "==> Restaurants"
+                psql "${DATABASE_URL%%\?*}" -Atqc \
+                  'select id, name, slug from "Restaurant" order by name'
+                echo "==> Recent inventory items"
+                psql "${DATABASE_URL%%\?*}" -Atqc \
+                  'select r.name, i.name, coalesce(i.sku, \'\'), coalesce(i.category, \'\'), i.quantity, i."createdAt" from "InventoryItem" i join "Restaurant" r on r.id = i."restaurantId" order by i."createdAt" desc limit 20'
                 ;;
 
               inspect-baseline)
