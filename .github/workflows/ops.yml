@@ -55,10 +55,8 @@ jobs:
               BASE_URL="$(cd "$BACKEND" && set -a && source .env && set +a && printf '%s' "${DATABASE_URL%%\?*}")"
               SCRATCH_URL="${BASE_URL%/*}/$SCRATCH_DB?schema=public"
               echo "[ops] DATABASE_URL=$SCRATCH_URL"
-              docker exec "$DB_CONTAINER" psql -U postgres -d postgres \
-                -c "DROP DATABASE IF EXISTS $SCRATCH_DB;"
-              docker exec "$DB_CONTAINER" psql -U postgres -d postgres \
-                -c "CREATE DATABASE $SCRATCH_DB;"
+              psql "$BASE_URL" -c "DROP DATABASE IF EXISTS $SCRATCH_DB;" >/dev/null
+              psql "$BASE_URL" -c "CREATE DATABASE $SCRATCH_DB;" >/dev/null
               printf '%s\n' "$SCRATCH_URL"
             }
 
