@@ -71,6 +71,10 @@ jobs:
               sudo chmod 0755 /usr/local/bin/psql
             fi
 
+            # The backup directory is created by root during initial setup.
+            sudo mkdir -p /var/backups/restaurant-pos
+            sudo chown "$(id -un):$(id -gn)" /var/backups/restaurant-pos
+
             cd "$APP_DIR"
 
             echo "==> Fetching tested commit ${{ github.event.workflow_run.head_sha }}"

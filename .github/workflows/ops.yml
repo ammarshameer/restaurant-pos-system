@@ -1,0 +1,130 @@
+name: VPS ops (controlled)
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Task to run
+        required: true
+        type: choice
+        options:
+          - add-jwt-platform-secret
+          - rehearse-baseline
+          - baseline-live
+          - verify
+
+jobs:
+  ops:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run selected task over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ vars.SERVER_PORT || 22 }}
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+
+            TASK="${{ inputs.task }}"
+            APP_DIR="/var/www/restaurant-pos"
+            BACKEND="$APP_DIR/apps/backend"
+            DB_CONTAINER="restaurant-pos-db"
+            SCRATCH_DB="restaurant_pos_rehearsal"
+
+            # Expose the PostgreSQL 16 clients from the running container.
+            if ! command -v pg_dump >/dev/null 2>&1; then
+              printf '%s\n' '#!/usr/bin/env bash' \
+                "exec docker exec $DB_CONTAINER pg_dump \"\$@\"" \
+                | sudo tee /usr/local/bin/pg_dump >/dev/null
+              sudo chmod 0755 /usr/local/bin/pg_dump
+            fi
+            if ! command -v psql >/dev/null 2>&1; then
+              printf '%s\n' '#!/usr/bin/env bash' \
+                "exec docker exec $DB_CONTAINER psql \"\$@\"" \
+                | sudo tee /usr/local/bin/psql >/dev/null
+              sudo chmod 0755 /usr/local/bin/psql
+            fi
+            sudo mkdir -p /var/backups/restaurant-pos
+            sudo chown "$(id -un):$(id -gn)" /var/backups/restaurant-pos
+
+            setup_scratch() {
+              BASE_URL="$(cd "$BACKEND" && set -a && source .env && set +a && printf '%s' "${DATABASE_URL%%\?*}")"
+              SCRATCH_URL="${BASE_URL%/*}/$SCRATCH_DB?schema=public"
+              echo "[ops] DATABASE_URL=$SCRATCH_URL"
+              docker exec "$DB_CONTAINER" psql -U postgres -d postgres \
+                -c "DROP DATABASE IF EXISTS $SCRATCH_DB;"
+              docker exec "$DB_CONTAINER" psql -U postgres -d postgres \
+                -c "CREATE DATABASE $SCRATCH_DB;"
+              printf '%s\n' "$SCRATCH_URL"
+            }
+
+            case "$TASK" in
+              add-jwt-platform-secret)
+                cd "$BACKEND"
+                if grep -q '^JWT_PLATFORM_SECRET=' .env; then
+                  echo "[ops] JWT_PLATFORM_SECRET already present; no change."
+                else
+                  SECRET="$(openssl rand -hex 48)"
+                  printf '\nJWT_PLATFORM_SECRET=%s\n' "$SECRET" >> .env
+                  chmod 600 .env
+                  echo "[ops] Added JWT_PLATFORM_SECRET (96 hex chars)."
+                fi
+                ;;
+
+              rehearse-baseline)
+                cd "$BACKEND"
+                echo "==> Fresh backup of live (read-only on live DB)"
+                npm run db:backup
+                BACKUP="$(ls -1t /var/backups/restaurant-pos/restaurant-pos-*.sql.gz | head -1)"
+                echo "[ops] Using backup: $BACKUP"
+
+                echo "==> Rehearsal on scratch database"
+                SCRATCH_URL="$(setup_scratch | tail -1)"
+                ENV_FILE="$BACKEND/.env" RESTORE_DATABASE_URL="$SCRATCH_URL" \
+                  npm run db:restore -- "$BACKUP"
+
+                export ENV_FILE=/dev/null
+                export DATABASE_URL="$SCRATCH_URL"
+                export LIVE_BASELINE_CONFIRMED=yes
+                echo "==> Baseline + backfill on scratch"
+                npm run db:migrate:baseline
+                npm run db:migrate:check
+                echo "==> Backfill report on scratch"
+                npm run db:backfill:all
+                echo "==> Rehearsal PASSED (scratch database left for inspection)"
+                ;;
+
+              baseline-live)
+                cd "$BACKEND"
+                echo "==> Final backup of live before baseline"
+                npm run db:backup
+                echo "==> One-time live baseline + mandatory backfill"
+                LIVE_BASELINE_CONFIRMED=yes npm run db:migrate:baseline
+                echo "==> Verify live baseline gate"
+                npm run db:migrate:check
+                echo "==> Re-run idempotent backfill on live"
+                npm run db:backfill:all
+                echo "==> LIVE BASELINE COMPLETE"
+                ;;
+
+              verify)
+                echo "==> Health"
+                curl -fsS http://127.0.0.1:3146/health; echo
+                echo "==> Migration status"
+                cd "$BACKEND"
+                npm run db:migrate:status
+                echo "==> Public menu"
+                curl -fsS -o /dev/null -w '%{http_code}\n' \
+                  https://pos.gsmpilot.com/api/public/dimlight-cafe/menu || true
+                echo "==> Git state"
+                git -C "$APP_DIR" status -sb | head -3
+                ;;
+
+              *)
+                echo "Unknown task: $TASK" >&2
+                exit 1
+                ;;
+            esac
