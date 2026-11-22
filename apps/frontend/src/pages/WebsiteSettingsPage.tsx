@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { webordersApi, WebsiteSettings, OpeningHours } from '../api/weborders.api';
 import { compressImageFile } from '../utils/image';
+import ForbiddenPage from './ForbiddenPage';
 
 const DAYS: Array<{ key: keyof OpeningHours; label: string }> = [
   { key: 'mon', label: 'Monday' },
@@ -62,6 +63,7 @@ export const WebsiteSettingsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [featureBlocked, setFeatureBlocked] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -108,7 +110,11 @@ export const WebsiteSettingsPage: React.FC = () => {
       setMinOrder(String(data.websiteMinOrder ?? 0));
       setPaymentNote(data.websitePaymentNote || '');
     } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || 'Failed to load website settings');
+      if (e?.response?.data?.code === 'FEATURE_NOT_ENABLED') {
+        setFeatureBlocked(true);
+      } else {
+        setError(e?.response?.data?.error || e?.message || 'Failed to load website settings');
+      }
     } finally {
       setLoading(false);
     }
@@ -202,6 +208,10 @@ export const WebsiteSettingsPage: React.FC = () => {
         <div className="card">Loading website settings…</div>
       </div>
     );
+  }
+
+  if (featureBlocked) {
+    return <ForbiddenPage />;
   }
 
   return (

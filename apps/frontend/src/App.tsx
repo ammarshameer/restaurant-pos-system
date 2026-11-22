@@ -791,9 +791,11 @@ export const App: React.FC = () => {
               <Route
                 path="/website-settings"
                 element={
-                  <RequirePermission permissions={['website.settings']}>
-                    <WebsiteSettingsPage />
-                  </RequirePermission>
+                  <RequireFeature feature="website">
+                    <RequirePermission permissions={['website.settings']}>
+                      <WebsiteSettingsPage />
+                    </RequirePermission>
+                  </RequireFeature>
                 }
               />
               <Route
