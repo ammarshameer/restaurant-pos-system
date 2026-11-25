@@ -10,6 +10,10 @@ import {
   disconnectOwnerAddressDb,
 } from './backfill-owner-address';
 import {
+  backfillOwnerLogo,
+  disconnectOwnerLogoDb,
+} from './backfill-owner-logo';
+import {
   verifyBackfilledTenants,
   disconnectBackfillVerifyDb,
 } from '../scripts/verify-backfill';
@@ -31,6 +35,9 @@ export async function runFullBackfill() {
   console.log('\n=== Restoring Owner Profile addresses ===');
   const ownerAddressesUpdated = await backfillOwnerAddress();
 
+  console.log('\n=== Restoring Owner Profile logos ===');
+  const ownerLogosUpdated = await backfillOwnerLogo();
+
   const report = await verifyBackfilledTenants();
 
   console.log('=============================================');
@@ -41,6 +48,7 @@ export async function runFullBackfill() {
   console.log(`- Costing rows created (disabled):   ${features.costingRowsCreated}`);
   console.log(`- Order balances repaired:           ${ordersUpdated}`);
   console.log(`- Owner addresses restored:          ${ownerAddressesUpdated}`);
+  console.log(`- Owner logos restored:              ${ownerLogosUpdated}`);
   console.log(`- Verification failures:             ${report.failures.length}`);
   console.log('=============================================\n');
 
@@ -66,6 +74,7 @@ export async function disconnectFullBackfillClients(): Promise<void> {
     disconnectMultiTenantDb(),
     disconnectAmountDueDb(),
     disconnectOwnerAddressDb(),
+    disconnectOwnerLogoDb(),
     disconnectBackfillVerifyDb(),
   ]);
 }

@@ -16,6 +16,7 @@ export interface AuthenticatedUser {
   restaurantId: string;
   firstName?: string;
   lastName?: string;
+  logoUrl?: string | null;
   permissions?: string[];
   features?: FeatureKey[];
   themePalette?: string;
@@ -160,6 +161,7 @@ export async function resolveTenantSession(token: string): Promise<Authenticated
     restaurantId: dbEmp.restaurantId, // Derived strictly from DB employee row
     firstName: dbEmp.firstName,
     lastName: dbEmp.lastName,
+    logoUrl: dbEmp.logoUrl,
     permissions: effectivePermissions,
     features: enabledFeatures,
     themePalette: dbEmp.restaurant?.themePalette || 'espresso',

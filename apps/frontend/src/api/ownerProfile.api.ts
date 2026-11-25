@@ -8,9 +8,11 @@ export interface OwnerProfile {
   email: string;
   phone?: string | null;
   address?: string | null;
+  logoUrl?: string | null;
   restaurant?: {
     name: string;
     slug?: string | null;
+    logoUrl?: string | null;
   };
 }
 
@@ -21,6 +23,8 @@ export interface OwnerProfileUpdate {
   email: string;
   phone: string;
   address: string;
+  logoUrl?: string | null;
+  businessLogoUrl?: string | null;
   currentPassword: string;
 }
 

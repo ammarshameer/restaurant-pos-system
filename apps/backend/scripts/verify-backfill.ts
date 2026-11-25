@@ -82,7 +82,15 @@ export async function verifyBackfilledTenants(): Promise<BackfillReport> {
           { roleRecord: { is: { OR: [{ key: 'OWNER' }, { isOwnerRole: true }] } } },
         ],
       },
-      select: { id: true, firstName: true, lastName: true, email: true, address: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        address: true,
+        logoUrl: true,
+        restaurant: { select: { logoUrl: true } },
+      },
     });
 
     console.log(`\nBusiness: ${label}`);
@@ -106,11 +114,14 @@ export async function verifyBackfilledTenants(): Promise<BackfillReport> {
               .join('; ')
           : '(none)')
     );
+    const ownerLogo = activeOwner?.logoUrl?.trim();
+    const businessLogo = activeOwner?.restaurant?.logoUrl?.trim();
     console.log(
       `  Active Owner: ` +
         (activeOwner
           ? `${activeOwner.firstName} ${activeOwner.lastName}${activeOwner.email ? ` <${activeOwner.email}>` : ''}` +
-            ` (address: ${activeOwner.address?.trim() || 'MISSING'})`
+            ` (address: ${activeOwner.address?.trim() || 'MISSING'}, ` +
+            `logo: ${ownerLogo ? 'SET' : businessLogo ? 'MISSING (business logo available)' : 'MISSING (no business logo)'})`
           : 'MISSING')
     );
 
@@ -124,6 +135,8 @@ export async function verifyBackfilledTenants(): Promise<BackfillReport> {
       failures.push(`${label}: no active employee with the Owner role`);
     } else if (!activeOwner.address?.trim()) {
       failures.push(`${label}: active Owner has no address`);
+    } else if (businessLogo && !ownerLogo) {
+      failures.push(`${label}: active Owner has no profile logo while a business logo exists`);
     }
   }
 

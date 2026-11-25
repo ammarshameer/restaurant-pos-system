@@ -6,6 +6,7 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
+  logoUrl?: string | null;
   role: string;
   roleId?: string;
   roleName?: string;

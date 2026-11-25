@@ -141,6 +141,7 @@ model Employee {
   username         String?
   phone            String?
   address          String?
+  logoUrl          String?
   role             String   @default("SERVER")
   roleId           String?
   pin              String

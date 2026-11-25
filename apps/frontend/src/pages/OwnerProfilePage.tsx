@@ -5,6 +5,7 @@ import { logout } from '../store/slices/authSlice';
 import { clearSession } from '../lib/session';
 import { socketClient } from '../lib/socket';
 import { ownerProfileApi } from '../api/ownerProfile.api';
+import { compressImageFile } from '../utils/image';
 
 const fieldStyle: React.CSSProperties = {
   width: '100%',
@@ -22,6 +23,124 @@ const labelStyle: React.CSSProperties = {
   marginBottom: '6px',
 };
 
+interface LogoPickerProps {
+  title: string;
+  description: string;
+  value: string | null;
+  emptyLabel: string;
+  onChange: (value: string | null) => void;
+  onError: (message: string | null) => void;
+}
+
+const LogoPicker: React.FC<LogoPickerProps> = ({
+  title,
+  description,
+  value,
+  emptyLabel,
+  onChange,
+  onError,
+}) => {
+  const handleFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.target;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
+      onError('SVG files are not permitted for security reasons. Please use PNG, JPEG, or WebP.');
+      input.value = '';
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      onError('Logo image must be smaller than 2MB.');
+      input.value = '';
+      return;
+    }
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      onError('Only PNG, JPEG, and WebP images are allowed.');
+      input.value = '';
+      return;
+    }
+
+    try {
+      const dataUrl = await compressImageFile(file, 256, 0.82);
+      onChange(dataUrl);
+      onError(null);
+    } catch {
+      onError('Could not read that image. Please try another file.');
+    } finally {
+      input.value = '';
+    }
+  };
+
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border-color, rgba(255,255,255,0.08))',
+        borderRadius: '12px',
+        padding: '16px',
+        background: 'rgba(0,0,0,0.12)',
+      }}
+    >
+      <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '4px' }}>{title}</div>
+      <p style={{ margin: '0 0 14px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+        {description}
+      </p>
+      <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div
+          style={{
+            width: '88px',
+            height: '88px',
+            borderRadius: '12px',
+            border: '2px dashed var(--border-color, rgba(255,255,255,0.2))',
+            background: 'rgba(0,0,0,0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+            flexShrink: 0,
+          }}
+        >
+          {value ? (
+            <img
+              src={value}
+              alt={`${title} preview`}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+          ) : (
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: '0 6px' }}>
+              {emptyLabel}
+            </span>
+          )}
+        </div>
+        <div style={{ flex: 1, minWidth: '180px' }}>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={handleFile}
+            style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '100%' }}
+          />
+          <p style={{ margin: '8px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
+            Square PNG, JPEG, or WebP. Max 2MB. SVG is blocked.
+          </p>
+          {value && (
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
+              style={{ marginTop: '10px' }}
+              onClick={() => {
+                onChange(null);
+                onError(null);
+              }}
+            >
+              Remove Logo
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const OwnerProfilePage: React.FC = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -35,6 +154,8 @@ export const OwnerProfilePage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [businessLogoUrl, setBusinessLogoUrl] = useState<string | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
   const [businessLabel, setBusinessLabel] = useState('');
 
@@ -50,6 +171,8 @@ export const OwnerProfilePage: React.FC = () => {
         setEmail(profile.email || '');
         setPhone(profile.phone || '');
         setAddress(profile.address || '');
+        setLogoUrl(profile.logoUrl || null);
+        setBusinessLogoUrl(profile.restaurant?.logoUrl || null);
         setBusinessLabel(
           profile.restaurant?.name
             ? `${profile.restaurant.name}${profile.restaurant.slug ? ` (${profile.restaurant.slug})` : ''}`
@@ -85,6 +208,8 @@ export const OwnerProfilePage: React.FC = () => {
         email: email.trim(),
         phone: phone.trim(),
         address: address.trim(),
+        logoUrl,
+        businessLogoUrl,
         currentPassword,
       });
 
@@ -161,6 +286,33 @@ export const OwnerProfilePage: React.FC = () => {
           padding: '24px',
         }}
       >
+        <h2 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 14px 0' }}>Logos</h2>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: '16px',
+            marginBottom: '24px',
+          }}
+        >
+          <LogoPicker
+            title="Profile Logo"
+            description="Shown next to your name in the POS sidebar."
+            value={logoUrl}
+            emptyLabel="No profile logo"
+            onChange={setLogoUrl}
+            onError={setError}
+          />
+          <LogoPicker
+            title="Business Logo"
+            description="Shown at the top of the sidebar and on invoices."
+            value={businessLogoUrl}
+            emptyLabel="No business logo"
+            onChange={setBusinessLogoUrl}
+            onError={setError}
+          />
+        </div>
+
         <h2 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 18px 0' }}>Personal Details</h2>
 
         <div

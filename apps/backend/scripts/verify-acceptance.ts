@@ -3134,6 +3134,8 @@ async function runAcceptanceTests() {
     // TEST 60: Owner self-service profile edit forces a fresh login
     // ------------------------------------------------------------------------
     const profileOwnerEmail = starterRestRes.data?.owner?.email;
+    const ownerLogo =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAE/wL/wQZ9AAAAAElFTkSuQmCC';
     const profileLoginRes = await request('/auth/login', {
       method: 'POST',
       body: { email: profileOwnerEmail, password: 'StarterPassword123!' },
@@ -3151,6 +3153,8 @@ async function runAcceptanceTests() {
         email: profileOwnerEmail,
         phone: '+92 300 9990000',
         address: '77 New Street',
+        logoUrl: ownerLogo,
+        businessLogoUrl: ownerLogo,
         currentPassword: 'StarterPassword123!',
       },
     });
@@ -3169,9 +3173,22 @@ async function runAcceptanceTests() {
       token: freshLoginRes.data?.accessToken,
     });
 
+    const invalidLogoRes = await request('/auth/profile', {
+      method: 'PATCH',
+      token: freshLoginRes.data?.accessToken,
+      body: {
+        logoUrl: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+        currentPassword: 'StarterPassword123!',
+      },
+    });
+
     const ownerRow = await prisma.employee.findFirst({
       where: { email: profileOwnerEmail },
-      select: { firstName: true, lastName: true, phone: true, address: true },
+      select: { firstName: true, lastName: true, phone: true, address: true, logoUrl: true },
+    });
+    const restaurantRow = await prisma.restaurant.findFirst({
+      where: { id: starterTenantId },
+      select: { logoUrl: true },
     });
 
     const test60Pass =
@@ -3181,16 +3198,22 @@ async function runAcceptanceTests() {
       staleRefreshRes.status === 401 &&
       freshLoginRes.status === 200 &&
       freshLoginRes.data?.user?.firstName === 'UPDATED' &&
+      freshLoginRes.data?.user?.logoUrl === ownerLogo &&
       profileAfterRes.status === 200 &&
       profileAfterRes.data?.phone === '+92 300 9990000' &&
       profileAfterRes.data?.address === '77 New Street' &&
-      ownerRow?.address === '77 New Street';
+      profileAfterRes.data?.logoUrl === ownerLogo &&
+      profileAfterRes.data?.restaurant?.logoUrl === ownerLogo &&
+      invalidLogoRes.status === 400 &&
+      ownerRow?.address === '77 New Street' &&
+      ownerRow?.logoUrl === ownerLogo &&
+      restaurantRow?.logoUrl === ownerLogo;
 
     logTest(
       60,
-      'Owner profile edit updates contact details and forces re-authentication',
+      'Owner profile edit updates logos and contact details and forces re-authentication',
       test60Pass,
-      `GET before: ${profileBeforeRes.status}, PATCH: ${profileUpdateRes.status}, stale refresh: ${staleRefreshRes.status}, relogin: ${freshLoginRes.status}, stored address: ${ownerRow?.address || 'missing'}`
+      `GET before: ${profileBeforeRes.status}, PATCH: ${profileUpdateRes.status}, stale refresh: ${staleRefreshRes.status}, relogin: ${freshLoginRes.status}, invalid logo: ${invalidLogoRes.status}, stored logo: ${ownerRow?.logoUrl ? 'SET' : 'missing'}, business logo: ${restaurantRow?.logoUrl ? 'SET' : 'missing'}`
     );
 
     // ------------------------------------------------------------------------

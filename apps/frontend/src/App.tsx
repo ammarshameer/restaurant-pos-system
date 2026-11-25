@@ -346,6 +346,7 @@ export const App: React.FC = () => {
   const currentUser = user || {
     firstName: 'Alex',
     lastName: 'Morgan',
+    logoUrl: null,
     role: 'WAITER',
     email: 'staff@restaurant.com',
   };
@@ -522,8 +523,19 @@ export const App: React.FC = () => {
           {/* Sidebar Footer User Info */}
           <div className="sidebar-footer">
             <div className="user-badge">
-              <div className="user-avatar">
-                {formatPersonName(currentUser.firstName)?.[0] || 'U'}{formatPersonName(currentUser.lastName)?.[0] || 'S'}
+              <div className="user-avatar" style={{ overflow: 'hidden' }}>
+                {currentUser.logoUrl ? (
+                  <img
+                    src={currentUser.logoUrl}
+                    alt="Profile logo"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <>
+                    {formatPersonName(currentUser.firstName)?.[0] || 'U'}
+                    {formatPersonName(currentUser.lastName)?.[0] || 'S'}
+                  </>
+                )}
               </div>
               <div className="user-info">
                 <div className="user-name">

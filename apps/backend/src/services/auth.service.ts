@@ -9,6 +9,7 @@ import { getEnabledFeatures } from './feature.service';
 import { attemptLockService } from './attempt-lock.service';
 import { DEFAULT_EXPENSE_CATEGORIES } from './expenses.service';
 import { ValidationError } from '../lib/errors';
+import { validateLogo } from '../utils/validateLogo';
 
 export type EmployeeRole = 'OWNER' | 'MANAGER' | 'CHEF' | 'WAITER' | 'CASHIER' | string;
 
@@ -18,6 +19,16 @@ function capitalizeName(value: string): string {
   return value
     .trim()
     .toUpperCase();
+}
+
+function normalizeLogo(value: string | null | undefined, label: string): string | null {
+  if (value === null || value === undefined || !value.trim()) return null;
+  const trimmed = value.trim();
+  const check = validateLogo(trimmed);
+  if (!check.valid) {
+    throw new ValidationError(check.error || `${label} is invalid`);
+  }
+  return trimmed;
 }
 
 export function slugify(text: string): string {
@@ -291,6 +302,7 @@ export class AuthService {
           email: ownerUser.email,
           firstName: ownerUser.firstName,
           lastName: ownerUser.lastName,
+          logoUrl: ownerUser.logoUrl,
           role: ownerUser.role,
           roleId: ownerRoleRecord?.id,
           phone: ownerUser.phone,
@@ -362,6 +374,7 @@ export class AuthService {
         email: owner.email,
         firstName: owner.firstName,
         lastName: owner.lastName,
+        logoUrl: owner.logoUrl,
         role: owner.role,
         roleId: owner.roleId,
         roleName: 'Owner',
@@ -502,6 +515,7 @@ export class AuthService {
         username: user.username,
         firstName: user.firstName,
         lastName: user.lastName,
+        logoUrl: user.logoUrl,
         role: user.role,
         roleId: user.roleId || undefined,
         roleName: user.roleRecord?.name || user.role,
@@ -644,6 +658,7 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        logoUrl: user.logoUrl,
         role: user.role,
         roleId: user.roleId || undefined,
         roleName: user.roleRecord?.name || user.role,
@@ -755,6 +770,7 @@ export class AuthService {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
+          logoUrl: user.logoUrl,
           role: user.role,
           roleId: user.roleId || undefined,
           roleName: user.roleRecord?.name || user.role,
@@ -847,6 +863,7 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        logoUrl: user.logoUrl,
         role: user.role,
         roleId: user.roleId || undefined,
         roleName: user.roleRecord?.name || user.role,
@@ -879,7 +896,8 @@ export class AuthService {
         email: true,
         phone: true,
         address: true,
-        restaurant: { select: { name: true, slug: true } },
+        logoUrl: true,
+        restaurant: { select: { name: true, slug: true, logoUrl: true } },
       },
     });
 
@@ -898,6 +916,8 @@ export class AuthService {
       email?: string;
       phone?: string;
       address?: string;
+      logoUrl?: string | null;
+      businessLogoUrl?: string | null;
       currentPassword?: string;
     },
     employeeId: string,
@@ -905,7 +925,10 @@ export class AuthService {
   ) {
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, restaurantId, isActive: true },
-      include: { roleRecord: true },
+      include: {
+        roleRecord: true,
+        restaurant: { select: { logoUrl: true } },
+      },
     });
 
     if (!employee) {
@@ -959,7 +982,23 @@ export class AuthService {
       throw new ValidationError('Address is required');
     }
 
+    const logoUrl =
+      data.logoUrl !== undefined
+        ? normalizeLogo(data.logoUrl, 'Profile logo')
+        : employee.logoUrl;
+    const businessLogoUrl =
+      data.businessLogoUrl !== undefined
+        ? normalizeLogo(data.businessLogoUrl, 'Business logo')
+        : employee.restaurant?.logoUrl ?? null;
+
     const updated = await prisma.$transaction(async (tx) => {
+      if (data.businessLogoUrl !== undefined) {
+        await tx.restaurant.update({
+          where: { id: restaurantId },
+          data: { logoUrl: businessLogoUrl },
+        });
+      }
+
       const profile = await tx.employee.update({
         where: { id: employee.id },
         data: {
@@ -969,6 +1008,7 @@ export class AuthService {
           username,
           phone,
           address,
+          logoUrl,
         },
         select: {
           id: true,
@@ -978,7 +1018,8 @@ export class AuthService {
           email: true,
           phone: true,
           address: true,
-          restaurant: { select: { name: true, slug: true } },
+          logoUrl: true,
+          restaurant: { select: { name: true, slug: true, logoUrl: true } },
         },
       });
 
