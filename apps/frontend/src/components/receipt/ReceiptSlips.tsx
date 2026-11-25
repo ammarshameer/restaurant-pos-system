@@ -166,6 +166,13 @@ export const CustomerSlip: React.FC<ReceiptSlipProps> = ({ receiptData }) => {
         <span style={{ fontWeight: 600 }}>{formatPKR(receiptData.subtotal)}</span>
       </div>
 
+      {receiptData.discountAmount !== undefined && receiptData.discountAmount > 0 && (
+        <div className="receipt-row" style={{ fontSize: '12px' }}>
+          <span>Discount {receiptData.discountPercent ? `(${receiptData.discountPercent}%)` : ''}</span>
+          <span style={{ fontWeight: 600 }}>-{formatPKR(receiptData.discountAmount)}</span>
+        </div>
+      )}
+
       {receiptData.tax !== undefined && receiptData.tax > 0 && (
         <div className="receipt-row" style={{ fontSize: '12px' }}>
           <span>Tax {receiptData.taxRate ? `(${receiptData.taxRate}%)` : ''}</span>

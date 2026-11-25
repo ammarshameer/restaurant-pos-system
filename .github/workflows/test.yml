@@ -56,6 +56,10 @@ jobs:
         working-directory: apps/backend
         run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
 
+      - name: Run mandatory idempotent backfills on scratch DB
+        working-directory: apps/backend
+        run: npm run db:backfill:all
+
       - name: Seed platform accounts for acceptance tests
         working-directory: apps/backend
         run: npm run db:seed

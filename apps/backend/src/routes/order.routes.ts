@@ -29,7 +29,7 @@ router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
 });
 
 // Create new order
-router.post('/', requirePermission('orders.create'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', requirePermission('orders.create'), checkDiscountPermission, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const restaurantId = getAuthenticatedRestaurantId(req);
     const order = await orderService.createOrder({

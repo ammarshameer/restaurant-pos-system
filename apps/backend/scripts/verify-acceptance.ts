@@ -3270,14 +3270,119 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
-    // TEST 62: Verification Summary
+    // TEST 62: POS percentage discounts require orders.discount
+    // ------------------------------------------------------------------------
+    const discountSuffix = `${Date.now()}`;
+    const discountCategoryId = `discount-category-${discountSuffix}`;
+    const discountItemId = `discount-item-${discountSuffix}`;
+    const discountClientId = `discount-order-${discountSuffix}`;
+    let test62Pass = false;
+    let test62Details = '';
+    try {
+      await prisma.category.create({
+        data: {
+          id: discountCategoryId,
+          name: 'Discount Test Items',
+          restaurantId: tenantAId,
+        },
+      });
+      await prisma.menuItem.create({
+        data: {
+          id: discountItemId,
+          name: 'Discount Test Meal',
+          price: 1000,
+          categoryId: discountCategoryId,
+          restaurantId: tenantAId,
+        },
+      });
+
+      const discountStaffEmail = `no-discount.${discountSuffix}@example.com`;
+      const discountStaff = await prisma.employee.create({
+        data: {
+          restaurantId: tenantAId,
+          firstName: 'No',
+          lastName: 'Discount',
+          email: discountStaffEmail,
+          username: `no_discount_${discountSuffix}`,
+          pin: '9911',
+          passwordHash: 'dummy_hash',
+          role: 'STAFF',
+          isActive: true,
+        },
+      });
+      for (const permission of ['orders.create', 'orders.view', 'menu.view']) {
+        await prisma.employeePermission.create({
+          data: { employeeId: discountStaff.id, permission, granted: true },
+        });
+      }
+
+      const staffLogin = await request('/auth/pin-login', {
+        method: 'POST',
+        body: { pin: '9911', tenantSlug: tenantASlug },
+      });
+      const staffToken = staffLogin.data?.accessToken;
+
+      const blockedRes = await request('/orders', {
+        method: 'POST',
+        token: staffToken,
+        body: {
+          clientId: `${discountClientId}-blocked`,
+          orderType: 'TAKE_AWAY',
+          items: [{ menuItemId: discountItemId, quantity: 1 }],
+          discountPercent: 10,
+        },
+      });
+
+      const allowedRes = await request('/orders', {
+        method: 'POST',
+        token: tenantAOwnerToken,
+        body: {
+          clientId: discountClientId,
+          orderType: 'TAKE_AWAY',
+          items: [{ menuItemId: discountItemId, quantity: 1 }],
+          discountPercent: 10,
+        },
+      });
+
+      test62Pass =
+        blockedRes.status === 403 &&
+        String(blockedRes.data?.error || '').includes('orders.discount') &&
+        allowedRes.status === 201 &&
+        Number(allowedRes.data?.discountPercent) === 10 &&
+        Number(allowedRes.data?.discountAmount) === 100 &&
+        Number(allowedRes.data?.total) === 900;
+      test62Details =
+        `Staff attempt: ${blockedRes.status}, owner attempt: ${allowedRes.status}, ` +
+        `stored: ${allowedRes.data?.discountPercent}% / ${allowedRes.data?.discountAmount} on ${allowedRes.data?.total}`;
+    } catch (error) {
+      test62Details = String(error);
+    } finally {
+      await prisma.order.deleteMany({
+        where: { clientId: { in: [`${discountClientId}-blocked`, discountClientId] } },
+      });
+      await prisma.employee.deleteMany({
+        where: { email: { startsWith: `no-discount.${discountSuffix}@` } },
+      });
+      await prisma.menuItem.deleteMany({ where: { id: discountItemId } });
+      await prisma.category.deleteMany({ where: { id: discountCategoryId } });
+    }
+
+    logTest(
+      62,
+      'Percentage discounts require orders.discount and reduce the payable order total',
+      test62Pass,
+      test62Details
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 63: Verification Summary
     // ------------------------------------------------------------------------
     const passedCount = results.filter((r) => r.passed).length;
     logTest(
-      62,
+      63,
       'All Acceptance Verification Criteria Met',
-      passedCount === 61,
-      `Passed ${passedCount} / 61 criteria (100% test pass rate)`
+      passedCount === 62,
+      `Passed ${passedCount} / 62 criteria (100% test pass rate)`
     );
 
   } catch (err: any) {

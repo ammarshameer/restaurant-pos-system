@@ -326,9 +326,23 @@ export class OrderService {
     const serviceCharge = nonNegative(data.serviceCharge);
     const serviceChargeRate = nonNegative(data.serviceChargeRate);
     const deliveryCharge = nonNegative(data.deliveryCharge);
+
+    const requestedDiscountPercent = Number(data.discountPercent ?? 0);
+    if (
+      !Number.isFinite(requestedDiscountPercent) ||
+      requestedDiscountPercent < 0 ||
+      requestedDiscountPercent > 100
+    ) {
+      throw new Error('Discount percent must be a number between 0 and 100');
+    }
+    const discountPercent = +requestedDiscountPercent.toFixed(2);
+    const discountAmount = +(calculatedSubtotal * discountPercent / 100).toFixed(2);
+
     const calculatedTax = +(calculatedSubtotal * taxRate).toFixed(2);
-    const calculatedTotal =
-      +(calculatedSubtotal + calculatedTax + serviceCharge + deliveryCharge).toFixed(2);
+    const calculatedTotal = Math.max(
+      0,
+      +(calculatedSubtotal + calculatedTax + serviceCharge + deliveryCharge - discountAmount).toFixed(2)
+    );
 
     let customerId: string | null = data.customerId || null;
     if (customerId) {
@@ -383,6 +397,8 @@ export class OrderService {
         deliveryCharge,
         tax: calculatedTax,
         taxRate,
+        discountPercent,
+        discountAmount,
         total: calculatedTotal,
         totalPaid: 0,
         amountDue: calculatedTotal,
@@ -478,6 +494,8 @@ export class OrderService {
       deliveryCharge?: number;
       tax?: number;
       taxRate?: number;
+      discountPercent?: number;
+      discountAmount?: number;
       total?: number;
       totalPaid?: number;
       change?: number;
@@ -755,6 +773,7 @@ export class OrderService {
     const allowedScalarFields = [
       'customerName', 'customerPhone', 'deliveryAddress', 'dineInTag', 'customerCount',
       'notes', 'serviceCharge', 'serviceChargeRate', 'deliveryCharge', 'tax', 'taxRate', 'status',
+      'discountPercent', 'discountAmount',
       'subtotal', 'total', 'totalPaid', 'change', 'paymentStatus', 'paymentMethod',
     ];
     for (const field of allowedScalarFields) {

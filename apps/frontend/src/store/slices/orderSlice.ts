@@ -34,6 +34,8 @@ export interface Order {
   deliveryCharge?: number;
   tax: number;
   taxRate?: number;
+  discountPercent?: number;
+  discountAmount?: number;
   total: number;
   totalPaid?: number;
   amountDue?: number;

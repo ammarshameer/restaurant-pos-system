@@ -14,6 +14,10 @@ import {
   disconnectOwnerLogoDb,
 } from './backfill-owner-logo';
 import {
+  backfillOrderDiscount,
+  disconnectOrderDiscountDb,
+} from './backfill-order-discount';
+import {
   verifyBackfilledTenants,
   disconnectBackfillVerifyDb,
 } from '../scripts/verify-backfill';
@@ -38,6 +42,9 @@ export async function runFullBackfill() {
   console.log('\n=== Restoring Owner Profile logos ===');
   const ownerLogosUpdated = await backfillOwnerLogo();
 
+  console.log('\n=== Restoring order discounts ===');
+  const orderDiscountsUpdated = await backfillOrderDiscount();
+
   const report = await verifyBackfilledTenants();
 
   console.log('=============================================');
@@ -49,6 +56,7 @@ export async function runFullBackfill() {
   console.log(`- Order balances repaired:           ${ordersUpdated}`);
   console.log(`- Owner addresses restored:          ${ownerAddressesUpdated}`);
   console.log(`- Owner logos restored:              ${ownerLogosUpdated}`);
+  console.log(`- Order discounts derived:           ${orderDiscountsUpdated}`);
   console.log(`- Verification failures:             ${report.failures.length}`);
   console.log('=============================================\n');
 
@@ -75,6 +83,7 @@ export async function disconnectFullBackfillClients(): Promise<void> {
     disconnectAmountDueDb(),
     disconnectOwnerAddressDb(),
     disconnectOwnerLogoDb(),
+    disconnectOrderDiscountDb(),
     disconnectBackfillVerifyDb(),
   ]);
 }

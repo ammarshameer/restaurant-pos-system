@@ -34,6 +34,8 @@ export interface ReceiptData {
   deliveryCharge?: number;
   tax?: number;
   taxRate?: number;
+  discountPercent?: number;
+  discountAmount?: number;
   tipAmount?: number;
   total: number;
   totalPaid?: number;

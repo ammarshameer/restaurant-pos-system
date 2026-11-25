@@ -336,6 +336,8 @@ model Order {
   deliveryCharge    Float     @default(0)
   tax               Float     @default(0)
   taxRate           Float     @default(0)
+  discountPercent   Float     @default(0)
+  discountAmount    Float     @default(0)
   total             Float     @default(0)
   totalPaid         Float?    @default(0)
   amountDue         Float     @default(0)

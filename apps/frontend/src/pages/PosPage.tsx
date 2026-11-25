@@ -55,6 +55,7 @@ export const PosPage: React.FC = () => {
   const authUser = useSelector((state: RootState) => state.auth.user);
   const canViewMenu = usePermission('menu.view');
   const canCreateOrders = usePermission('orders.create');
+  const canApplyDiscount = usePermission('orders.discount');
   const canViewDeals = usePermission('deals.view');
   const dealsEnabled = authUser?.features?.includes('deals') ?? true;
   const canUseDeals = canViewDeals && dealsEnabled;
@@ -106,6 +107,8 @@ export const PosPage: React.FC = () => {
   // Dine In: Tax percentage (initially 0) + flat Service Charges (PKR)
   const [taxRate, setTaxRate] = useState<number>(0);
   const [serviceChargeAmount, setServiceChargeAmount] = useState<number>(0);
+  // Percentage discount, only editable by staff with orders.discount.
+  const [discountPercent, setDiscountPercent] = useState<number>(0);
   // Delivery: flat Delivery Charges (PKR)
   const [deliveryChargeAmount, setDeliveryChargeAmount] = useState<number>(150);
 
@@ -302,8 +305,14 @@ export const PosPage: React.FC = () => {
   // Delivery: Delivery Charges (PKR); no tax and no service charges
   const deliveryCharge = isDelivery ? Math.max(0, deliveryChargeAmount) : 0;
 
+  // Discount is applied after charges, so gross stays visible for reporting.
+  const appliedDiscountPercent = canApplyDiscount
+    ? Math.min(100, Math.max(0, Number(discountPercent) || 0))
+    : 0;
+  const discountAmount = +(subtotal * appliedDiscountPercent / 100).toFixed(2);
+
   // Total
-  const total = +(subtotal + tax + serviceCharge + deliveryCharge).toFixed(2);
+  const total = Math.max(0, +(subtotal + tax + serviceCharge + deliveryCharge - discountAmount).toFixed(2));
 
   const ensureCanCreateOrders = (): boolean => {
     if (canCreateOrders) return true;
@@ -355,6 +364,7 @@ export const PosPage: React.FC = () => {
         deliveryCharge,
         tax,
         taxRate: isDineIn ? taxRate : 0,
+        ...(appliedDiscountPercent > 0 ? { discountPercent: appliedDiscountPercent, discountAmount } : {}),
         total,
         totalPaid: 0,
         amountDue: total,
@@ -409,6 +419,8 @@ export const PosPage: React.FC = () => {
         deliveryCharge: isDelivery ? deliveryCharge : 0,
         tax: isDineIn ? tax : 0,
         taxRate: isDineIn ? taxRate : 0,
+        discountPercent: appliedDiscountPercent,
+        discountAmount,
         total,
         totalPaid: 0,
         amountDue: total,
@@ -421,6 +433,7 @@ export const PosPage: React.FC = () => {
       setReceiptOpen(true);
 
       setCart([]);
+      setDiscountPercent(0);
       setOrderNotes('');
       setCustomerName('');
       setCustomerPhone('');
@@ -507,6 +520,7 @@ export const PosPage: React.FC = () => {
         deliveryCharge,
         tax,
         taxRate: isDineIn ? taxRate : 0,
+        ...(appliedDiscountPercent > 0 ? { discountPercent: appliedDiscountPercent, discountAmount } : {}),
         total,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -590,6 +604,8 @@ export const PosPage: React.FC = () => {
         deliveryCharge: isDelivery ? deliveryCharge : 0,
         tax: isDineIn ? tax : 0,
         taxRate: isDineIn ? taxRate : 0,
+        discountPercent: appliedDiscountPercent,
+        discountAmount,
         total,
         totalPaid: payAmount,
         amountDue: remainingAmountDue,
@@ -604,6 +620,7 @@ export const PosPage: React.FC = () => {
       setDefaultReceiptTab('BOTH');
       setReceiptOpen(true);
       setCart([]);
+      setDiscountPercent(0);
       setOrderNotes('');
       setCustomerName('');
       setCustomerPhone('');
@@ -692,6 +709,7 @@ export const PosPage: React.FC = () => {
         deliveryCharge,
         tax,
         taxRate: isDineIn ? taxRate : 0,
+        ...(appliedDiscountPercent > 0 ? { discountPercent: appliedDiscountPercent, discountAmount } : {}),
         total,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -767,6 +785,8 @@ export const PosPage: React.FC = () => {
         deliveryCharge: isDelivery ? deliveryCharge : 0,
         tax: isDineIn ? tax : 0,
         taxRate: isDineIn ? taxRate : 0,
+        discountPercent: appliedDiscountPercent,
+        discountAmount,
         total,
         totalPaid: advanceAmount,
         amountDue: 0, // fully settled to credit
@@ -781,6 +801,7 @@ export const PosPage: React.FC = () => {
       setDefaultReceiptTab('BOTH');
       setReceiptOpen(true);
       setCart([]);
+      setDiscountPercent(0);
       setOrderNotes('');
       setCustomerName('');
       setCustomerPhone('');
@@ -1577,6 +1598,68 @@ export const PosPage: React.FC = () => {
             </div>
           )}
 
+          {/* DISCOUNT CONTROLS: Percentage field, only for orders.discount holders */}
+          {canApplyDiscount && (
+            <div className="charge-control-card" style={{ padding: '8px 14px', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                  🏷️ Discount:
+                </span>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flex: 1, justifyContent: 'flex-end' }}>
+                  <div style={{ position: 'relative', width: '70px' }}>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      className="form-input"
+                      style={{ padding: '4px 20px 4px 6px', fontSize: '12px', fontWeight: 700, textAlign: 'right' }}
+                      placeholder="0"
+                      value={discountPercent === 0 ? '' : discountPercent}
+                      onChange={(e) =>
+                        setDiscountPercent(
+                          Math.min(100, Math.max(0, parseFloat(e.target.value) || 0))
+                        )
+                      }
+                    />
+                    <span
+                      style={{
+                        position: 'absolute',
+                        right: '6px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        fontWeight: 700,
+                        fontSize: '11px',
+                        color: 'var(--text-muted)',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      %
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '3px' }}>
+                    {[0, 5, 10, 15].map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        className={`btn btn-sm ${discountPercent === p ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '2px 5px', fontSize: '10px', fontWeight: 700 }}
+                        onClick={() => setDiscountPercent(p)}
+                      >
+                        {p}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {discountAmount > 0 && (
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#f87171', textAlign: 'right' }}>
+                  Discount amount: -{formatPKR(discountAmount)}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Financial Summary */}
           <div
             style={{
@@ -1591,6 +1674,13 @@ export const PosPage: React.FC = () => {
               <span>Subtotal</span>
               <span>{formatPKR(subtotal)}</span>
             </div>
+
+            {discountAmount > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                <span>Discount ({appliedDiscountPercent}%)</span>
+                <span style={{ color: '#f87171', fontWeight: 700 }}>-{formatPKR(discountAmount)}</span>
+              </div>
+            )}
 
             {orderType === 'DINE_IN' && (
               <>
