@@ -10,6 +10,7 @@ import { ReceiptModal, ReceiptData } from '../components/ReceiptModal';
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
+import { usePermission } from '../lib/permissions';
 
 interface OpenOrder {
   id: string;
@@ -38,6 +39,7 @@ interface OpenOrder {
 export const PaymentsPage: React.FC = () => {
   const dispatch = useDispatch();
   const queryClient = useQueryClient();
+  const canUpdateOrders = usePermission('orders.update');
 
   const [selectedOrder, setSelectedOrder] = useState<OpenOrder | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
@@ -51,6 +53,11 @@ export const PaymentsPage: React.FC = () => {
   const [customerSuggestions, setCustomerSuggestions] = useState<Customer[]>([]);
   const [attachedCustomer, setAttachedCustomer] = useState<Customer | null>(null);
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
+  const canUseUdhaar = Boolean(selectedOrder?.customerId) || canUpdateOrders;
+
+  useEffect(() => {
+    if (!canUseUdhaar) setSettleToCredit(false);
+  }, [canUseUdhaar]);
 
   // Receipt Modal State
   const [receiptOpen, setReceiptOpen] = useState(false);
@@ -287,9 +294,13 @@ export const PaymentsPage: React.FC = () => {
       alert('A customer must be attached to the order to add remaining balance to Udhaar / customer dues');
       return;
     }
+    if (!selectedOrder.customerId && attachedCustomer && !canUpdateOrders) {
+      alert('You do not have permission to attach a customer to an order.');
+      return;
+    }
 
     try {
-      if (!selectedOrder.customerId && attachedCustomer) {
+      if (!selectedOrder.customerId && attachedCustomer && canUpdateOrders) {
         await orderApi.updateOrder(selectedOrder.id, {
           customerId: attachedCustomer.id,
           customerName: attachedCustomer.name,
@@ -698,8 +709,9 @@ export const PaymentsPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Checkbox: Add remaining to customer dues (Udhaar) */}
-              {remainingAfterPayment > 0 && (
+              {/* Checkbox: Add remaining to customer dues (Udhaar). Attaching a
+                  customer requires orders.update, so hide it when unavailable. */}
+              {remainingAfterPayment > 0 && canUseUdhaar && (
                 <div
                   style={{
                     background: settleToCredit ? 'rgba(239, 68, 68, 0.1)' : 'var(--bg-secondary)',

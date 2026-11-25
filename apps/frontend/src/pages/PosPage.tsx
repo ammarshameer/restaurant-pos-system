@@ -17,6 +17,7 @@ import { customerApi, Customer } from '../api/customer.api';
 import { paymentApi } from '../api/payment.api';
 import CustomerPicker, { CustomerPickerValue } from '../components/CustomerPicker';
 import { getTenantRawItem, setTenantRawItem } from '../lib/tenantStorage';
+import { usePermission } from '../lib/permissions';
 
 export type OrderType = 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY';
 
@@ -52,30 +53,32 @@ export const PosPage: React.FC = () => {
   const dispatch = useDispatch();
   const queryClient = useQueryClient();
   const authUser = useSelector((state: RootState) => state.auth.user);
+  const canViewMenu = usePermission('menu.view');
+  const canCreateOrders = usePermission('orders.create');
+  const canViewDeals = usePermission('deals.view');
+  const dealsEnabled = authUser?.features?.includes('deals') ?? true;
+  const canUseDeals = canViewDeals && dealsEnabled;
   const menuItems = useSelector((state: RootState) => state.menu.items);
   const menuCategories = useSelector((state: RootState) => state.menu.categories);
   const [deals, setDeals] = useState<Deal[]>([]);
 
-  // Sync menu items & active deals from Database on mount
+  // Sync menu items & active deals from Database on mount. Staff without
+  // deals.view must not trigger a deals request they cannot authorize.
   useEffect(() => {
     const fetchDbData = async () => {
       try {
         const [dbItems, activeDeals] = await Promise.all([
-          menuApi.getMenu(),
-          dealApi.getActiveDeals(),
+          canViewMenu ? menuApi.getMenu() : Promise.resolve([]),
+          canUseDeals ? dealApi.getActiveDeals() : Promise.resolve([]),
         ]);
-        if (dbItems && dbItems.length > 0) {
-          dispatch(setMenuItems(dbItems));
-        }
-        if (activeDeals) {
-          setDeals(activeDeals);
-        }
+        dispatch(setMenuItems(Array.isArray(dbItems) ? dbItems : []));
+        setDeals(Array.isArray(activeDeals) ? activeDeals : []);
       } catch (err) {
         console.warn('Failed to load menu or deals:', err);
       }
     };
     fetchDbData();
-  }, [dispatch]);
+  }, [dispatch, canViewMenu, canUseDeals]);
 
   // Order Type state: DINE_IN | TAKE_AWAY | DELIVERY
   const [orderType, setOrderType] = useState<OrderType>('DINE_IN');
@@ -177,16 +180,22 @@ export const PosPage: React.FC = () => {
 
   const isDealsTab = selectedCategory === '🎁 Deals & Combos';
 
-  const filteredDeals = deals.filter((deal) => {
-    const matchesCategory = selectedCategory === 'All' || isDealsTab;
-    const matchesSearch =
-      deal.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (deal.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (deal.dealItems || []).some((di) =>
-        (di.menuItem?.name || '').toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    return matchesCategory && matchesSearch;
-  });
+  useEffect(() => {
+    if (!canUseDeals && isDealsTab) setSelectedCategory('All');
+  }, [canUseDeals, isDealsTab]);
+
+  const filteredDeals = canUseDeals
+    ? deals.filter((deal) => {
+        const matchesCategory = selectedCategory === 'All' || isDealsTab;
+        const matchesSearch =
+          deal.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (deal.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (deal.dealItems || []).some((di) =>
+            (di.menuItem?.name || '').toLowerCase().includes(searchQuery.toLowerCase())
+          );
+        return matchesCategory && matchesSearch;
+      })
+    : [];
 
   const filteredItems = isDealsTab
     ? []
@@ -296,8 +305,15 @@ export const PosPage: React.FC = () => {
   // Total
   const total = +(subtotal + tax + serviceCharge + deliveryCharge).toFixed(2);
 
+  const ensureCanCreateOrders = (): boolean => {
+    if (canCreateOrders) return true;
+    setNotification('⚠️ You do not have permission to create orders.');
+    setTimeout(() => setNotification(null), 3500);
+    return false;
+  };
+
   const handleSubmitOrder = async (autoPrintBoth = true) => {
-    if (cart.length === 0 || isSubmittingOrder) return;
+    if (cart.length === 0 || isSubmittingOrder || !ensureCanCreateOrders()) return;
     setIsSubmittingOrder(true);
 
     try {
@@ -426,7 +442,7 @@ export const PosPage: React.FC = () => {
   };
 
   const handleCompleteCashPayment = async (tendered: number) => {
-    if (cart.length === 0 || isSubmittingOrder) return;
+    if (cart.length === 0 || isSubmittingOrder || !ensureCanCreateOrders()) return;
     setIsSubmittingOrder(true);
 
     try {
@@ -612,7 +628,7 @@ export const PosPage: React.FC = () => {
   };
 
   const handleCompleteCreditPayment = async () => {
-    if (cart.length === 0 || isSubmittingOrder) return;
+    if (cart.length === 0 || isSubmittingOrder || !ensureCanCreateOrders()) return;
     setIsSubmittingOrder(true);
 
     try {
@@ -978,7 +994,11 @@ export const PosPage: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-            {['All', '🎁 Deals & Combos', ...menuCategories.filter((c) => c !== 'All')].map((cat) => (
+            {[
+              'All',
+              ...(canUseDeals ? ['🎁 Deals & Combos'] : []),
+              ...menuCategories.filter((c) => c !== 'All'),
+            ].map((cat) => (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
@@ -1617,7 +1637,7 @@ export const PosPage: React.FC = () => {
             <button
               className="btn btn-secondary btn-sm"
               style={{ flex: 1, padding: '8px 6px', fontSize: '11px', fontWeight: 700 }}
-              disabled={cart.length === 0 || isSubmittingOrder}
+              disabled={cart.length === 0 || isSubmittingOrder || !canCreateOrders}
               onClick={() => handleSubmitOrder(true)}
               title="Create order and print dual Customer & Kitchen slips"
             >
@@ -1626,7 +1646,7 @@ export const PosPage: React.FC = () => {
             <button
               className="btn btn-secondary btn-sm"
               style={{ flex: 1.1, padding: '8px 6px', fontSize: '11px', fontWeight: 700, borderColor: '#f59e0b', color: '#f59e0b' }}
-              disabled={cart.length === 0 || isSubmittingOrder}
+              disabled={cart.length === 0 || isSubmittingOrder || !canCreateOrders}
               onClick={handleOpenCreditModal}
               title="Settle order to customer credit / Udhaar"
             >
@@ -1635,7 +1655,7 @@ export const PosPage: React.FC = () => {
             <button
               className="btn btn-primary btn-sm"
               style={{ flex: 1.3, padding: '8px 8px', fontSize: '12px', fontWeight: 800 }}
-              disabled={cart.length === 0 || isSubmittingOrder}
+              disabled={cart.length === 0 || isSubmittingOrder || !canCreateOrders}
               onClick={handleOpenCashModal}
             >
               💵 Pay Cash ({formatPKR(total)})
@@ -1787,7 +1807,7 @@ export const PosPage: React.FC = () => {
               <button
                 className="btn btn-success btn-lg"
                 style={{ flex: 1 }}
-                disabled={isSubmittingOrder || (cashTendered <= 0 && !cashSettleToCredit)}
+                disabled={isSubmittingOrder || !canCreateOrders || (cashTendered <= 0 && !cashSettleToCredit)}
                 onClick={() => handleCompleteCashPayment(cashTendered)}
               >
                 {isSubmittingOrder
@@ -1924,7 +1944,7 @@ export const PosPage: React.FC = () => {
               <button
                 className="btn btn-warning btn-lg"
                 style={{ flex: 1 }}
-                disabled={isSubmittingOrder || (!selectedCreditCustomer && !newCreditName.trim())}
+                disabled={isSubmittingOrder || !canCreateOrders || (!selectedCreditCustomer && !newCreditName.trim())}
                 onClick={handleCompleteCreditPayment}
               >
                 {isSubmittingOrder ? 'Processing...' : '✓ Confirm & Settle to Udhaar'}

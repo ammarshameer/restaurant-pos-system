@@ -10,6 +10,7 @@ import { orderApi } from '../api/order.api';
 import { paymentApi } from '../api/payment.api';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
+import { usePermission } from '../lib/permissions';
 
 function getPaidAmount(order: Order): number {
   return Math.max(0, Number(order.totalPaid || 0));
@@ -31,6 +32,8 @@ export const SaleInvoicesPage: React.FC = () => {
   const dispatch = useDispatch();
   const queryClient = useQueryClient();
   const menuItems = useSelector((state: RootState) => state.menu.items);
+  const canUpdateOrders = usePermission('orders.update');
+  const canCancelOrders = usePermission('orders.cancel');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrderType, setSelectedOrderType] = useState<'ALL' | 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY'>('ALL');
@@ -213,6 +216,7 @@ export const SaleInvoicesPage: React.FC = () => {
   };
 
   const handleOpenEditModal = (order: Order) => {
+    if (!canUpdateOrders) return;
     setEditingOrder(order);
     setEditOrderType(order.orderType || 'DINE_IN');
     setEditCustomerName(order.customerName || '');
@@ -233,6 +237,7 @@ export const SaleInvoicesPage: React.FC = () => {
   };
 
   const handleDeleteOrder = async (order: Order) => {
+    if (!canCancelOrders) return;
     if (confirm(`Are you sure you want to void / delete Sale Invoice #${order.orderNumber} from the database?`)) {
       dispatch(removeOrder(order.id));
       await orderApi.deleteOrder(order.id);
@@ -343,6 +348,7 @@ export const SaleInvoicesPage: React.FC = () => {
   };
 
   const persistInvoice = async (updated: Order): Promise<Order> => {
+    if (!canUpdateOrders) throw new Error('Insufficient permissions: missing orders.update');
     dispatch(updateOrder(updated));
     await orderApi.updateOrder(updated.id, updated);
     queryClient.invalidateQueries({ queryKey: ['orders'] });
@@ -351,6 +357,10 @@ export const SaleInvoicesPage: React.FC = () => {
 
   const handleSaveInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canUpdateOrders) {
+      alert('You do not have permission to update orders.');
+      return;
+    }
     const updated = buildUpdatedInvoice();
     if (!updated) {
       alert('An invoice must have at least 1 item.');
@@ -364,6 +374,10 @@ export const SaleInvoicesPage: React.FC = () => {
   };
 
   const handlePayRemaining = async () => {
+    if (!canUpdateOrders) {
+      alert('You do not have permission to update orders.');
+      return;
+    }
     if (!editingOrder || payingRemaining || editRemainingAmount <= 0.01) return;
     if (editingOrder.settledToCredit) {
       alert('This order was settled to customer credit. Collect the balance from Customer Dues & Receivables.');
@@ -782,20 +796,24 @@ export const SaleInvoicesPage: React.FC = () => {
                         >
                           🖨️ Slips
                         </button>
-                        <button
-                          className="btn btn-primary btn-sm"
-                          onClick={() => handleOpenEditModal(order)}
-                          title="Edit Items, Quantities, and Details of Invoice"
-                        >
-                          ✏️ Edit
-                        </button>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          onClick={() => handleDeleteOrder(order)}
-                          title="Void / Delete this invoice"
-                        >
-                          🗑️
-                        </button>
+                        {canUpdateOrders && (
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => handleOpenEditModal(order)}
+                            title="Edit Items, Quantities, and Details of Invoice"
+                          >
+                            ✏️ Edit
+                          </button>
+                        )}
+                        {canCancelOrders && (
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() => handleDeleteOrder(order)}
+                            title="Void / Delete this invoice"
+                          >
+                            🗑️
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

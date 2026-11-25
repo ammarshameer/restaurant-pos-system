@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { orderApi } from '../api/order.api';
 import { socketClient } from '../lib/socket';
+import { useAnyPermission, usePermission } from '../lib/permissions';
 
 interface KdsItem {
   id: string;
@@ -24,11 +25,17 @@ interface KdsOrder {
 }
 
 export const KitchenPage: React.FC = () => {
+  const canUpdateOrderStatus = useAnyPermission(['orders.update', 'kitchen.manage']);
+  const canViewOrders = usePermission('orders.view');
   const [orders, setOrders] = useState<KdsOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<'ALL' | 'PENDING' | 'PREPARING' | 'READY'>('ALL');
 
   const fetchKitchenOrders = async () => {
+    if (!canViewOrders) {
+      setOrders([]);
+      return;
+    }
     setLoading(true);
     try {
       const dbOrders = await orderApi.getAllOrders();
@@ -155,13 +162,14 @@ export const KitchenPage: React.FC = () => {
     return () => {
       socket?.off('kitchen:order:new');
     };
-  }, []);
+  }, [canViewOrders]);
 
   const handleUpdateItemStatus = (
     orderId: string,
     itemId: string,
     newStatus: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED'
   ) => {
+    if (!canUpdateOrderStatus) return;
     setOrders((prev) =>
       prev.map((order) => {
         if (order.id === orderId) {
@@ -190,6 +198,7 @@ export const KitchenPage: React.FC = () => {
     orderId: string,
     newStatus: 'PREPARING' | 'READY' | 'COMPLETED'
   ) => {
+    if (!canUpdateOrderStatus) return;
     if (newStatus === 'COMPLETED') {
       setOrders((prev) => prev.filter((o) => o.id !== orderId));
       await orderApi.updateOrderStatus(orderId, 'served');
@@ -365,65 +374,69 @@ export const KitchenPage: React.FC = () => {
                         )}
                       </div>
 
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        {item.status === 'PENDING' && (
-                          <button
-                            className="btn btn-sm btn-secondary"
-                            onClick={() => handleUpdateItemStatus(order.id, item.id, 'PREPARING')}
-                            style={{ fontSize: '11px', padding: '4px 8px' }}
-                          >
-                            🍳 Prep
-                          </button>
-                        )}
-                        {item.status === 'PREPARING' && (
-                          <button
-                            className="btn btn-sm btn-primary"
-                            onClick={() => handleUpdateItemStatus(order.id, item.id, 'READY')}
-                            style={{ fontSize: '11px', padding: '4px 8px' }}
-                          >
-                            ✅ Ready
-                          </button>
-                        )}
-                        {item.status === 'READY' && (
-                          <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--success)' }}>
-                            Done
-                          </span>
-                        )}
-                      </div>
+                      {canUpdateOrderStatus && (
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          {item.status === 'PENDING' && (
+                            <button
+                              className="btn btn-sm btn-secondary"
+                              onClick={() => handleUpdateItemStatus(order.id, item.id, 'PREPARING')}
+                              style={{ fontSize: '11px', padding: '4px 8px' }}
+                            >
+                              🍳 Prep
+                            </button>
+                          )}
+                          {item.status === 'PREPARING' && (
+                            <button
+                              className="btn btn-sm btn-primary"
+                              onClick={() => handleUpdateItemStatus(order.id, item.id, 'READY')}
+                              style={{ fontSize: '11px', padding: '4px 8px' }}
+                            >
+                              ✅ Ready
+                            </button>
+                          )}
+                          {item.status === 'READY' && (
+                            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--success)' }}>
+                              Done
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
 
                 {/* Card Actions */}
-                <div style={{ display: 'flex', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
-                  {order.status !== 'IN_PROGRESS' && order.status !== 'READY' && (
-                    <button
-                      className="btn btn-sm btn-secondary"
-                      onClick={() => handleMarkAllOrder(order.id, 'PREPARING')}
-                      style={{ flex: 1 }}
-                    >
-                      Start All
-                    </button>
-                  )}
-                  {order.status !== 'READY' && (
-                    <button
-                      className="btn btn-sm btn-primary"
-                      onClick={() => handleMarkAllOrder(order.id, 'READY')}
-                      style={{ flex: 1 }}
-                    >
-                      Mark Order Ready
-                    </button>
-                  )}
-                  {order.status === 'READY' && (
-                    <button
-                      className="btn btn-sm btn-primary"
-                      onClick={() => handleMarkAllOrder(order.id, 'COMPLETED')}
-                      style={{ flex: 1, background: 'var(--success)' }}
-                    >
-                      🍽️ Serve / Complete Ticket
-                    </button>
-                  )}
-                </div>
+                {canUpdateOrderStatus && (
+                  <div style={{ display: 'flex', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
+                    {order.status !== 'IN_PROGRESS' && order.status !== 'READY' && (
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => handleMarkAllOrder(order.id, 'PREPARING')}
+                        style={{ flex: 1 }}
+                      >
+                        Start All
+                      </button>
+                    )}
+                    {order.status !== 'READY' && (
+                      <button
+                        className="btn btn-sm btn-primary"
+                        onClick={() => handleMarkAllOrder(order.id, 'READY')}
+                        style={{ flex: 1 }}
+                      >
+                        Mark Order Ready
+                      </button>
+                    )}
+                    {order.status === 'READY' && (
+                      <button
+                        className="btn btn-sm btn-primary"
+                        onClick={() => handleMarkAllOrder(order.id, 'COMPLETED')}
+                        style={{ flex: 1, background: 'var(--success)' }}
+                      >
+                        🍽️ Serve / Complete Ticket
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

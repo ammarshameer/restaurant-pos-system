@@ -16,6 +16,7 @@ import RequireFeature from './components/RequireFeature';
 import { settingsApi } from './api/settings.api';
 import { cacheReceiptBranding } from './lib/receiptBranding';
 import { purgeLegacyTenantStorage } from './lib/tenantStorage';
+import { usePermission } from './lib/permissions';
 import { formatPersonName } from './utils/format';
 import { PALETTE_OPTIONS } from './lib/themePalettes';
 
@@ -53,6 +54,8 @@ export const App: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isAuthenticated } = useSelector((state: RootState) => state.auth);
+  const canViewMenu = usePermission('menu.view');
+  const canViewOrders = usePermission('orders.view');
 
   const [liveAlert, setLiveAlert] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState(__APP_VERSION__);
@@ -144,7 +147,7 @@ export const App: React.FC = () => {
     }
   }, [dispatch, isAuthenticated]);
 
-  // Hydrate Menu Items & Orders ONLY when authenticated, scoped to this business.
+  // Hydrate only records the signed-in user is permitted to read.
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
     if (!isAuthenticated || !token || !user?.restaurantId) return;
@@ -154,11 +157,13 @@ export const App: React.FC = () => {
     dispatch(setOrders([]));
     dispatch(setDeals([]));
 
+    if (!canViewMenu && !canViewOrders) return;
+
     const hydrateData = async () => {
       try {
         const [dbMenu, dbOrders] = await Promise.all([
-          menuApi.getMenu(),
-          orderApi.getAllOrders(),
+          canViewMenu ? menuApi.getMenu() : Promise.resolve([]),
+          canViewOrders ? orderApi.getAllOrders() : Promise.resolve([]),
         ]);
         dispatch(setMenuItems(Array.isArray(dbMenu) ? dbMenu : []));
         dispatch(setOrders(Array.isArray(dbOrders) ? dbOrders : []));
@@ -167,7 +172,7 @@ export const App: React.FC = () => {
       }
     };
     hydrateData();
-  }, [dispatch, isAuthenticated, user?.restaurantId]);
+  }, [dispatch, isAuthenticated, user?.restaurantId, canViewMenu, canViewOrders]);
 
   // Connect socket and listen for low stock alerts only when authenticated
   useEffect(() => {
