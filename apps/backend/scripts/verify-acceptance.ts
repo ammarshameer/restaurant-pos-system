@@ -3220,15 +3220,24 @@ async function runAcceptanceTests() {
     // TEST 61: A menu item from another business cannot be ordered
     // ------------------------------------------------------------------------
     const crossBusinessItemId = `foreign-item-${Date.now()}`;
+    const crossBusinessCategoryId = `foreign-category-${Date.now()}`;
     const crossBusinessClientId = `foreign-order-${Date.now()}`;
     let test61Details = '';
     let test61Pass = false;
     try {
+      await prisma.category.create({
+        data: {
+          id: crossBusinessCategoryId,
+          name: 'Foreign Business Sides',
+          restaurantId: tenantBId,
+        },
+      });
       await prisma.menuItem.create({
         data: {
           id: crossBusinessItemId,
           name: 'Foreign Business Fries',
           price: 400,
+          categoryId: crossBusinessCategoryId,
           restaurantId: tenantBId,
         },
       });
@@ -3250,6 +3259,7 @@ async function runAcceptanceTests() {
     } finally {
       await prisma.order.deleteMany({ where: { clientId: crossBusinessClientId } });
       await prisma.menuItem.deleteMany({ where: { id: crossBusinessItemId } });
+      await prisma.category.deleteMany({ where: { id: crossBusinessCategoryId } });
     }
 
     logTest(
