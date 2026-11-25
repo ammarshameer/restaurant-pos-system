@@ -3217,14 +3217,57 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
-    // TEST 61: Verification Summary
+    // TEST 61: A menu item from another business cannot be ordered
+    // ------------------------------------------------------------------------
+    const crossBusinessItemId = `foreign-item-${Date.now()}`;
+    const crossBusinessClientId = `foreign-order-${Date.now()}`;
+    let test61Details = '';
+    let test61Pass = false;
+    try {
+      await prisma.menuItem.create({
+        data: {
+          id: crossBusinessItemId,
+          name: 'Foreign Business Fries',
+          price: 400,
+          restaurantId: tenantBId,
+        },
+      });
+      const crossBusinessOrderRes = await request('/orders', {
+        method: 'POST',
+        token: tenantAOwnerToken,
+        body: {
+          clientId: crossBusinessClientId,
+          orderType: 'TAKE_AWAY',
+          items: [{ menuItemId: crossBusinessItemId, quantity: 1 }],
+        },
+      });
+      test61Pass =
+        crossBusinessOrderRes.status === 400 &&
+        String(crossBusinessOrderRes.data?.message || '').includes('Menu item not found in this business');
+      test61Details = `Order status: ${crossBusinessOrderRes.status}, message: ${crossBusinessOrderRes.data?.message || '(none)'}`;
+    } catch (error) {
+      test61Details = String(error);
+    } finally {
+      await prisma.order.deleteMany({ where: { clientId: crossBusinessClientId } });
+      await prisma.menuItem.deleteMany({ where: { id: crossBusinessItemId } });
+    }
+
+    logTest(
+      61,
+      'Menu items from another business are rejected by the order API',
+      test61Pass,
+      test61Details
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 62: Verification Summary
     // ------------------------------------------------------------------------
     const passedCount = results.filter((r) => r.passed).length;
     logTest(
-      61,
+      62,
       'All Acceptance Verification Criteria Met',
-      passedCount === 60,
-      `Passed ${passedCount} / 60 criteria (100% test pass rate)`
+      passedCount === 61,
+      `Passed ${passedCount} / 61 criteria (100% test pass rate)`
     );
 
   } catch (err: any) {

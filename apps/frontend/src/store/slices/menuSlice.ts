@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { getTenantItem, setTenantItem } from '../../lib/tenantStorage';
 
 export interface MenuItemIngredientItem {
   id?: string;
@@ -31,26 +32,12 @@ export interface MenuItem {
 const STORAGE_KEY = 'restaurant_pos_menu_items';
 
 const loadSavedMenuItems = (): MenuItem[] => {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to load menu items from localStorage:', e);
-  }
-  return [];
+  const saved = getTenantItem<MenuItem[]>(STORAGE_KEY, []);
+  return Array.isArray(saved) ? saved : [];
 };
 
 const saveMenuItemsToStorage = (items: MenuItem[]) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  } catch (e) {
-    console.error('Failed to save menu items to localStorage:', e);
-  }
+  setTenantItem(STORAGE_KEY, items);
 };
 
 interface MenuState {

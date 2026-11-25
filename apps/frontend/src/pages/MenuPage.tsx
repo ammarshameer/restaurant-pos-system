@@ -261,9 +261,8 @@ export const MenuPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['menu-items'] });
       showToast(`✅ '${updated.name}' updated in database with ${formattedIngredients.length} linked ingredients!`);
     } else {
-      const newItemId = `m-${Date.now()}`;
-      const newItem: MenuItem = {
-        id: newItemId,
+      const localItem: MenuItem = {
+        id: `pending-${Date.now()}`,
         name: formData.name.trim(),
         category: finalCategory,
         price: Number(formData.price),
@@ -275,8 +274,10 @@ export const MenuPage: React.FC = () => {
         is86d: false,
         ingredients: formattedIngredients,
       };
+      const { id: _pendingId, ...payload } = localItem;
+      const created = await menuApi.createMenuItem(payload);
+      const newItem: MenuItem = { ...localItem, id: created.id };
       dispatch(addMenuItem(newItem));
-      await menuApi.createMenuItem(newItem);
       queryClient.invalidateQueries({ queryKey: ['menu-items'] });
       showToast(`🎉 '${newItem.name}' created in Database with ${formattedIngredients.length} linked ingredients!`);
     }

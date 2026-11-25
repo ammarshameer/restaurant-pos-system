@@ -1,29 +1,16 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { Deal } from '../../types/deal.types';
+import { getTenantItem, setTenantItem } from '../../lib/tenantStorage';
 
 const STORAGE_KEY = 'restaurant_pos_deals';
 
 const loadSavedDeals = (): Deal[] => {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to load deals from localStorage:', e);
-  }
-  return [];
+  const saved = getTenantItem<Deal[]>(STORAGE_KEY, []);
+  return Array.isArray(saved) ? saved : [];
 };
 
 const saveDealsToStorage = (deals: Deal[]) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(deals));
-  } catch (e) {
-    console.error('Failed to save deals to localStorage:', e);
-  }
+  setTenantItem(STORAGE_KEY, deals);
 };
 
 interface DealState {

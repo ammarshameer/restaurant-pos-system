@@ -16,6 +16,7 @@ import { uuid } from '../lib/id';
 import { customerApi, Customer } from '../api/customer.api';
 import { paymentApi } from '../api/payment.api';
 import CustomerPicker, { CustomerPickerValue } from '../components/CustomerPicker';
+import { getTenantRawItem, setTenantRawItem } from '../lib/tenantStorage';
 
 export type OrderType = 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY';
 
@@ -26,9 +27,9 @@ export type OrderType = 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY';
 function nextLocalOrderNumber(): number {
   try {
     const key = 'pos_order_seq';
-    const current = parseInt(localStorage.getItem(key) || '0', 10) || 0;
+    const current = parseInt(getTenantRawItem(key) || '0', 10) || 0;
     const next = current + 1;
-    localStorage.setItem(key, String(next));
+    setTenantRawItem(key, String(next));
     return 100 + (next % 900);
   } catch {
     return Math.floor(Math.random() * 900) + 100;

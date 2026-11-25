@@ -5,6 +5,7 @@ import { RootState } from './store/store';
 import { logout, loginSuccess, updateUserPreferences } from './store/slices/authSlice';
 import { setMenuItems } from './store/slices/menuSlice';
 import { setOrders } from './store/slices/orderSlice';
+import { setDeals } from './store/slices/dealSlice';
 import { menuApi } from './api/menu.api';
 import { orderApi } from './api/order.api';
 import { socketClient } from './lib/socket';
@@ -14,6 +15,7 @@ import RequirePermission from './components/RequirePermission';
 import RequireFeature from './components/RequireFeature';
 import { settingsApi } from './api/settings.api';
 import { cacheReceiptBranding } from './lib/receiptBranding';
+import { purgeLegacyTenantStorage } from './lib/tenantStorage';
 import { formatPersonName } from './utils/format';
 import { PALETTE_OPTIONS } from './lib/themePalettes';
 
@@ -123,6 +125,11 @@ export const App: React.FC = () => {
     dispatch(updateUserPreferences({ themePalette: paletteId }));
   };
 
+  // Old unscoped caches can contain another business's data. Drop them once.
+  useEffect(() => {
+    purgeLegacyTenantStorage();
+  }, []);
+
   // Restore stored auth session on mount
   useEffect(() => {
     const storedToken = localStorage.getItem('auth_token');
@@ -137,10 +144,15 @@ export const App: React.FC = () => {
     }
   }, [dispatch, isAuthenticated]);
 
-  // Hydrate Menu Items & Orders ONLY when authenticated
+  // Hydrate Menu Items & Orders ONLY when authenticated, scoped to this business.
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
-    if (!isAuthenticated || !token) return;
+    if (!isAuthenticated || !token || !user?.restaurantId) return;
+
+    // Never let data from the previously selected business survive a switch.
+    dispatch(setMenuItems([]));
+    dispatch(setOrders([]));
+    dispatch(setDeals([]));
 
     const hydrateData = async () => {
       try {
@@ -148,18 +160,14 @@ export const App: React.FC = () => {
           menuApi.getMenu(),
           orderApi.getAllOrders(),
         ]);
-        if (dbMenu && dbMenu.length > 0) {
-          dispatch(setMenuItems(dbMenu));
-        }
-        if (dbOrders && dbOrders.length > 0) {
-          dispatch(setOrders(dbOrders));
-        }
+        dispatch(setMenuItems(Array.isArray(dbMenu) ? dbMenu : []));
+        dispatch(setOrders(Array.isArray(dbOrders) ? dbOrders : []));
       } catch (e) {
         console.warn('Data hydration error:', e);
       }
     };
     hydrateData();
-  }, [dispatch, isAuthenticated]);
+  }, [dispatch, isAuthenticated, user?.restaurantId]);
 
   // Connect socket and listen for low stock alerts only when authenticated
   useEffect(() => {

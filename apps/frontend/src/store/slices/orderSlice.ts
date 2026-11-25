@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { getTenantItem, setTenantItem } from '../../lib/tenantStorage';
 
 export interface OrderItem {
   id: string;
@@ -49,26 +50,13 @@ export interface Order {
 const STORAGE_KEY = 'restaurant_pos_orders';
 
 const loadSavedOrders = (): Order[] => {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to load orders from localStorage:', e);
-  }
-  return [];
+  const saved = getTenantItem<Order[]>(STORAGE_KEY, []);
+  return Array.isArray(saved) ? saved : [];
+
 };
 
 const saveOrdersToStorage = (orders: Order[]) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
-  } catch (e) {
-    console.error('Failed to save orders to localStorage:', e);
-  }
+  setTenantItem(STORAGE_KEY, orders);
 };
 
 interface OrderState {
