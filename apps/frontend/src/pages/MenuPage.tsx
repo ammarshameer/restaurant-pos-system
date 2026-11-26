@@ -16,6 +16,7 @@ import { inventoryApi, InventoryItem, getCostPerSaleUnit, getConvertedIngredient
 import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR } from '../utils/format';
 import { compressImageFile, getCategoryVisual } from '../utils/image';
+import { formatUnitLabel } from '../lib/inventoryUnits';
 
 interface IngredientFormItem {
   inventoryItemId: string;
@@ -1078,7 +1079,7 @@ export const MenuPage: React.FC = () => {
                                 📦 {invItem?.name || 'Inventory Item'}
                               </div>
                               <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                Available Stock: {invItem?.quantity ?? 0} {unitLabel}
+                                Available Stock: {invItem?.quantity ?? 0} {formatUnitLabel(unitLabel)}
                                 {itemCost > 0 && ` • Est. Cost: PKR ${Math.round(itemCost)}`}
                               </div>
                             </div>
@@ -1113,10 +1114,10 @@ export const MenuPage: React.FC = () => {
                                     fontSize: '12px',
                                     fontWeight: 600,
                                   }}
-                                  value={ing.unit || unitLabel}
+                                  value={formatUnitLabel(ing.unit || unitLabel)}
                                   onChange={(e) => handleIngredientUnitChange(idx, e.target.value)}
                                 >
-                                  {[unitLabel, 'kg', 'g', 'l', 'ml', 'each'].filter((unit, index, units) => units.indexOf(unit) === index).map(unit => (
+                                  {[unitLabel, 'pcs', 'kg', 'g', 'ml', 'l'].map(formatUnitLabel).filter((unit, index, units) => units.indexOf(unit) === index).map(unit => (
                                     <option key={unit} value={unit}>{unit}</option>
                                   ))}
                                 </select>

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatUnitLabel, unitOptionsWithCurrent } from '../lib/inventoryUnits';
 
 export interface InventoryItemFormValues {
   name: string;
@@ -20,7 +21,6 @@ interface InventoryItemFormModalProps {
 }
 
 const CATEGORIES = ['Meat', 'Dairy', 'Bakery', 'Frozen', 'Grocery', 'Beverage'];
-const UNITS = ['g', 'kg', 'ml', 'l', 'each', 'lbs', 'oz', 'cans', 'boxes'];
 
 const optionsWithCurrent = (options: string[], current: string) =>
   current && !options.includes(current) ? [current, ...options] : options;
@@ -119,7 +119,7 @@ export const InventoryItemFormModal: React.FC<InventoryItemFormModalProps> = ({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
               <div className="form-group">
                 <label className="input-label">
-                  <span>Quantity ({values.purchaseUnit || values.unit})</span>
+                  <span>Quantity ({formatUnitLabel(values.purchaseUnit || values.unit)})</span>
                   <span className="label-hint">
                     {isEdit ? 'Current stock • use Adjust Stock to change' : 'Initial stock'}
                   </span>
@@ -145,8 +145,8 @@ export const InventoryItemFormModal: React.FC<InventoryItemFormModalProps> = ({
                   value={values.unit}
                   onChange={(e) => update('unit', e.target.value)}
                 >
-                  {optionsWithCurrent(UNITS, values.unit).map((unit) => (
-                    <option key={unit} value={unit}>{unit}</option>
+                  {unitOptionsWithCurrent(values.unit).map((unit) => (
+                    <option key={unit} value={unit}>{formatUnitLabel(unit)}</option>
                   ))}
                 </select>
               </div>
@@ -160,8 +160,8 @@ export const InventoryItemFormModal: React.FC<InventoryItemFormModalProps> = ({
                   value={values.purchaseUnit}
                   onChange={(e) => update('purchaseUnit', e.target.value)}
                 >
-                  {optionsWithCurrent(UNITS, values.purchaseUnit).map((unit) => (
-                    <option key={unit} value={unit}>{unit}</option>
+                  {unitOptionsWithCurrent(values.purchaseUnit).map((unit) => (
+                    <option key={unit} value={unit}>{formatUnitLabel(unit)}</option>
                   ))}
                 </select>
               </div>
@@ -184,7 +184,7 @@ export const InventoryItemFormModal: React.FC<InventoryItemFormModalProps> = ({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: 0 }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="input-label">
-                  <span>Reorder Point ({values.purchaseUnit || values.unit})</span>
+                  <span>Reorder Point ({formatUnitLabel(values.purchaseUnit || values.unit)})</span>
                   <span className="label-hint">Low stock alert</span>
                 </label>
                 <input
@@ -200,7 +200,7 @@ export const InventoryItemFormModal: React.FC<InventoryItemFormModalProps> = ({
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="input-label">
                   <span>Cost per Purchase Unit (PKR)</span>
-                  <span className="label-hint">{values.purchaseUnit}</span>
+                  <span className="label-hint">{formatUnitLabel(values.purchaseUnit)}</span>
                 </label>
                 <input
                   type="number"

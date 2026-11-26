@@ -16,14 +16,15 @@ import {
 } from '../components/InventoryItemFormModal';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
+import { canonicalUnit, formatUnitLabel } from '../lib/inventoryUnits';
 
 const DEFAULT_NEW_ITEM: InventoryItemFormValues = {
   name: '',
   sku: '',
   category: 'Grocery',
   quantity: 10,
-  unit: 'g',
-  purchaseUnit: 'kg',
+  unit: 'pcs',
+  purchaseUnit: 'pcs',
   conversionFactor: 1,
   reorderPoint: 5,
   costPerUnit: 250,
@@ -197,6 +198,8 @@ export const InventoryPage: React.FC = () => {
         ...values,
         name: values.name.trim(),
         sku: values.sku || `SKU-${Date.now().toString().slice(-4)}`,
+        unit: canonicalUnit(values.unit),
+        purchaseUnit: canonicalUnit(values.purchaseUnit || values.unit),
       });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
     } catch (err) {
@@ -233,8 +236,8 @@ export const InventoryPage: React.FC = () => {
       name: values.name.trim(),
       sku: values.sku,
       category: values.category,
-      unit: values.unit,
-      purchaseUnit: values.purchaseUnit || values.unit,
+      unit: canonicalUnit(values.unit),
+      purchaseUnit: canonicalUnit(values.purchaseUnit || values.unit),
       conversionFactor: values.conversionFactor || 1,
       quantity: values.quantity,
       reorderPoint: values.reorderPoint,
@@ -357,8 +360,9 @@ export const InventoryPage: React.FC = () => {
                 <tr>
                   <th>Item Name & SKU</th>
                   <th>Category</th>
-                  <th>Stock (Purchase Unit)</th>
-                  <th>Reorder Point (Purchase Unit)</th>
+                  <th>Unit</th>
+                  <th>Stock</th>
+                  <th>Reorder Point</th>
                   {hasCostData && <th>Cost / Purchase Unit</th>}
                   {hasCostData && <th>Stock Valuation</th>}
                   <th>Status</th>
@@ -383,14 +387,17 @@ export const InventoryPage: React.FC = () => {
                         <span className="badge badge-open">{item.category}</span>
                       </td>
                       <td>
+                        <span className="badge badge-served">{formatUnitLabel(purchaseUnit)}</span>
+                      </td>
+                      <td>
                         <div style={{ fontWeight: 800, fontSize: '15px', color: isLow ? '#f87171' : 'var(--text-primary)' }}>
-                          {quantityDisplay} {purchaseUnit}
+                          {quantityDisplay}
                         </div>
                       </td>
                       <td style={{ color: 'var(--text-secondary)' }}>
-                        {reorderDisplay} {purchaseUnit}
+                        {reorderDisplay}
                       </td>
-                      {hasCostData && <td style={{ fontWeight: 700 }}>{formatPKR(item.costPerUnit)} / {item.purchaseUnit || item.unit}</td>}
+                      {hasCostData && <td style={{ fontWeight: 700 }}>{formatPKR(item.costPerUnit)} / {formatUnitLabel(item.purchaseUnit || item.unit)}</td>}
                       {hasCostData && <td style={{ fontWeight: 800, color: '#34d399' }}>{formatPKR(itemValuation)}</td>}
                       <td>
                         {isLow ? (
