@@ -201,9 +201,9 @@ jobs:
                 ;;
 
               inspect-orders)
-                echo "==> Recent orders (payment amounts)"
+                echo "==> Recent orders (payment and discount fields)"
                 psql "${DATABASE_URL%%\?*}" -Atqc \
-                  "select o.\"orderNumber\", o.\"paymentStatus\", o.total, coalesce(o.\"totalPaid\", 0), o.\"amountDue\", o.\"settledToCredit\", o.\"createdAt\" from \"Order\" o order by o.\"createdAt\" desc limit 10"
+                  "select o.\"orderNumber\", o.\"paymentStatus\", o.\"subtotal\", o.tax, o.\"serviceCharge\", o.\"deliveryCharge\", o.total, coalesce(o.\"discountPercent\", 0), coalesce(o.\"discountAmount\", 0), coalesce(o.\"totalPaid\", 0), o.\"amountDue\", coalesce(o.change, 0), o.\"settledToCredit\", o.\"createdAt\" from \"Order\" o order by o.\"createdAt\" desc limit 10"
                 ;;
 
               inspect-baseline)
