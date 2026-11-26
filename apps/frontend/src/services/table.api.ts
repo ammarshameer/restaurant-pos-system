@@ -1,9 +1,10 @@
 import { Table, TableStatus } from '../types/table.types';
+import { getAccessToken } from '../lib/session';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
 const getHeaders = (extraHeaders?: Record<string, string>) => {
-  const token = localStorage.getItem('auth_token');
+  const token = getAccessToken();
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

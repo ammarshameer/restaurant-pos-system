@@ -1,5 +1,10 @@
 /**
- * Centralized helpers for persisted auth sessions (Tenant and Platform).
+ * Centralized helpers for persisted auth sessions (Tenant, Platform, Support).
+ *
+ * Tenant and platform sessions live in localStorage so they survive a tab
+ * close. Support impersonation is tab-scoped (sessionStorage) on purpose:
+ * entering a tenant as support must never overwrite the owner session in a
+ * different tab of the same browser.
  */
 
 export interface StoredSession {
@@ -13,79 +18,144 @@ export const REFRESH_TOKEN_KEY = 'auth_refresh_token';
 export const USER_KEY = 'auth_user';
 export const SUPPORT_MODE_KEY = 'support_mode';
 
+export const SUPPORT_ACCESS_TOKEN_KEY = 'support_auth_token';
+export const SUPPORT_USER_KEY = 'support_auth_user';
+
 export const PLATFORM_ACCESS_TOKEN_KEY = 'platform_auth_token';
 export const PLATFORM_REFRESH_TOKEN_KEY = 'platform_refresh_token';
 export const PLATFORM_USER_KEY = 'platform_user';
 
 const hasStorage = (): boolean => typeof localStorage !== 'undefined';
+const hasSessionStorage = (): boolean => typeof sessionStorage !== 'undefined';
 
 // ============================================
-// TENANT SESSION
+// ACTIVE TENANT SESSION (tenant owner/staff OR support impersonation)
 // ============================================
+
+export function isSupportMode(): boolean {
+  if (!hasSessionStorage()) return false;
+  return (
+    sessionStorage.getItem(SUPPORT_MODE_KEY) === 'true' ||
+    Boolean(sessionStorage.getItem(SUPPORT_ACCESS_TOKEN_KEY))
+  );
+}
 
 export function getAccessToken(): string | null {
+  if (isSupportMode()) {
+    return hasSessionStorage() ? sessionStorage.getItem(SUPPORT_ACCESS_TOKEN_KEY) : null;
+  }
   if (!hasStorage()) return null;
   return localStorage.getItem(ACCESS_TOKEN_KEY);
 }
 
 export function getRefreshToken(): string | null {
+  // Support impersonation tokens are short-lived and intentionally have no
+  // refresh token. Never let a support tab refresh the owner's localStorage
+  // session by mistake.
+  if (isSupportMode()) return null;
   if (!hasStorage()) return null;
   return localStorage.getItem(REFRESH_TOKEN_KEY);
 }
 
 export function getStoredUser(): any | null {
-  if (!hasStorage()) return null;
+  const raw = isSupportMode()
+    ? hasSessionStorage()
+      ? sessionStorage.getItem(SUPPORT_USER_KEY)
+      : null
+    : hasStorage()
+    ? localStorage.getItem(USER_KEY)
+    : null;
+  if (!raw) return null;
   try {
-    const raw = localStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
+    return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 
-/**
- * The restaurant id of the signed-in user.
- * Strictly returns string if present, or null. NEVER falls back to default tenant id.
- */
+/** The restaurant id of the active signed-in user. */
 export function getCurrentRestaurantId(): string | null {
-  const user = getStoredUser();
-  return user?.restaurantId || null;
+  return getStoredUser()?.restaurantId || null;
 }
 
 export function storeSession({ accessToken, refreshToken, user }: StoredSession): void {
+  if (isSupportMode()) {
+    if (!hasSessionStorage()) return;
+    if (accessToken) sessionStorage.setItem(SUPPORT_ACCESS_TOKEN_KEY, accessToken);
+    if (user) sessionStorage.setItem(SUPPORT_USER_KEY, JSON.stringify(user));
+    return;
+  }
   if (!hasStorage()) return;
   if (accessToken) localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
   if (refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
   if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
-export function clearSession(): void {
+/** Persist a mutated user object into whichever store owns the active session. */
+export function storeActiveUser(user: any): void {
+  if (isSupportMode()) {
+    if (hasSessionStorage()) sessionStorage.setItem(SUPPORT_USER_KEY, JSON.stringify(user));
+    return;
+  }
+  if (hasStorage()) localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
+function clearTenantSession(): void {
   if (!hasStorage()) return;
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
-  localStorage.removeItem(SUPPORT_MODE_KEY);
+}
+
+function clearSupportSession(): void {
+  if (hasSessionStorage()) {
+    sessionStorage.removeItem(SUPPORT_ACCESS_TOKEN_KEY);
+    sessionStorage.removeItem(SUPPORT_USER_KEY);
+    sessionStorage.removeItem(SUPPORT_MODE_KEY);
+  }
+  // Legacy support sessions also wrote this marker to localStorage.
+  if (hasStorage()) localStorage.removeItem(SUPPORT_MODE_KEY);
+}
+
+/**
+ * Clear only the active session. A support tab that receives a 401 must not
+ * delete the owner's localStorage session in another tab.
+ */
+export function clearSession(): void {
+  if (isSupportMode()) {
+    clearSupportSession();
+    return;
+  }
+  clearTenantSession();
+  clearSupportSession();
 }
 
 // ============================================
-// SUPPORT IMPERSONATION MODE
+// SUPPORT IMPERSONATION MODE (TAB-SCOPED)
 // ============================================
-
-export function isSupportMode(): boolean {
-  if (!hasStorage()) return false;
-  return localStorage.getItem(SUPPORT_MODE_KEY) === 'true';
-}
 
 export function enterSupportMode({ accessToken, user }: { accessToken: string; user: any }): void {
-  if (!hasStorage()) return;
-  localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-  localStorage.removeItem(REFRESH_TOKEN_KEY); // Impersonation has no refresh token
-  localStorage.setItem(USER_KEY, JSON.stringify({ ...user, supportMode: true }));
-  localStorage.setItem(SUPPORT_MODE_KEY, 'true');
+  if (!hasSessionStorage()) return;
+  sessionStorage.setItem(SUPPORT_ACCESS_TOKEN_KEY, accessToken);
+  sessionStorage.setItem(SUPPORT_USER_KEY, JSON.stringify({ ...user, supportMode: true }));
+  sessionStorage.setItem(SUPPORT_MODE_KEY, 'true');
+  // Do not touch the tenant's localStorage session in another tab.
+  if (hasStorage()) localStorage.removeItem(SUPPORT_MODE_KEY);
 }
 
 export function exitSupportMode(): void {
+  clearSupportSession();
+}
+
+/**
+ * Older builds stored support impersonation in the same localStorage keys as
+ * the tenant session, which silently replaced an owner in another tab. Clear
+ * that legacy state once so a stale support marker can never be read as a
+ * normal owner session.
+ */
+export function migrateLegacySupportSession(): void {
   if (!hasStorage()) return;
+  if (localStorage.getItem(SUPPORT_MODE_KEY) !== 'true') return;
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
@@ -133,3 +203,5 @@ export function clearPlatformSession(): void {
   localStorage.removeItem(PLATFORM_REFRESH_TOKEN_KEY);
   localStorage.removeItem(PLATFORM_USER_KEY);
 }
+
+migrateLegacySupportSession();

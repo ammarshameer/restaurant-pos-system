@@ -11,6 +11,7 @@ import { paymentApi } from '../api/payment.api';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
 import { usePermission } from '../lib/permissions';
+import { getAccessToken } from '../lib/session';
 
 function getPaidAmount(order: Order): number {
   return Math.max(0, Number(order.totalPaid || 0));
@@ -97,7 +98,7 @@ export const SaleInvoicesPage: React.FC = () => {
 
   // Real-time WebSocket updates: Prepend newly created orders without full page reload
   useEffect(() => {
-    const token = localStorage.getItem('auth_token') || 'pos-token';
+    const token = getAccessToken() || 'pos-token';
     const socket = socketClient.connect(token);
     if (!socket) return;
 

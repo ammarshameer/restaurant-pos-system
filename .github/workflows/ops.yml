@@ -162,7 +162,12 @@ jobs:
                 export ENV_FILE="$SCRATCH_ENV"
                 export LIVE_BASELINE_CONFIRMED=yes
                 echo "==> Baseline + backfill on scratch"
-                npm run db:migrate:baseline
+                HAS_HISTORY="$(psql "${SCRATCH_URL%%\?*}" -Atqc "SELECT to_regclass('public._prisma_migrations') IS NOT NULL")"
+                if [[ "$HAS_HISTORY" == "t" ]]; then
+                  echo "[ops] Scratch copy already has migration history; skipping one-off baseline."
+                else
+                  npm run db:migrate:baseline
+                fi
                 npm run db:migrate:check
                 echo "==> Backfill report on scratch"
                 ENV_FILE="$SCRATCH_ENV" DATABASE_URL="$SCRATCH_URL" npm run db:backfill:all

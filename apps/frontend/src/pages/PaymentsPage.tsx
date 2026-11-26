@@ -11,6 +11,7 @@ import { InfiniteScrollSentinel } from '../components/InfiniteScrollSentinel';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
 import { usePermission } from '../lib/permissions';
+import { getAccessToken } from '../lib/session';
 
 interface OpenOrder {
   id: string;
@@ -183,7 +184,7 @@ export const PaymentsPage: React.FC = () => {
 
   // Live WebSocket sync: Prepend new orders and payments dynamically
   useEffect(() => {
-    const token = localStorage.getItem('auth_token') || 'pos-token';
+    const token = getAccessToken() || 'pos-token';
     const socket = socketClient.connect(token);
     if (!socket) return;
 

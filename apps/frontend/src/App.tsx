@@ -9,7 +9,15 @@ import { setDeals } from './store/slices/dealSlice';
 import { menuApi } from './api/menu.api';
 import { orderApi } from './api/order.api';
 import { socketClient } from './lib/socket';
-import { clearSession, exitSupportMode, getRefreshToken, getPlatformAccessToken, isSupportMode } from './lib/session';
+import {
+  clearSession,
+  exitSupportMode,
+  getAccessToken,
+  getRefreshToken,
+  getPlatformAccessToken,
+  getStoredUser,
+  isSupportMode,
+} from './lib/session';
 import { api } from './lib/api';
 import RequirePermission from './components/RequirePermission';
 import RequireFeature from './components/RequireFeature';
@@ -135,12 +143,11 @@ export const App: React.FC = () => {
 
   // Restore stored auth session on mount
   useEffect(() => {
-    const storedToken = localStorage.getItem('auth_token');
-    const storedUser = localStorage.getItem('auth_user');
+    const storedToken = getAccessToken();
+    const storedUser = getStoredUser();
     if (storedToken && storedUser && !isAuthenticated) {
       try {
-        const parsedUser = JSON.parse(storedUser);
-        dispatch(loginSuccess({ user: parsedUser, token: storedToken }));
+        dispatch(loginSuccess({ user: storedUser, token: storedToken }));
       } catch (e) {
         clearSession();
       }
@@ -149,7 +156,7 @@ export const App: React.FC = () => {
 
   // Hydrate only records the signed-in user is permitted to read.
   useEffect(() => {
-    const token = localStorage.getItem('auth_token');
+    const token = getAccessToken();
     if (!isAuthenticated || !token || !user?.restaurantId) return;
 
     // Never let data from the previously selected business survive a switch.
@@ -181,7 +188,7 @@ export const App: React.FC = () => {
       return;
     }
 
-    const token = localStorage.getItem('auth_token');
+    const token = getAccessToken();
     if (token) {
       socketClient.connect(token);
       const socket = socketClient.getSocket();
@@ -200,13 +207,14 @@ export const App: React.FC = () => {
 
   const handleLogout = () => {
     socketClient.disconnect();
+    const wasSupportSession = isSupportMode();
     const refreshToken = getRefreshToken();
     if (refreshToken) {
       void api.post('/auth/logout', { refreshToken }).catch(() => undefined);
     }
     clearSession();
     dispatch(logout());
-    navigate('/login', { replace: true });
+    navigate(wasSupportSession ? '/platform' : '/login', { replace: true });
   };
 
   // Determine user's first permitted route
@@ -252,6 +260,8 @@ export const App: React.FC = () => {
   const canSeeSettings = permsSet.has('settings.manage');
   const ownerProfileAllowed =
     user?.isOwnerRole === true &&
+    !user?.supportMode &&
+    !isSupportMode() &&
     (user?.features?.includes('settings') ?? false) &&
     permsSet.has('settings.manage');
   const canSeeAnalytics = permsSet.has('analytics.view');
@@ -293,7 +303,7 @@ export const App: React.FC = () => {
   // ============================================
   // 2. TENANT LOGIN ROUTE HANDLING
   // ============================================
-  const hasToken = Boolean(localStorage.getItem('auth_token'));
+  const hasToken = Boolean(getAccessToken());
 
   if (location.pathname === '/login' || (!isAuthenticated && !hasToken)) {
     return (

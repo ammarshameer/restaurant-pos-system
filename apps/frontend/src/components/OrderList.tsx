@@ -5,6 +5,7 @@ import { orderApi } from '../api/order.api';
 import { InfiniteScrollSentinel } from './InfiniteScrollSentinel';
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
+import { getAccessToken } from '../lib/session';
 
 export interface OrderListProps {
   onSelectOrder?: (order: Order) => void;
@@ -75,7 +76,7 @@ export const OrderList: React.FC<OrderListProps> = ({
 
   // Real-time WebSocket updates: Prepend newly created orders to query cache
   useEffect(() => {
-    const token = localStorage.getItem('auth_token') || 'pos-token';
+    const token = getAccessToken() || 'pos-token';
     const socket = socketClient.connect(token);
     if (!socket) return;
 

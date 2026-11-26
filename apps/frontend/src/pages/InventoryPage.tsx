@@ -17,6 +17,7 @@ import {
 import { formatPKR } from '../utils/format';
 import { socketClient } from '../lib/socket';
 import { canonicalUnit, formatUnitLabel } from '../lib/inventoryUnits';
+import { getAccessToken } from '../lib/session';
 
 const DEFAULT_NEW_ITEM: InventoryItemFormValues = {
   name: '',
@@ -104,7 +105,7 @@ export const InventoryPage: React.FC = () => {
 
   // Real-time WebSocket sync: update stock quantities without full reloads
   useEffect(() => {
-    const token = localStorage.getItem('auth_token') || 'pos-token';
+    const token = getAccessToken() || 'pos-token';
     const socket = socketClient.connect(token);
     if (!socket) return;
 

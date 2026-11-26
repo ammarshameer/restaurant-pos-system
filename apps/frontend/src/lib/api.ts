@@ -1,5 +1,11 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { getRefreshToken, storeSession, clearSession } from './session';
+import {
+  getAccessToken,
+  getRefreshToken,
+  storeSession,
+  clearSession,
+  isSupportMode,
+} from './session';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
@@ -72,7 +78,7 @@ class ApiClient {
 
     this.client.interceptors.request.use(
       (config) => {
-        const token = localStorage.getItem('auth_token');
+        const token = getAccessToken();
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -108,11 +114,16 @@ class ApiClient {
           }
         }
 
-        const hadToken = Boolean(localStorage.getItem('auth_token'));
+        const wasSupportSession = isSupportMode();
+        const hadToken = Boolean(getAccessToken());
         if (status === 401 && (isAuthEndpoint || !hadToken || original?._retried)) {
           clearSession();
-          if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-            window.location.replace('/login');
+          // A support impersonation token has no refresh. Send that tab back to
+          // the platform instead of letting it fall back to an owner session
+          // that may still exist in localStorage from another tab.
+          const destination = wasSupportSession ? '/platform' : '/login';
+          if (typeof window !== 'undefined' && window.location.pathname !== destination) {
+            window.location.replace(destination);
           }
         }
         return Promise.reject(error);

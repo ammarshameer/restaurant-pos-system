@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { FeatureKey } from '../../types/permissions';
+import { getAccessToken, getStoredUser, storeActiveUser } from '../../lib/session';
 
 export interface User {
   id: string;
@@ -32,13 +33,9 @@ interface AuthState {
 }
 
 const getInitialAuthState = (): AuthState => {
-  if (typeof localStorage === 'undefined') {
-    return { user: null, token: null, isAuthenticated: false, loading: false, error: null };
-  }
   try {
-    const token = localStorage.getItem('auth_token');
-    const storedUser = localStorage.getItem('auth_user');
-    const user = storedUser ? JSON.parse(storedUser) as User : null;
+    const token = getAccessToken();
+    const user = getStoredUser() as User | null;
     if (token && user) {
       return { user, token, isAuthenticated: true, loading: false, error: null };
     }
@@ -84,9 +81,7 @@ const authSlice = createSlice({
     updateUserPreferences: (state, action: PayloadAction<Partial<User>>) => {
       if (!state.user) return;
       state.user = { ...state.user, ...action.payload };
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('auth_user', JSON.stringify(state.user));
-      }
+      storeActiveUser(state.user);
     },
   },
 });

@@ -7,6 +7,7 @@ import { settingsApi } from '../api/settings.api';
 import { cacheReceiptBranding } from '../lib/receiptBranding';
 import { getPrintAgentConfig, savePrintAgentConfig } from '../lib/print/printClient';
 import { PALETTE_OPTIONS } from '../lib/themePalettes';
+import { getAccessToken, storeActiveUser } from '../lib/session';
 
 export const SettingsPage: React.FC = () => {
   const dispatch = useDispatch();
@@ -178,8 +179,8 @@ export const SettingsPage: React.FC = () => {
           themePalette: updated.themePalette || themePalette,
           themeMode: updated.themeMode || themeMode,
         };
-        const token = localStorage.getItem('auth_token') || '';
-        localStorage.setItem('auth_user', JSON.stringify(updatedUser));
+        const token = getAccessToken() || '';
+        storeActiveUser(updatedUser);
         dispatch(loginSuccess({ user: updatedUser, token }));
       }
 

@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { loginSuccess, loginFailure, clearError } from '../store/slices/authSlice';
 import { RootState } from '../store/store';
 import { api, isNetworkFailure } from '../lib/api';
-import { storeSession } from '../lib/session';
+import { exitSupportMode, storeSession } from '../lib/session';
 
 export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
   const dispatch = useDispatch();
@@ -41,6 +41,7 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
     dispatch(clearError());
     try {
       const data: any = await api.post('/auth/login', { email, password });
+      exitSupportMode();
       storeSession({
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
@@ -79,6 +80,7 @@ export const LoginPage: React.FC<{ appVersion: string }> = ({ appVersion }) => {
         tenantSlug: cleanSlug,
       });
 
+      exitSupportMode();
       storeSession({
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
