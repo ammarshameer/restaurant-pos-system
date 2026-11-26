@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test:contract": "node scripts/verify-order-api-contract.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -24,6 +24,7 @@
     "db:backfill:owner-address": "tsx prisma/backfill-owner-address.ts",
     "db:backfill:owner-logo": "tsx prisma/backfill-owner-logo.ts",
     "db:backfill:order-discount": "tsx prisma/backfill-order-discount.ts",
+    "db:backfill:order-discount-payment": "tsx prisma/repair-order-discount-payment.ts",
     "db:backfill:all": "tsx prisma/backfill-all.ts",
     "db:verify:backfill": "tsx scripts/verify-backfill.ts",
     "db:studio": "prisma studio",

@@ -34,6 +34,7 @@ export const SaleInvoicesPage: React.FC = () => {
   const menuItems = useSelector((state: RootState) => state.menu.items);
   const canUpdateOrders = usePermission('orders.update');
   const canCancelOrders = usePermission('orders.cancel');
+  const canApplyDiscount = usePermission('orders.discount');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrderType, setSelectedOrderType] = useState<'ALL' | 'DINE_IN' | 'TAKE_AWAY' | 'DELIVERY'>('ALL');
@@ -203,6 +204,8 @@ export const SaleInvoicesPage: React.FC = () => {
       deliveryCharge: isDelivery ? order.deliveryCharge : 0,
       tax: isDineIn ? order.tax : 0,
       taxRate: isDineIn ? order.taxRate : 0,
+      discountPercent: order.discountPercent || 0,
+      discountAmount: order.discountAmount || 0,
       total: order.total,
       totalPaid: getPaidAmount(order),
       amountDue: getDueAmount(order),
@@ -301,7 +304,14 @@ export const SaleInvoicesPage: React.FC = () => {
   const editTax = isEditDineIn ? +(editSubtotal * (Math.max(0, editTaxRate) / 100)).toFixed(2) : 0;
   const editServiceCharge = isEditDineIn ? Math.max(0, editServiceChargeAmount) : 0;
   const editDeliveryCharge = isEditDelivery ? Math.max(0, editDeliveryChargeAmount) : 0;
-  const editTotal = +(editSubtotal + editTax + editServiceCharge + editDeliveryCharge).toFixed(2);
+  // Preserve the discount already applied to this invoice. Invoice editing does
+  // not offer a new discount control, but the payable total must stay net of it.
+  const editDiscountPercent = Math.min(100, Math.max(0, Number(editingOrder?.discountPercent || 0)));
+  const editDiscountAmount = +(editSubtotal * editDiscountPercent / 100).toFixed(2);
+  const editTotal = Math.max(
+    0,
+    +(editSubtotal + editTax + editServiceCharge + editDeliveryCharge - editDiscountAmount).toFixed(2)
+  );
   const editPaidAmount =
     editPaymentStatus === 'PAID'
       ? editTotal
@@ -340,6 +350,8 @@ export const SaleInvoicesPage: React.FC = () => {
       deliveryCharge: isEditDelivery ? editDeliveryCharge : 0,
       tax: isEditDineIn ? editTax : 0,
       taxRate: isEditDineIn ? editTaxRate : 0,
+      discountPercent: editDiscountPercent,
+      discountAmount: editDiscountAmount,
       total: editTotal,
       totalPaid: editPaidAmount,
       amountDue: editRemainingAmount,
@@ -350,7 +362,12 @@ export const SaleInvoicesPage: React.FC = () => {
   const persistInvoice = async (updated: Order): Promise<Order> => {
     if (!canUpdateOrders) throw new Error('Insufficient permissions: missing orders.update');
     dispatch(updateOrder(updated));
-    await orderApi.updateOrder(updated.id, updated);
+    // Keep the net total, but do not send discount fields for staff who cannot
+    // modify discounts; the backend preserves the stored discount in that case.
+    const apiPayload = canApplyDiscount
+      ? updated
+      : { ...updated, discountPercent: undefined, discountAmount: undefined };
+    await orderApi.updateOrder(updated.id, apiPayload);
     queryClient.invalidateQueries({ queryKey: ['orders'] });
     return updated;
   };

@@ -85,6 +85,9 @@ jobs:
       - name: Install dependencies
         working-directory: apps/frontend
         run: npm ci
+      - name: Verify order API discount contract
+        working-directory: apps/frontend
+        run: npm run test:contract
       - name: Build
         working-directory: apps/frontend
         run: npm run build

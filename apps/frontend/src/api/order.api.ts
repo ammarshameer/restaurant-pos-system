@@ -51,6 +51,8 @@ export function mapOrderRecord(o: any): Order {
     deliveryCharge: Number(o.deliveryCharge || 0),
     tax: Number(o.tax || 0),
     taxRate: Number(o.taxRate || 0),
+    discountPercent: Number(o.discountPercent || 0),
+    discountAmount: Number(o.discountAmount || 0),
     total: Number(o.total || 0),
     totalPaid: Number(o.totalPaid || 0),
     amountDue: Number(o.amountDue ?? Math.max(0, Number(o.total || 0) - Number(o.totalPaid || 0))),
@@ -85,6 +87,14 @@ function buildOrderPayload(order: Partial<Order>, restaurantId: string, id: stri
     deliveryCharge: order.deliveryCharge,
     tax: order.tax,
     taxRate: order.taxRate,
+    // Only send discount fields when a discount was actually applied. Staff
+    // without orders.discount must not trigger the backend discount guard.
+    ...(Number(order.discountPercent) > 0
+      ? { discountPercent: Number(order.discountPercent) }
+      : {}),
+    ...(Number(order.discountAmount) > 0
+      ? { discountAmount: Number(order.discountAmount) }
+      : {}),
     total: order.total,
     totalPaid: order.totalPaid,
     change: order.change,
@@ -198,6 +208,14 @@ export const orderApi = {
       deliveryCharge: data.deliveryCharge,
       tax: data.tax,
       taxRate: data.taxRate,
+      // Invoice edits preserve an existing discount only when the caller has
+      // orders.discount. Otherwise the backend keeps the stored values.
+      ...(Number(data.discountPercent) > 0
+        ? { discountPercent: Number(data.discountPercent) }
+        : {}),
+      ...(Number(data.discountAmount) > 0
+        ? { discountAmount: Number(data.discountAmount) }
+        : {}),
       total: data.total,
       totalPaid: data.totalPaid,
       change: data.change,

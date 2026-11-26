@@ -94,6 +94,7 @@ jobs:
             npm run db:backfill:owner-address
             npm run db:backfill:owner-logo
             npm run db:backfill:order-discount
+            npm run db:backfill:order-discount-payment
 
             echo "==> Frontend: install and build (VITE_API_URL from apps/frontend/.env)"
             cd "$APP_DIR/apps/frontend"

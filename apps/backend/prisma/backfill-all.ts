@@ -18,6 +18,10 @@ import {
   disconnectOrderDiscountDb,
 } from './backfill-order-discount';
 import {
+  repairOrderDiscountPayments,
+  disconnectOrderDiscountRepairDb,
+} from './repair-order-discount-payment';
+import {
   verifyBackfilledTenants,
   disconnectBackfillVerifyDb,
 } from '../scripts/verify-backfill';
@@ -45,6 +49,9 @@ export async function runFullBackfill() {
   console.log('\n=== Restoring order discounts ===');
   const orderDiscountsUpdated = await backfillOrderDiscount();
 
+  console.log('\n=== Repairing discounted payments billed as balance due ===');
+  const discountPaymentsRepaired = await repairOrderDiscountPayments();
+
   const report = await verifyBackfilledTenants();
 
   console.log('=============================================');
@@ -57,6 +64,7 @@ export async function runFullBackfill() {
   console.log(`- Owner addresses restored:          ${ownerAddressesUpdated}`);
   console.log(`- Owner logos restored:              ${ownerLogosUpdated}`);
   console.log(`- Order discounts derived:           ${orderDiscountsUpdated}`);
+  console.log(`- Discounted payments repaired:      ${discountPaymentsRepaired}`);
   console.log(`- Verification failures:             ${report.failures.length}`);
   console.log('=============================================\n');
 
@@ -84,6 +92,7 @@ export async function disconnectFullBackfillClients(): Promise<void> {
     disconnectOwnerAddressDb(),
     disconnectOwnerLogoDb(),
     disconnectOrderDiscountDb(),
+    disconnectOrderDiscountRepairDb(),
     disconnectBackfillVerifyDb(),
   ]);
 }

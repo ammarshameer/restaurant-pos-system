@@ -28,6 +28,8 @@ interface OpenOrder {
   deliveryCharge: number;
   tax: number;
   taxRate: number;
+  discountPercent?: number;
+  discountAmount?: number;
   total: number;
   totalPaid: number;
   amountDue: number;
@@ -108,6 +110,8 @@ export const PaymentsPage: React.FC = () => {
       deliveryCharge: Number(o.deliveryCharge || 0),
       tax: Number(o.tax || 0),
       taxRate: Number(o.taxRate || 0),
+      discountPercent: Number(o.discountPercent || 0),
+      discountAmount: Number(o.discountAmount || 0),
       total,
       totalPaid,
       amountDue,
@@ -354,6 +358,8 @@ export const PaymentsPage: React.FC = () => {
         deliveryCharge: selectedOrder.deliveryCharge,
         tax: selectedOrder.tax,
         taxRate: selectedOrder.taxRate,
+        discountPercent: selectedOrder.discountPercent || 0,
+        discountAmount: selectedOrder.discountAmount || 0,
         total: selectedOrder.total,
         totalPaid: newTotalPaid,
         change,
@@ -402,6 +408,8 @@ export const PaymentsPage: React.FC = () => {
       deliveryCharge: rawOrder?.deliveryCharge || 0,
       tax: rawOrder?.tax || 0,
       taxRate: rawOrder?.taxRate || 0,
+      discountPercent: rawOrder?.discountPercent || 0,
+      discountAmount: rawOrder?.discountAmount || 0,
       total: rawOrder?.total || pay.amount,
       totalPaid: pay.amount,
       change: 0,

@@ -5,6 +5,7 @@ import { getDevPlatformCredentials } from '../src/config/dev-credentials';
 import { normalizeTenantPins } from '../prisma/backfill-multi-tenant';
 import { FEATURES } from '../src/permissions';
 import { orderService } from '../src/services/order.service';
+import { repairOrderDiscountPayments } from '../prisma/repair-order-discount-payment';
 
 const prisma = new PrismaClient();
 
@@ -3375,14 +3376,159 @@ async function runAcceptanceTests() {
     );
 
     // ------------------------------------------------------------------------
-    // TEST 63: Verification Summary
+    // TEST 63: Discounted orders are fully paid at the discounted total
+    // ------------------------------------------------------------------------
+    const paidDiscountSuffix = `${Date.now()}`;
+    const paidDiscountCategoryId = `paid-discount-category-${paidDiscountSuffix}`;
+    const paidDiscountItemId = `paid-discount-item-${paidDiscountSuffix}`;
+    const paidDiscountClientId = `paid-discount-order-${paidDiscountSuffix}`;
+    let paidDiscountOrderId: string | null = null;
+    let test63Pass = false;
+    let test63Details = '';
+    try {
+      await prisma.category.create({
+        data: {
+          id: paidDiscountCategoryId,
+          name: 'Paid Discount Test Items',
+          restaurantId: tenantAId,
+        },
+      });
+      await prisma.menuItem.create({
+        data: {
+          id: paidDiscountItemId,
+          name: 'Paid Discount Meal',
+          price: 1000,
+          categoryId: paidDiscountCategoryId,
+          restaurantId: tenantAId,
+        },
+      });
+
+      const discountedOrderRes = await request('/orders', {
+        method: 'POST',
+        token: tenantAOwnerToken,
+        body: {
+          clientId: paidDiscountClientId,
+          orderType: 'TAKE_AWAY',
+          items: [{ menuItemId: paidDiscountItemId, quantity: 1 }],
+          discountPercent: 10,
+        },
+      });
+      paidDiscountOrderId = discountedOrderRes.data?.id || null;
+
+      const paymentRes = await request('/payments', {
+        method: 'POST',
+        token: tenantAOwnerToken,
+        body: {
+          orderId: paidDiscountOrderId,
+          amount: 900,
+          method: 'CASH',
+        },
+      });
+
+      const settled = paidDiscountOrderId
+        ? await prisma.order.findUnique({ where: { id: paidDiscountOrderId } })
+        : null;
+
+      test63Pass =
+        discountedOrderRes.status === 201 &&
+        paymentRes.status === 201 &&
+        Number(settled?.total) === 900 &&
+        Number(settled?.discountAmount) === 100 &&
+        Number(settled?.totalPaid) === 900 &&
+        Number(settled?.amountDue) === 0 &&
+        settled?.paymentStatus === 'PAID';
+      test63Details =
+        `create: ${discountedOrderRes.status}, payment: ${paymentRes.status}, ` +
+        `total: ${settled?.total}, paid: ${settled?.totalPaid}, due: ${settled?.amountDue}, ` +
+        `status: ${settled?.paymentStatus}`;
+    } catch (error) {
+      test63Details = String(error);
+    } finally {
+      if (paidDiscountOrderId) {
+        await prisma.payment.deleteMany({ where: { orderId: paidDiscountOrderId } });
+      }
+      await prisma.order.deleteMany({ where: { clientId: paidDiscountClientId } });
+      await prisma.menuItem.deleteMany({ where: { id: paidDiscountItemId } });
+      await prisma.category.deleteMany({ where: { id: paidDiscountCategoryId } });
+    }
+
+    logTest(
+      63,
+      'Paying the discounted total leaves no remaining balance',
+      test63Pass,
+      test63Details
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 64: Idempotent repair of a discount billed as remaining balance
+    // ------------------------------------------------------------------------
+    const repairSuffix = `${Date.now()}`;
+    const repairClientId = `discount-repair-${repairSuffix}`;
+    let repairedOrderId: string | null = null;
+    let test64Pass = false;
+    let test64Details = '';
+    try {
+      const broken = await prisma.order.create({
+        data: {
+          clientId: repairClientId,
+          orderNumber: Math.floor(700000 + Math.random() * 200000),
+          orderType: 'TAKE_AWAY',
+          restaurantId: tenantAId,
+          serverId: ownerEmp!.id,
+          status: 'confirmed',
+          paymentStatus: 'PARTIAL',
+          subtotal: 400,
+          tax: 0,
+          serviceCharge: 0,
+          deliveryCharge: 0,
+          discountPercent: 0,
+          discountAmount: 0,
+          total: 400,
+          totalPaid: 380,
+          amountDue: 20,
+          settledToCredit: false,
+        },
+      });
+      repairedOrderId = broken.id;
+
+      const firstRun = await repairOrderDiscountPayments();
+      const secondRun = await repairOrderDiscountPayments();
+      const afterRepair = await prisma.order.findUnique({ where: { id: repairedOrderId } });
+
+      test64Pass =
+        firstRun >= 1 &&
+        secondRun === 0 &&
+        Number(afterRepair?.discountPercent) === 5 &&
+        Number(afterRepair?.discountAmount) === 20 &&
+        Number(afterRepair?.total) === 380 &&
+        Number(afterRepair?.amountDue) === 0 &&
+        afterRepair?.paymentStatus === 'PAID';
+      test64Details =
+        `first run: ${firstRun}, second run: ${secondRun}, ` +
+        `total: ${afterRepair?.total}, paid: ${afterRepair?.totalPaid}, due: ${afterRepair?.amountDue}, ` +
+        `status: ${afterRepair?.paymentStatus}`;
+    } catch (error) {
+      test64Details = String(error);
+    } finally {
+      await prisma.order.deleteMany({ where: { clientId: repairClientId } });
+    }
+
+    logTest(
+      64,
+      'Discounted payments billed as balance due are repaired idempotently',
+      test64Pass,
+      test64Details
+    );
+
+    // ------------------------------------------------------------------------
+    // TEST 65: Verification Summary
     // ------------------------------------------------------------------------
     const passedCount = results.filter((r) => r.passed).length;
     logTest(
-      63,
+      65,
       'All Acceptance Verification Criteria Met',
-      passedCount === 62,
-      `Passed ${passedCount} / 62 criteria (100% test pass rate)`
+      passedCount === 64,
+      `Passed ${passedCount} / 64 criteria (100% test pass rate)`
     );
 
   } catch (err: any) {
